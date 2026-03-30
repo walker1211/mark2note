@@ -1,0 +1,51 @@
+{
+  "theme": "default",
+  "author": "全局作者",
+  "pages": [
+    {
+      "name": "p01-cover",
+      "variant": "cover",
+      "meta": {
+        "badge": "第 1 页",
+        "counter": "1/3",
+        "theme": "orange",
+        "cta": "cta1"
+      },
+      "content": {
+        "title": "全局作者封面",
+        "subtitle": "使用配置作者"
+      }
+    },
+    {
+      "name": "p02-bullets",
+      "variant": "bullets",
+      "meta": {
+        "badge": "第 2 页",
+        "counter": "2/3",
+        "theme": "orange",
+        "cta": "cta2"
+      },
+      "content": {
+        "title": "全局作者列表",
+        "items": [
+          "走 fallback",
+          "封面显示署名"
+        ]
+      }
+    },
+    {
+      "name": "p03-ending",
+      "variant": "ending",
+      "meta": {
+        "badge": "第 3 页",
+        "counter": "3/3",
+        "theme": "green",
+        "cta": "cta3"
+      },
+      "content": {
+        "title": "全局作者结尾",
+        "body": "全局作者回归样本"
+      }
+    }
+  ]
+}

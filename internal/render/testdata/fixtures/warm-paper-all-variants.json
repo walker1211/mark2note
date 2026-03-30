@@ -1,0 +1,121 @@
+{
+  "theme": "warm-paper",
+  "pages": [
+    {
+      "name": "p01-cover",
+      "variant": "cover",
+      "meta": {
+        "badge": "第 1 页",
+        "counter": "1/7",
+        "theme": "orange",
+        "cta": "cta1"
+      },
+      "content": {
+        "title": "暖纸封面",
+        "subtitle": "暖纸副标题"
+      }
+    },
+    {
+      "name": "p02-quote",
+      "variant": "quote",
+      "meta": {
+        "badge": "第 2 页",
+        "counter": "2/7",
+        "theme": "orange",
+        "cta": "cta2"
+      },
+      "content": {
+        "title": "暖纸引用",
+        "quote": "先结论，再补背景。",
+        "note": "说明",
+        "tip": "提示"
+      }
+    },
+    {
+      "name": "p03-image",
+      "variant": "image-caption",
+      "meta": {
+        "badge": "第 3 页",
+        "counter": "3/7",
+        "theme": "orange",
+        "cta": "cta3"
+      },
+      "content": {
+        "title": "暖纸图文",
+        "body": "暖纸说明"
+      }
+    },
+    {
+      "name": "p04-bullets",
+      "variant": "bullets",
+      "meta": {
+        "badge": "第 4 页",
+        "counter": "4/7",
+        "theme": "orange",
+        "cta": "cta4"
+      },
+      "content": {
+        "title": "暖纸列表",
+        "items": [
+          "一",
+          "二",
+          "三"
+        ]
+      }
+    },
+    {
+      "name": "p05-compare",
+      "variant": "compare",
+      "meta": {
+        "badge": "第 5 页",
+        "counter": "5/7",
+        "theme": "green",
+        "cta": "cta5"
+      },
+      "content": {
+        "title": "暖纸对比",
+        "compare": {
+          "leftLabel": "旧",
+          "rightLabel": "新",
+          "rows": [
+            {
+              "left": "慢",
+              "right": "快"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "p06-gallery",
+      "variant": "gallery-steps",
+      "meta": {
+        "badge": "第 6 页",
+        "counter": "6/7",
+        "theme": "green",
+        "cta": "cta6"
+      },
+      "content": {
+        "title": "暖纸步骤",
+        "steps": [
+          "一",
+          "二"
+        ]
+      }
+    },
+    {
+      "name": "p07-ending",
+      "variant": "ending",
+      "meta": {
+        "badge": "第 7 页",
+        "counter": "7/7",
+        "theme": "green",
+        "cta": "cta7"
+      },
+      "content": {
+        "title": "暖纸结尾",
+        "body": "暖纸总结"
+      }
+    }
+  ]
+}

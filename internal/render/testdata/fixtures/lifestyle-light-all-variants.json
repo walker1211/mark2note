@@ -1,0 +1,121 @@
+{
+  "theme": "lifestyle-light",
+  "pages": [
+    {
+      "name": "p01-cover",
+      "variant": "cover",
+      "meta": {
+        "badge": "第 1 页",
+        "counter": "1/7",
+        "theme": "orange",
+        "cta": "cta1"
+      },
+      "content": {
+        "title": "生活感封面",
+        "subtitle": "生活感副标题"
+      }
+    },
+    {
+      "name": "p02-quote",
+      "variant": "quote",
+      "meta": {
+        "badge": "第 2 页",
+        "counter": "2/7",
+        "theme": "orange",
+        "cta": "cta2"
+      },
+      "content": {
+        "title": "生活感引用",
+        "quote": "先做成，再做美。",
+        "note": "说明",
+        "tip": "提示"
+      }
+    },
+    {
+      "name": "p03-image",
+      "variant": "image-caption",
+      "meta": {
+        "badge": "第 3 页",
+        "counter": "3/7",
+        "theme": "orange",
+        "cta": "cta3"
+      },
+      "content": {
+        "title": "生活感图文",
+        "body": "生活感说明"
+      }
+    },
+    {
+      "name": "p04-bullets",
+      "variant": "bullets",
+      "meta": {
+        "badge": "第 4 页",
+        "counter": "4/7",
+        "theme": "orange",
+        "cta": "cta4"
+      },
+      "content": {
+        "title": "生活感列表",
+        "items": [
+          "一",
+          "二",
+          "三"
+        ]
+      }
+    },
+    {
+      "name": "p05-compare",
+      "variant": "compare",
+      "meta": {
+        "badge": "第 5 页",
+        "counter": "5/7",
+        "theme": "green",
+        "cta": "cta5"
+      },
+      "content": {
+        "title": "生活感对比",
+        "compare": {
+          "leftLabel": "旧",
+          "rightLabel": "新",
+          "rows": [
+            {
+              "left": "硬",
+              "right": "柔"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "p06-gallery",
+      "variant": "gallery-steps",
+      "meta": {
+        "badge": "第 6 页",
+        "counter": "6/7",
+        "theme": "green",
+        "cta": "cta6"
+      },
+      "content": {
+        "title": "生活感步骤",
+        "steps": [
+          "一",
+          "二"
+        ]
+      }
+    },
+    {
+      "name": "p07-ending",
+      "variant": "ending",
+      "meta": {
+        "badge": "第 7 页",
+        "counter": "7/7",
+        "theme": "green",
+        "cta": "cta7"
+      },
+      "content": {
+        "title": "生活感结尾",
+        "body": "生活感总结"
+      }
+    }
+  ]
+}

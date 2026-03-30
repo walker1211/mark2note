@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1242,height=1656,initial-scale=1" />
+  <style>{{.ThemeCSS}}
+{{.CSS}}</style>
+</head>
+<body>
+  <div class="page">
+    <div class="header-row">
+      <span class="pill page-badge">{{.Page.Meta.Badge}}</span>
+      <div class="page-no page-counter">{{.Page.Meta.Counter}}</div>
+    </div>
+
+    {{if eq .Page.Variant "cover"}}
+      <div class="accent-bar"></div>
+      <div class="cover-main">
+        <div class="cover-copy">
+          <div class="title-xl cover-title">{{.Page.Content.Title}}</div>
+          {{if .Page.Content.Subtitle}}
+          <div class="subtitle cover-subtitle">{{.Page.Content.Subtitle}}</div>
+          {{end}}
+        </div>
+      </div>
+      <div class="cover-bottom-stack{{if .ShowAuthor}} has-author{{end}}">
+        <div class="divider cover-divider"></div>
+        <div class="cta-bar cover-cta"><span class="pill inverse">{{.Page.Meta.CTA}}</span></div>
+        {{if .ShowAuthor}}
+        <div class="cover-author" style="font-size: {{.ResolvedAuthorFontSize}}px;">{{.ResolvedAuthorDisplayText}}</div>
+        {{end}}
+      </div>
+    {{else if eq .Page.Variant "quote"}}
+      <div class="title-lg">{{.Page.Content.Title}}</div>
+      <div class="card quote-card" style="margin-top:56px;">
+        <div class="quote-wrap">
+          <div class="quote-bar"></div>
+          <div>
+            <div class="quote-main">“{{.Page.Content.Quote}}”</div>
+            {{if .Page.Content.Note}}
+            <div class="note" style="margin-top:48px;">{{.Page.Content.Note}}</div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+      {{if .Page.Content.Tip}}
+      <div class="tip-box" style="margin-top:54px;">{{.Page.Content.Tip}}</div>
+      {{end}}
+      <div class="cta-bar cta-strong"><span class="pill">{{.Page.Meta.CTA}}</span></div>
+    {{else if eq .Page.Variant "image-caption"}}
+      <div class="title-lg">{{.Page.Content.Title}}</div>
+      {{if .Page.Content.Images}}
+      <div class="image-frame" style="margin-top:42px; height:760px;"><img src="{{imageSrc (index .Page.Content.Images 0).Src}}" alt="{{(index .Page.Content.Images 0).Alt}}" /></div>
+      {{end}}
+      {{if .Page.Content.Body}}
+      <div class="caption">{{.Page.Content.Body}}</div>
+      {{end}}
+      <div class="cta-bar"><span class="pill">{{.Page.Meta.CTA}}</span></div>
+    {{else if eq .Page.Variant "bullets"}}
+      <div class="title-lg">{{.Page.Content.Title}}</div>
+      <div class="bullets">
+        {{range $index, $item := .Page.Content.Items}}
+        <div class="bullet"><div class="bullet-index">{{add1 $index}}</div><div class="bullet-main">{{$item}}</div></div>
+        {{end}}
+      </div>
+      <div class="cta-bar"><span class="pill inverse">{{.Page.Meta.CTA}}</span></div>
+    {{else if eq .Page.Variant "compare"}}
+      <div class="title-lg">{{.Page.Content.Title}}</div>
+      <div class="compare-head"><div>{{.Page.Content.Compare.LeftLabel}}</div><div class="right">{{.Page.Content.Compare.RightLabel}}</div></div>
+      <div class="compare-rows">
+        {{range .Page.Content.Compare.Rows}}
+        <div class="compare-row"><div class="compare-cell left">{{.Left}}</div><div class="compare-cell right">{{.Right}}</div></div>
+        {{end}}
+      </div>
+      <div class="cta-bar"><span class="pill">{{.Page.Meta.CTA}}</span></div>
+    {{else if eq .Page.Variant "gallery-steps"}}
+      <div class="title-lg">{{.Page.Content.Title}}</div>
+      <div class="steps {{if not .Page.Content.Images}}steps-only{{end}}">
+        {{range $index, $step := .Page.Content.Steps}}
+        <div class="step"><div class="step-no">{{add1 $index}}</div><div class="step-text">{{$step}}</div></div>
+        {{end}}
+      </div>
+      {{if .Page.Content.Images}}
+      <div class="gallery">
+        {{range $index, $img := .Page.Content.Images}}
+          <div class="gallery-card"><img src="{{imageSrc $img.Src}}" alt="{{$img.Alt}}" /><div class="gallery-cap">{{galleryCaption $img $.Page.Content.Steps $index}}</div></div>
+        {{end}}
+      </div>
+      {{end}}
+      <div class="cta-bar"><span class="pill">{{.Page.Meta.CTA}}</span></div>
+    {{else if eq .Page.Variant "ending"}}
+      <div class="title-md">{{.Page.Content.Title}}</div>
+      <div class="ending-box">
+        <div class="ending-text">{{.Page.Content.Body}}</div>
+      </div>
+      <div class="cta-bar"><span class="pill inverse">{{.Page.Meta.CTA}}</span></div>
+    {{end}}
+  </div>
+</body>
+</html>

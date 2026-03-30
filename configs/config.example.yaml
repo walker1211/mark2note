@@ -1,0 +1,12 @@
+output:
+  dir: output
+
+ai:
+  command: ccs
+  args:
+    - codex
+    - --bare
+
+deck:
+  theme: default
+  author: "搁剑听风"
