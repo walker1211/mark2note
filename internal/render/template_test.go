@@ -79,7 +79,7 @@ func TestRenderHTMLCoverRendersResolvedAuthor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
-	for _, want := range []string{`class="cover-author"`, "@搁剑听风", `font-size: 24px;`, `class="cover-bottom-stack has-author"`, `class="divider cover-divider"`, `class="cta-bar cover-cta"`, `.cover-bottom-stack {`, ".cover-divider {\n  position: static;\n  width: 100%;", ".cover-bottom-stack.has-author .cover-divider {\n  transform: translateY(-18px);", ".cover-author {\n  position: static;"} {
+	for _, want := range []string{`class="cover-author"`, "@搁剑听风", `font-size: 24px;`, `class="cover-bottom-stack has-author"`, `class="divider cover-divider"`, `class="cta-bar cover-cta"`, `.cover-bottom-stack {`, `.cover-divider {`, `position: static;`, `width: 100%;`, `.cover-bottom-stack.has-author .cover-divider {`, `transform: translateY(-18px);`, `.cover-author {`} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("html missing %q", want)
 		}
@@ -327,6 +327,67 @@ func TestRenderHTMLEndingUsesDynamicBody(t *testing.T) {
 	}
 	if strings.Contains(html, "以后这种“真外壳 + 假内容”只会更多") {
 		t.Fatalf("html still contains hard-coded legacy ending")
+	}
+}
+
+func TestRenderHTMLIncludesWatermarkWhenEnabled(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ShowWatermark = true
+	d.WatermarkText = "walker1211/mark2note"
+	d.WatermarkPosition = "bottom-right"
+
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{
+		`class="watermark watermark-bottom-right"`,
+		">walker1211/mark2note<",
+		`.watermark {`,
+		`.watermark-bottom-right {`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing %q", want)
+		}
+	}
+	if strings.Count(html, `class="watermark `) != 1 {
+		t.Fatalf("html should render exactly one watermark, got %d", strings.Count(html, `class="watermark `))
+	}
+}
+
+func TestRenderHTMLOmitsWatermarkWhenDisabled(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ShowWatermark = false
+	d.WatermarkText = "walker1211/mark2note"
+	d.WatermarkPosition = "bottom-right"
+
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	if strings.Contains(html, `class="watermark `) {
+		t.Fatalf("html should omit watermark when disabled: %s", html)
+	}
+}
+
+func TestRenderHTMLUsesBottomLeftWatermarkClass(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ShowWatermark = true
+	d.WatermarkText = "左下角水印"
+	d.WatermarkPosition = "bottom-left"
+
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	if !strings.Contains(html, `class="watermark watermark-bottom-left"`) {
+		t.Fatalf("html missing bottom-left watermark class: %s", html)
+	}
+	if strings.Contains(html, `class="watermark watermark-bottom-right"`) {
+		t.Fatalf("html should not use bottom-right class when bottom-left requested: %s", html)
+	}
+	if !strings.Contains(html, `.watermark-bottom-left {`) {
+		t.Fatalf("html missing bottom-left css rule: %s", html)
 	}
 }
 

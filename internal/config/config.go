@@ -23,8 +23,15 @@ type AICfg struct {
 }
 
 type DeckCfg struct {
-	Theme  string `yaml:"theme"`
-	Author string `yaml:"author"`
+	Theme     string       `yaml:"theme"`
+	Author    string       `yaml:"author"`
+	Watermark WatermarkCfg `yaml:"watermark"`
+}
+
+type WatermarkCfg struct {
+	Enabled  *bool  `yaml:"enabled"`
+	Text     string `yaml:"text"`
+	Position string `yaml:"position"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -48,6 +55,16 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.Deck.Theme == "" {
 		cfg.Deck.Theme = "default"
+	}
+	if cfg.Deck.Watermark.Enabled == nil {
+		enabled := true
+		cfg.Deck.Watermark.Enabled = &enabled
+	}
+	if cfg.Deck.Watermark.Text == "" {
+		cfg.Deck.Watermark.Text = "walker1211/mark2note"
+	}
+	if cfg.Deck.Watermark.Position == "" {
+		cfg.Deck.Watermark.Position = "bottom-right"
 	}
 	return &cfg, nil
 }

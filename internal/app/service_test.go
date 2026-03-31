@@ -168,6 +168,134 @@ func TestServiceGeneratePreviewFallsBackToConfigThemeAndAuthor(t *testing.T) {
 	}
 }
 
+func TestServiceGeneratePreviewHydratesDefaultWatermarkRuntimeFields(t *testing.T) {
+	enabled := true
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Deck: config.DeckCfg{Watermark: config.WatermarkCfg{
+			Enabled:  &enabled,
+			Text:     "   ",
+			Position: "bottom-left",
+		}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if !r.rendered.ShowWatermark {
+		t.Fatalf("ShowWatermark = false, want true")
+	}
+	if r.rendered.WatermarkText != "walker1211/mark2note" {
+		t.Fatalf("WatermarkText = %q, want %q", r.rendered.WatermarkText, "walker1211/mark2note")
+	}
+	if r.rendered.WatermarkPosition != "bottom-left" {
+		t.Fatalf("WatermarkPosition = %q, want %q", r.rendered.WatermarkPosition, "bottom-left")
+	}
+}
+
+func TestServiceGeneratePreviewTreatsNilWatermarkEnabledAsDefaultOn(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Deck: config.DeckCfg{Watermark: config.WatermarkCfg{
+			Text:     "   ",
+			Position: "top-left",
+		}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if !r.rendered.ShowWatermark {
+		t.Fatalf("ShowWatermark = false, want true")
+	}
+	if r.rendered.WatermarkText != "walker1211/mark2note" {
+		t.Fatalf("WatermarkText = %q, want %q", r.rendered.WatermarkText, "walker1211/mark2note")
+	}
+	if r.rendered.WatermarkPosition != "bottom-right" {
+		t.Fatalf("WatermarkPosition = %q, want %q", r.rendered.WatermarkPosition, "bottom-right")
+	}
+}
+
+func TestServiceGeneratePreviewHydratesDisabledWatermarkRuntimeFields(t *testing.T) {
+	enabled := false
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Deck: config.DeckCfg{Watermark: config.WatermarkCfg{
+			Enabled:  &enabled,
+			Text:     "  自定义水印  ",
+			Position: "bottom-right",
+		}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if r.rendered.ShowWatermark {
+		t.Fatalf("ShowWatermark = true, want false")
+	}
+	if r.rendered.WatermarkText != "自定义水印" {
+		t.Fatalf("WatermarkText = %q, want %q", r.rendered.WatermarkText, "自定义水印")
+	}
+	if r.rendered.WatermarkPosition != "bottom-right" {
+		t.Fatalf("WatermarkPosition = %q, want %q", r.rendered.WatermarkPosition, "bottom-right")
+	}
+}
+
+func TestServiceGeneratePreviewFallsBackToDefaultWatermarkPositionWhenInvalid(t *testing.T) {
+	enabled := true
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Deck: config.DeckCfg{Watermark: config.WatermarkCfg{
+			Enabled:  &enabled,
+			Text:     "watermark",
+			Position: "top-right",
+		}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if r.rendered.WatermarkPosition != "bottom-right" {
+		t.Fatalf("WatermarkPosition = %q, want %q", r.rendered.WatermarkPosition, "bottom-right")
+	}
+}
+
 func TestServiceGeneratePreviewFallsBackToConfigThemeWhenOverrideThemeIsInvalid(t *testing.T) {
 	cfg := &config.Config{Output: config.OutputCfg{Dir: "configured-output"}, Deck: config.DeckCfg{Theme: deck.ThemeEditorialCool}}
 	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`

@@ -10,3 +10,7 @@ ai:
 deck:
   theme: default
   author: "搁剑听风"
+  watermark:
+    enabled: true
+    text: "walker1211/mark2note"
+    position: bottom-right

@@ -71,6 +71,9 @@ func RenderPageHTML(d deck.Deck, page deck.Page) (string, error) {
 		ResolvedAuthorDisplayText string
 		ResolvedAuthorFontSize    int
 		HideAuthorBecauseOverflow bool
+		ShowWatermark             bool
+		WatermarkText             string
+		WatermarkClass            string
 	}{
 		CSS:                       template.CSS(baseCSS),
 		ThemeCSS:                  template.CSS(themeVarsCSS(theme)),
@@ -79,6 +82,9 @@ func RenderPageHTML(d deck.Deck, page deck.Page) (string, error) {
 		ResolvedAuthorDisplayText: layout.ResolvedAuthorDisplayText,
 		ResolvedAuthorFontSize:    layout.ResolvedAuthorFontSize,
 		HideAuthorBecauseOverflow: layout.HideAuthorBecauseOverflow,
+		ShowWatermark:             d.ShowWatermark,
+		WatermarkText:             d.WatermarkText,
+		WatermarkClass:            watermarkPositionClass(d.WatermarkPosition),
 	}
 
 	var buf bytes.Buffer
@@ -125,6 +131,13 @@ func safeImageSrc(src string) template.URL {
 		return template.URL(src)
 	}
 	return template.URL(placeholderImageDataURI("图片占位"))
+}
+
+func watermarkPositionClass(position string) string {
+	if position == "bottom-left" {
+		return "watermark-bottom-left"
+	}
+	return "watermark-bottom-right"
 }
 
 func placeholderImageDataURI(label string) string {

@@ -64,3 +64,54 @@ func TestLoadKeepsExplicitDeckThemeAndAuthor(t *testing.T) {
 		t.Fatalf("cfg.Deck = %#v", cfg.Deck)
 	}
 }
+
+func TestLoadAppliesDefaultDeckWatermark(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("output:\n  dir: custom-output\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Deck.Watermark.Enabled == nil {
+		t.Fatalf("Watermark.Enabled unexpectedly nil")
+	}
+	if !*cfg.Deck.Watermark.Enabled {
+		t.Fatalf("Watermark.Enabled = %v, want true", *cfg.Deck.Watermark.Enabled)
+	}
+	if cfg.Deck.Watermark.Text != "walker1211/mark2note" {
+		t.Fatalf("Watermark.Text = %q, want %q", cfg.Deck.Watermark.Text, "walker1211/mark2note")
+	}
+	if cfg.Deck.Watermark.Position != "bottom-right" {
+		t.Fatalf("Watermark.Position = %q, want %q", cfg.Deck.Watermark.Position, "bottom-right")
+	}
+}
+
+func TestLoadKeepsExplicitDeckWatermark(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "deck:\n  watermark:\n    enabled: false\n    text: custom\n    position: bottom-left\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Deck.Watermark.Enabled == nil {
+		t.Fatalf("Watermark.Enabled unexpectedly nil")
+	}
+	if *cfg.Deck.Watermark.Enabled {
+		t.Fatalf("Watermark.Enabled = %v, want false", *cfg.Deck.Watermark.Enabled)
+	}
+	if cfg.Deck.Watermark.Text != "custom" {
+		t.Fatalf("Watermark.Text = %q, want %q", cfg.Deck.Watermark.Text, "custom")
+	}
+	if cfg.Deck.Watermark.Position != "bottom-left" {
+		t.Fatalf("Watermark.Position = %q, want %q", cfg.Deck.Watermark.Position, "bottom-left")
+	}
+}

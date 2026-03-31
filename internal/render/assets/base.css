@@ -19,6 +19,25 @@ html, body {
     padding: 72px;
 }
 
+.watermark {
+    position: absolute;
+    bottom: 100px;
+    z-index: 1;
+    font-size: 18px;
+    line-height: 1;
+    color: rgba(23, 23, 23, 0.28);
+    pointer-events: none;
+    user-select: none;
+}
+
+.watermark-bottom-right {
+    right: 40px;
+}
+
+.watermark-bottom-left {
+    left: 40px;
+}
+
 .pill {
     display: inline-flex;
     align-items: center;

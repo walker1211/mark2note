@@ -84,6 +84,9 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	author := deck.ResolveCoverAuthor(opts.Author, cfg.Deck.Author)
 	d.ShowAuthor = author.Show
 	d.AuthorText = author.Text
+	d.ShowWatermark = resolveWatermarkEnabled(cfg.Deck.Watermark.Enabled)
+	d.WatermarkText = resolveWatermarkText(cfg.Deck.Watermark.Text)
+	d.WatermarkPosition = resolveWatermarkPosition(cfg.Deck.Watermark.Position)
 	d.Themes = deck.RegisteredThemes()
 
 	if err := s.effectiveNewRenderer()(opts).Render(d); err != nil {
@@ -159,4 +162,28 @@ func resolveThemeWithPrecedence(values ...string) string {
 		}
 	}
 	return deck.ThemeDefault
+}
+
+func resolveWatermarkEnabled(enabled *bool) bool {
+	if enabled == nil {
+		return true
+	}
+	return *enabled
+}
+
+func resolveWatermarkText(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "walker1211/mark2note"
+	}
+	return trimmed
+}
+
+func resolveWatermarkPosition(position string) string {
+	switch strings.TrimSpace(position) {
+	case "bottom-left", "bottom-right":
+		return strings.TrimSpace(position)
+	default:
+		return "bottom-right"
+	}
 }

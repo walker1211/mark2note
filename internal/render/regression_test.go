@@ -32,6 +32,21 @@ type loadedFixture struct {
 	Meta regressionFixture
 }
 
+func TestMustLoadFixtureDeckIncludesDefaultWatermarkRuntimeFields(t *testing.T) {
+	fixtures := mustLoadRegressionFixtures(t)
+	d := mustLoadFixtureDeck(t, fixtures[0], t.TempDir())
+
+	if !d.ShowWatermark {
+		t.Fatalf("ShowWatermark = false, want true")
+	}
+	if d.WatermarkText != "walker1211/mark2note" {
+		t.Fatalf("WatermarkText = %q, want %q", d.WatermarkText, "walker1211/mark2note")
+	}
+	if d.WatermarkPosition != "bottom-right" {
+		t.Fatalf("WatermarkPosition = %q, want %q", d.WatermarkPosition, "bottom-right")
+	}
+}
+
 func TestRenderFixtureHTMLSnapshots(t *testing.T) {
 	fixtures := mustLoadRegressionFixtures(t)
 	for i := range fixtures {
@@ -153,6 +168,9 @@ func mustLoadFixtureDeck(t *testing.T, fixture loadedFixture, outDir string) dec
 	author := deck.ResolveCoverAuthor(fixture.Meta.AuthorOverride, fixture.Meta.Author)
 	d.ShowAuthor = author.Show
 	d.AuthorText = author.Text
+	d.ShowWatermark = true
+	d.WatermarkText = "walker1211/mark2note"
+	d.WatermarkPosition = "bottom-right"
 	d.Themes = deck.RegisteredThemes()
 	return d
 }

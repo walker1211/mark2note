@@ -68,12 +68,15 @@ type Page struct {
 }
 
 type Deck struct {
-	OutDir     string
-	ThemeName  string           `json:"theme,omitempty"`
-	ShowAuthor bool             `json:"-"`
-	AuthorText string           `json:"-"`
-	Pages      []Page           `json:"pages"`
-	Themes     map[string]Theme `json:"-"`
+	OutDir            string
+	ThemeName         string           `json:"theme,omitempty"`
+	ShowAuthor        bool             `json:"-"`
+	AuthorText        string           `json:"-"`
+	ShowWatermark     bool             `json:"-"`
+	WatermarkText     string           `json:"-"`
+	WatermarkPosition string           `json:"-"`
+	Pages             []Page           `json:"pages"`
+	Themes            map[string]Theme `json:"-"`
 }
 
 type rawPage struct {

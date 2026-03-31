@@ -12,6 +12,9 @@
       <span class="pill page-badge">{{.Page.Meta.Badge}}</span>
       <div class="page-no page-counter">{{.Page.Meta.Counter}}</div>
     </div>
+    {{if .ShowWatermark}}
+    <div class="watermark {{.WatermarkClass}}">{{.WatermarkText}}</div>
+    {{end}}
 
     {{if eq .Page.Variant "cover"}}
       <div class="accent-bar"></div>
