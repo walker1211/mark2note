@@ -29,10 +29,16 @@ cp configs/config.example.yaml configs/config.yaml
 ```
 
 3. 按需修改 `configs/config.yaml` 中的 AI CLI、输出目录、主题、作者和水印。
-4. 先准备一个你自己的 Markdown 文件，例如 `./article.md`，然后运行：
+4. 先在仓库根目录构建二进制：
 
 ```bash
-go run ./cmd/mark2note --input ./article.md
+go build -o ./mark2note ./cmd/mark2note
+```
+
+5. 先准备一个你自己的 Markdown 文件，例如 `./article.md`，然后运行：
+
+```bash
+./mark2note --input ./article.md
 ```
 
 说明：
@@ -91,14 +97,14 @@ ai:
 ### 常用命令
 
 ```bash
-go run ./cmd/mark2note --help
-go run ./cmd/mark2note --input ./article.md
-go run ./cmd/mark2note --input ./article.md --out ./output/preview
-go run ./cmd/mark2note --input ./article.md --config ./configs/config.yaml
-go run ./cmd/mark2note --input ./article.md --config ./config.yaml
-go run ./cmd/mark2note --input ./article.md --theme warm-paper --author "Your Name"
-go run ./cmd/mark2note capture-html --input ./output/preview/p02-quote.html
-go run ./cmd/mark2note capture-html --input ./output/preview
+./mark2note --help
+./mark2note --input ./article.md
+./mark2note --input ./article.md --out ./output/preview
+./mark2note --input ./article.md --config ./configs/config.yaml
+./mark2note --input ./article.md --config ./config.yaml
+./mark2note --input ./article.md --theme warm-paper --author "Your Name"
+./mark2note capture-html --input ./output/preview/p02-quote.html
+./mark2note capture-html --input ./output/preview
 ```
 
 说明：`capture-html` 的目录模式只扫描当前目录，不递归子目录，只处理小写 `.html`，PNG 输出在 HTML 同级目录。
@@ -113,7 +119,7 @@ go build ./cmd/mark2note
 如果需要查看命令说明：
 
 ```bash
-go run ./cmd/mark2note --help
+./mark2note --help
 ```
 
 ### License
@@ -152,10 +158,16 @@ cp configs/config.example.yaml configs/config.yaml
 ```
 
 3. Update `configs/config.yaml` as needed for your AI CLI, output directory, theme, author, and watermark.
-4. Prepare your own Markdown file first, for example `./article.md`, then run:
+4. Build the binary from the repository root first:
 
 ```bash
-go run ./cmd/mark2note --input ./article.md
+go build -o ./mark2note ./cmd/mark2note
+```
+
+5. Prepare your own Markdown file first, for example `./article.md`, then run:
+
+```bash
+./mark2note --input ./article.md
 ```
 
 Notes:
@@ -215,14 +227,14 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ### Common commands
 
 ```bash
-go run ./cmd/mark2note --help
-go run ./cmd/mark2note --input ./article.md
-go run ./cmd/mark2note --input ./article.md --out ./output/preview
-go run ./cmd/mark2note --input ./article.md --config ./configs/config.yaml
-go run ./cmd/mark2note --input ./article.md --config ./config.yaml
-go run ./cmd/mark2note --input ./article.md --theme warm-paper --author "Your Name"
-go run ./cmd/mark2note capture-html --input ./output/preview/p02-quote.html
-go run ./cmd/mark2note capture-html --input ./output/preview
+./mark2note --help
+./mark2note --input ./article.md
+./mark2note --input ./article.md --out ./output/preview
+./mark2note --input ./article.md --config ./configs/config.yaml
+./mark2note --input ./article.md --config ./config.yaml
+./mark2note --input ./article.md --theme warm-paper --author "Your Name"
+./mark2note capture-html --input ./output/preview/p02-quote.html
+./mark2note capture-html --input ./output/preview
 ```
 
 Note: in directory mode, `capture-html` only scans the current directory, does not recurse into subdirectories, only
@@ -238,7 +250,7 @@ go build ./cmd/mark2note
 To inspect the CLI help:
 
 ```bash
-go run ./cmd/mark2note --help
+./mark2note --help
 ```
 
 ### License

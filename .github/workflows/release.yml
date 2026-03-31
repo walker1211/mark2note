@@ -1,0 +1,102 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+            artifact_name: mark2note_Darwin_arm64
+          - goos: darwin
+            goarch: amd64
+            artifact_name: mark2note_Darwin_x86_64
+          - goos: linux
+            goarch: arm64
+            artifact_name: mark2note_Linux_arm64
+          - goos: linux
+            goarch: amd64
+            artifact_name: mark2note_Linux_x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build release archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          ARTIFACT_NAME: ${{ matrix.artifact_name }}
+        run: |
+          set -euo pipefail
+          artifact_dir="dist/${ARTIFACT_NAME}"
+          mkdir -p "${artifact_dir}/configs"
+          GOOS="${GOOS}" GOARCH="${GOARCH}" CGO_ENABLED=0 go build -o "${artifact_dir}/mark2note" ./cmd/mark2note
+          cp README.md LICENSE "${artifact_dir}/"
+          cp configs/config.example.yaml "${artifact_dir}/configs/config.example.yaml"
+          tar -C "${artifact_dir}" -czf "dist/${ARTIFACT_NAME}.tar.gz" mark2note README.md LICENSE configs
+
+      - name: Upload packaged archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download packaged archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten downloaded artifacts
+        run: |
+          set -euo pipefail
+          find dist -type f -name '*.tar.gz' -exec mv {} dist/ \;
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum mark2note_*.tar.gz > checksums.txt)
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" \
+              dist/mark2note_*.tar.gz \
+              dist/checksums.txt \
+              --repo "${GH_REPO}" \
+              --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              dist/mark2note_*.tar.gz \
+              dist/checksums.txt \
+              --repo "${GH_REPO}" \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
