@@ -414,6 +414,22 @@ func TestRenderHTMLEmbedsUsableCSSInsteadOfZgotmplZ(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLUsesNeutralCTAShadowVariable(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	html, err := RenderPageHTML(d, d.Pages[1])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{"--cta-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);", "box-shadow: var(--cta-shadow);"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing css token %q", want)
+		}
+	}
+	if strings.Contains(html, "rgba(232, 91, 58, 0.28)") {
+		t.Fatalf("html should not contain warm CTA shadow color: %s", html)
+	}
+}
+
 func TestRenderHTMLSupportsAllCurrentVariants(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 

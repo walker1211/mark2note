@@ -14,6 +14,7 @@ func themeVarsCSS(theme deck.Theme) string {
 		"  --line: " + theme.Line + ";\n" +
 		"  --panel: " + theme.Panel + ";\n" +
 		"  --white: " + theme.White + ";\n" +
+		"  --cta-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);\n" +
 		"  --author-color: " + theme.AuthorColor + ";\n" +
 		"  --author-weight: " + theme.AuthorWeight + ";\n" +
 		"  --author-size: " + theme.AuthorSize + ";\n" +
