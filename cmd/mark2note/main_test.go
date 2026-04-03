@@ -36,7 +36,7 @@ func TestUsageTextMentionsConfiguredDefaultOutputDir(t *testing.T) {
 
 func TestUsageTextMentionsThemeAndAuthorFlags(t *testing.T) {
 	text := usageText()
-	for _, want := range []string{"--theme <name>", "--author <name>", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
+	for _, want := range []string{"--theme <name>", "--author <name>", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("usageText() missing %q", want)
 		}

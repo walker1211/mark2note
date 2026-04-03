@@ -7,6 +7,8 @@ const (
 	ThemeWarmPaper     = "warm-paper"
 	ThemeEditorialCool = "editorial-cool"
 	ThemeLifestyle     = "lifestyle-light"
+	ThemeTechNoir      = "tech-noir"
+	ThemeEditorialMono = "editorial-mono"
 
 	paletteDefaultOrange = "default-orange"
 	paletteDefaultGreen  = "default-green"
@@ -95,6 +97,38 @@ func RegisteredThemes() map[string]Theme {
 			Panel:              "#F1EAE2",
 			White:              "#FFFFFF",
 			AuthorColor:        "#6C6258",
+			AuthorWeight:       "600",
+			AuthorSize:         "24px",
+			AuthorBottomOffset: "236px",
+		},
+		ThemeTechNoir: {
+			Name:               ThemeTechNoir,
+			BG:                 "#111315",
+			Card:               "#181C20",
+			Text:               "#F5F1E8",
+			Sub:                "#A6ADB5",
+			Accent:             "#C9A86A",
+			AccentSoft:         "#2A241A",
+			Line:               "#2A3138",
+			Panel:              "#14181C",
+			White:              "#FFFFFF",
+			AuthorColor:        "#A6ADB5",
+			AuthorWeight:       "600",
+			AuthorSize:         "24px",
+			AuthorBottomOffset: "236px",
+		},
+		ThemeEditorialMono: {
+			Name:               ThemeEditorialMono,
+			BG:                 "#F4F1EB",
+			Card:               "#FAF8F3",
+			Text:               "#121212",
+			Sub:                "#5F5A54",
+			Accent:             "#181818",
+			AccentSoft:         "#E8E2D8",
+			Line:               "#D7D0C6",
+			Panel:              "#EFE9DF",
+			White:              "#FFFFFF",
+			AuthorColor:        "#5F5A54",
 			AuthorWeight:       "600",
 			AuthorSize:         "24px",
 			AuthorBottomOffset: "236px",

@@ -131,6 +131,36 @@ func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	}
 }
 
+func TestBuildDeckJSONPromptLocksMarkdownSemanticPreservation(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"pages":[]}`}
+	b := Builder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	markdown := "**bold** with `inline` code and a fenced block:\n```go\nfmt.Println(\"hello\")\n```"
+	_, err := b.BuildDeckJSON(markdown)
+	if err != nil {
+		t.Fatalf("BuildDeckJSON() error = %v", err)
+	}
+
+	if len(runner.args) < 4 {
+		t.Fatalf("args = %v, want command args plus --bare and -p prompt", runner.args)
+	}
+	prompt := runner.args[3]
+	required := []string{
+		"必须保留原文里的 **bold**",
+		"必须保留行内代码反引号",
+		"在允许的字段中，必须保留 fenced code block（例如 body、note、tip），而不是改写成普通描述文本",
+		"title/subtitle/cta/items/steps/compare 字段禁止承载 fenced code block；当字段不支持 block-level 代码块时，禁止把 fenced code block 塞进该字段",
+		"如果为了适配页型而改写原句，仍然必须把原文中的重点词保留为 **bold**，不能把强调语义改写丢失成普通文本",
+		"如果原文某些术语已使用行内代码反引号表示，改写后必须保留该行内代码语义，不得去掉",
+	}
+	for _, want := range required {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q: %q", want, prompt)
+		}
+	}
+}
+
 func TestBuildDeckJSONReturnsStderrOnRunnerError(t *testing.T) {
 	runner := &fakeRunner{stderr: "boom", err: errors.New("exit status 1")}
 	b := Builder{Runner: runner}
@@ -197,6 +227,20 @@ func TestBuildDeckJSONSanitizesCCSCodexPreamble(t *testing.T) {
 	}
 	if got != `{"pages":[]}` {
 		t.Fatalf("BuildDeckJSON() = %q, want pure json", got)
+	}
+}
+
+func TestBuildDeckJSONKeepsValidJSONContainingCLIProxy(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"title":"CLIProxy"}`}
+	b := Builder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	got, err := b.BuildDeckJSON("# title")
+	if err != nil {
+		t.Fatalf("BuildDeckJSON() error = %v", err)
+	}
+	if got != `{"title":"CLIProxy"}` {
+		t.Fatalf("BuildDeckJSON() = %q, want JSON preserved", got)
 	}
 }
 

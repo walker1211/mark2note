@@ -37,3 +37,22 @@ func TestResolveCoverAuthorNormalizesRepeatedAtPrefix(t *testing.T) {
 		t.Fatalf("got = %#v", got)
 	}
 }
+
+func TestRegisteredThemesIncludesNewThemes(t *testing.T) {
+	themes := RegisteredThemes()
+	if _, ok := themes[ThemeTechNoir]; !ok {
+		t.Fatalf("RegisteredThemes missing %s", ThemeTechNoir)
+	}
+	if _, ok := themes[ThemeEditorialMono]; !ok {
+		t.Fatalf("RegisteredThemes missing %s", ThemeEditorialMono)
+	}
+}
+
+func TestResolveDeckThemeReturnsNewThemesDirectly(t *testing.T) {
+	if got := ResolveDeckTheme(ThemeTechNoir); got != ThemeTechNoir {
+		t.Fatalf("ResolveDeckTheme() = %q, want %q", got, ThemeTechNoir)
+	}
+	if got := ResolveDeckTheme(ThemeEditorialMono); got != ThemeEditorialMono {
+		t.Fatalf("ResolveDeckTheme() = %q, want %q", got, ThemeEditorialMono)
+	}
+}

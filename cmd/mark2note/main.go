@@ -62,7 +62,7 @@ Config defaults:
   deck.author  default cover author used when --author is not set
 
 Supported themes:
-  default / warm-paper / editorial-cool / lifestyle-light`
+  default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono`
 }
 
 func captureHTMLUsageText() string {

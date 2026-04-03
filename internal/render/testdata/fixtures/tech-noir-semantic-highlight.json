@@ -1,0 +1,125 @@
+{
+  "theme": "tech-noir",
+  "pages": [
+    {
+      "name": "p01-cover",
+      "variant": "cover",
+      "meta": {
+        "badge": "第 1 页",
+        "counter": "1/7",
+        "theme": "orange",
+        "cta": "先看 **抽卡逻辑**"
+      },
+      "content": {
+        "title": "这都 **OpenClaude** 了，你还不会抽出 **金色传说**",
+        "subtitle": "把 **80%** 的力气放在结构，而不是堆字"
+      }
+    },
+    {
+      "name": "p02-quote",
+      "variant": "quote",
+      "meta": {
+        "badge": "第 2 页",
+        "counter": "2/7",
+        "theme": "orange",
+        "cta": "先跑 `mark2note`"
+      },
+      "content": {
+        "title": "观点页",
+        "quote": "真正重要的是先把 **结论** 讲明白。",
+        "note": "命令入口是 `mark2note --input article.md`",
+        "tip": "把 **20%** 的重点词提亮，就够了。"
+      }
+    },
+    {
+      "name": "p03-image",
+      "variant": "image-caption",
+      "meta": {
+        "badge": "第 3 页",
+        "counter": "3/7",
+        "theme": "orange",
+        "cta": "看代码块示例"
+      },
+      "content": {
+        "title": "图文页",
+        "body": "先执行命令：\n```bash\nmark2note --input article.md --theme tech-noir\n```"
+      }
+    },
+    {
+      "name": "p04-bullets",
+      "variant": "bullets",
+      "meta": {
+        "badge": "第 4 页",
+        "counter": "4/7",
+        "theme": "orange",
+        "cta": "列表页也要有重点"
+      },
+      "content": {
+        "title": "列表页",
+        "items": [
+          "先找 **重点词**",
+          "把 `CLI` 名称单独做身份区分",
+          "保留 3 个最重要的结论"
+        ]
+      }
+    },
+    {
+      "name": "p05-compare",
+      "variant": "compare",
+      "meta": {
+        "badge": "第 5 页",
+        "counter": "5/7",
+        "theme": "green",
+        "cta": "对比结果更清楚"
+      },
+      "content": {
+        "title": "对比页",
+        "compare": {
+          "leftLabel": "旧方式",
+          "rightLabel": "新方式",
+          "rows": [
+            {
+              "left": "信息堆叠",
+              "right": "**80%** 内容先压缩"
+            },
+            {
+              "left": "结论埋太深",
+              "right": "先亮出 **核心判断**"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "p06-gallery",
+      "variant": "gallery-steps",
+      "meta": {
+        "badge": "第 6 页",
+        "counter": "6/7",
+        "theme": "green",
+        "cta": "步骤页看节奏"
+      },
+      "content": {
+        "title": "步骤页",
+        "steps": [
+          "第 1 步：拆出 **主题**",
+          "第 2 步：确认 `command` 与结论"
+        ]
+      }
+    },
+    {
+      "name": "p07-ending",
+      "variant": "ending",
+      "meta": {
+        "badge": "第 7 页",
+        "counter": "7/7",
+        "theme": "green",
+        "cta": "先做出可读版本"
+      },
+      "content": {
+        "title": "结尾页",
+        "body": "把 **重点词**、`命令`、结构化数字拉开层次，tech-noir 才不会糊成一片。"
+      }
+    }
+  ]
+}

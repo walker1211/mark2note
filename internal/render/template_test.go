@@ -430,6 +430,171 @@ func TestRenderHTMLUsesNeutralCTAShadowVariable(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLGalleryStepNumbersAndCompareResultCellsUseMetricValueClass(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeTechNoir
+	d.Themes = deck.RegisteredThemes()
+
+	galleryHTML, err := RenderPageHTML(d, d.Pages[5])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() gallery error = %v", err)
+	}
+	if strings.Count(galleryHTML, `class="step-no metric-value"`) != len(d.Pages[5].Content.Steps) {
+		t.Fatalf("gallery html should mark every step number as metric-value: %s", galleryHTML)
+	}
+
+	compareHTML, err := RenderPageHTML(d, d.Pages[4])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() compare error = %v", err)
+	}
+	if !strings.Contains(compareHTML, `class="compare-cell right metric-value"`) {
+		t.Fatalf("compare html should mark right result cells as metric-value: %s", compareHTML)
+	}
+
+	for _, html := range []string{galleryHTML, compareHTML} {
+		for _, want := range []string{
+			`.bullet-index.metric-value {`,
+			`.step-no.metric-value {`,
+			`.compare-cell.right.metric-value {`,
+			`color: var(--number-color);`,
+		} {
+			if !strings.Contains(html, want) {
+				t.Fatalf("html missing effective metric-value css %q", want)
+			}
+		}
+	}
+}
+
+func TestRenderHTMLStepNumberUsesContrastForegroundOnAccentBackground(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeTechNoir
+	d.Themes = deck.RegisteredThemes()
+
+	galleryHTML, err := RenderPageHTML(d, d.Pages[5])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() gallery error = %v", err)
+	}
+	want := ".step-no.metric-value {\n    color: var(--accent-foreground);\n}"
+	if !strings.Contains(galleryHTML, want) {
+		t.Fatalf("gallery html missing readable step number css %q", want)
+	}
+}
+
+func TestRenderHTMLCoverRendersBoldAsSemanticEmphasis(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeTechNoir
+	d.Themes = deck.RegisteredThemes()
+	page := deck.Page{
+		Name:    "p01-cover",
+		Variant: "cover",
+		Meta:    deck.PageMeta{Badge: "第 1 页", Counter: "1/3", Theme: "orange", CTA: "先看 **抽卡逻辑**"},
+		Content: deck.PageContent{Title: "这都 **OpenClaude** 了", Subtitle: "副标题"},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{`class="text-em"`, "OpenClaude", "抽卡逻辑"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing %q", want)
+		}
+	}
+}
+
+func TestRenderHTMLBodyRendersInlineCodeAndCodeBlock(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeTechNoir
+	d.Themes = deck.RegisteredThemes()
+	page := deck.Page{
+		Name:    "p03-image",
+		Variant: "image-caption",
+		Meta:    deck.PageMeta{Badge: "第 3 页", Counter: "3/3", Theme: "orange", CTA: "cta"},
+		Content: deck.PageContent{
+			Title: "图文页",
+			Body:  "先跑 `mark2note`\n```bash\nmark2note --input article.md --theme tech-noir\n```",
+		},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{`class="inline-code"`, `class="code-block"`, "mark2note --input article.md --theme tech-noir"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing %q", want)
+		}
+	}
+}
+
+func TestRenderHTMLTitleDowngradesDisallowedCodeBlockToPlainText(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeTechNoir
+	d.Themes = deck.RegisteredThemes()
+	page := deck.Page{
+		Name:    "p01-cover",
+		Variant: "cover",
+		Meta:    deck.PageMeta{Badge: "第 1 页", Counter: "1/3", Theme: "orange", CTA: "cta"},
+		Content: deck.PageContent{Title: "```bash\nmark2note\n```", Subtitle: "副标题"},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	if strings.Contains(html, `class="code-block"`) {
+		t.Fatalf("html should not render code block in title: %s", html)
+	}
+	if !strings.Contains(html, "```bash") {
+		t.Fatalf("html should keep downgraded fenced code as plain text: %s", html)
+	}
+}
+
+func TestRenderHTMLTechNoirExposesSemanticThemeVars(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeTechNoir
+	d.Themes = deck.RegisteredThemes()
+
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{
+		"--emphasis-color:",
+		"--number-color:",
+		"--inline-code-bg:",
+		"--code-block-bg:",
+		".text-em {",
+		".inline-code {",
+		".code-block {",
+		".metric-value {",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing semantic style token %q", want)
+		}
+	}
+}
+
+func TestRenderHTMLTechNoirCoverCTAUsesReadableInversePillForeground(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeTechNoir
+	d.Themes = deck.RegisteredThemes()
+
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{
+		"--inverse-pill-color: #111315;",
+		".pill.inverse {",
+		"color: var(--inverse-pill-color);",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing readable tech-noir CTA token %q", want)
+		}
+	}
+}
+
 func TestRenderHTMLSupportsAllCurrentVariants(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 

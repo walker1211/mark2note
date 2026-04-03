@@ -29,6 +29,12 @@ const deckPrompt = `你是一个严格的 JSON 生成器。
    - gallery-steps 只能使用 title/steps/images，且 gallery-steps 的 title 必填、steps 至少 2 个；如果提供 images，每个 image 都必须包含 src 和 alt
    - ending 只能使用 title/body，且 ending 的 title 和 body 必填
 11. JSON 结构必须与 Go deck 结构兼容
+12. 必须保留原文里的 **bold**
+13. 必须保留行内代码反引号
+14. 在允许的字段中，必须保留 fenced code block（例如 body、note、tip），而不是改写成普通描述文本
+15. title/subtitle/cta/items/steps/compare 字段禁止承载 fenced code block；当字段不支持 block-level 代码块时，禁止把 fenced code block 塞进该字段
+16. 如果为了适配页型而改写原句，仍然必须把原文中的重点词保留为 **bold**，不能把强调语义改写丢失成普通文本
+17. 如果原文某些术语已使用行内代码反引号表示，改写后必须保留该行内代码语义，不得去掉
 
 Markdown 如下：
 `
@@ -192,11 +198,19 @@ func sanitizeCLIOutput(raw string) string {
 			idx++
 			continue
 		}
-		if strings.HasPrefix(line, "[i] ") || strings.HasPrefix(line, "[OK] ") || strings.HasPrefix(line, "[warn] ") || strings.Contains(line, "CLIProxy") || strings.HasPrefix(line, `Run "ccs cliproxy stop"`) {
+		if isCLIProxyPreambleLine(line) {
 			idx++
 			continue
 		}
 		break
 	}
 	return strings.TrimSpace(strings.Join(lines[idx:], "\n"))
+}
+
+func isCLIProxyPreambleLine(line string) bool {
+	return strings.HasPrefix(line, "[i] CLIProxy ") ||
+		strings.HasPrefix(line, "[i] Joined existing CLIProxy ") ||
+		strings.HasPrefix(line, "[OK] ") ||
+		strings.HasPrefix(line, "[warn] ") ||
+		strings.HasPrefix(line, `Run "ccs cliproxy stop"`)
 }

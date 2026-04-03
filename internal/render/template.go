@@ -29,7 +29,8 @@ func compiledPageTemplate() (*template.Template, error) {
 		pageTemplateCompiled, pageTemplateErr = template.New("page").Funcs(template.FuncMap{
 			"imageSrc":       safeImageSrc,
 			"add1":           func(i int) int { return i + 1 },
-			"galleryCaption": galleryCaption,
+			"galleryCaption": galleryCaptionHTML,
+			"renderRichText": renderRichTextHTML,
 		}).Parse(pageTemplate)
 	})
 	if pageTemplateErr != nil {
@@ -67,6 +68,7 @@ func RenderPageHTML(d deck.Deck, page deck.Page) (string, error) {
 		CSS                       template.CSS
 		ThemeCSS                  template.CSS
 		Page                      deck.Page
+		Rich                      richPageContent
 		ShowAuthor                bool
 		ResolvedAuthorDisplayText string
 		ResolvedAuthorFontSize    int
@@ -78,6 +80,7 @@ func RenderPageHTML(d deck.Deck, page deck.Page) (string, error) {
 		CSS:                       template.CSS(baseCSS),
 		ThemeCSS:                  template.CSS(themeVarsCSS(theme)),
 		Page:                      hydrated,
+		Rich:                      buildRichPageContent(hydrated),
 		ShowAuthor:                hydrated.Variant == "cover" && layout.Show,
 		ResolvedAuthorDisplayText: layout.ResolvedAuthorDisplayText,
 		ResolvedAuthorFontSize:    layout.ResolvedAuthorFontSize,
@@ -116,12 +119,12 @@ func withVariantData(page deck.Page) (deck.Page, error) {
 	}
 }
 
-func galleryCaption(img deck.ImageBlock, steps []string, idx int) string {
+func galleryCaptionHTML(img deck.ImageBlock, steps []richText, idx int) template.HTML {
 	if img.Caption != "" {
-		return img.Caption
+		return renderRichTextHTML(parseRichText(img.Caption, richTextOptions{}))
 	}
 	if idx >= 0 && idx < len(steps) {
-		return steps[idx]
+		return renderRichTextHTML(steps[idx])
 	}
 	return ""
 }

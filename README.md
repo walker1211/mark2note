@@ -55,7 +55,7 @@ go build -o ./mark2note ./cmd/mark2note
 
 - `output.dir`：默认输出根目录
 - `ai.command` / `ai.args`：用于生成 deck JSON 的 AI CLI 命令及参数
-- `deck.theme`：默认主题，支持 `default`、`warm-paper`、`editorial-cool`、`lifestyle-light`
+- `deck.theme`：默认主题，支持 `default`、`warm-paper`、`editorial-cool`、`lifestyle-light`、`tech-noir`、`editorial-mono`
 - `deck.author`：封面作者的默认值
 - `deck.watermark.enabled`：是否启用页内水印，默认启用
 - `deck.watermark.text`：水印文本，默认值为 `walker1211/mark2note`
@@ -103,6 +103,7 @@ ai:
 ./mark2note --input ./article.md --config ./configs/config.yaml
 ./mark2note --input ./article.md --config ./config.yaml
 ./mark2note --input ./article.md --theme warm-paper --author "Your Name"
+./mark2note --input ./article.md --theme tech-noir
 ./mark2note capture-html --input ./output/preview/p02-quote.html
 ./mark2note capture-html --input ./output/preview
 ```
@@ -184,7 +185,7 @@ Key fields:
 
 - `output.dir`: default output root directory
 - `ai.command` / `ai.args`: AI CLI command and arguments used to generate deck JSON
-- `deck.theme`: default theme, supporting `default`, `warm-paper`, `editorial-cool`, and `lifestyle-light`
+- `deck.theme`: default theme, supporting `default`, `warm-paper`, `editorial-cool`, `lifestyle-light`, `tech-noir`, and `editorial-mono`
 - `deck.author`: default cover author value
 - `deck.watermark.enabled`: enables the page watermark, on by default
 - `deck.watermark.text`: watermark text, defaulting to `walker1211/mark2note`

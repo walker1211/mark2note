@@ -8,6 +8,7 @@ ai:
     - --bare
 
 deck:
+  # deck.theme 可选值：default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono
   theme: default
   author: "搁剑听风"
   watermark:
