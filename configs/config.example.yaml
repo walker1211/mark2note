@@ -15,3 +15,20 @@ deck:
     enabled: true
     text: "walker1211/mark2note"
     position: bottom-right
+
+render:
+  viewport:
+    width: 1242
+    height: 1656
+  animated:
+    enabled: false
+    format: webp
+#    format: mp4
+    duration_ms: 1200 # 动画时间轴总时长；启用 live 时也会影响 motion.mov 时长
+    fps: 8 # 抓帧密度；对 Animated WebP/MP4 有用，也会影响 Live 的采样密度
+  live:
+    enabled: false
+    photo_format: jpeg
+    cover_frame: last # first / middle / last
+    assemble: false
+    output_dir: apple-live

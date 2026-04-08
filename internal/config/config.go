@@ -11,6 +11,7 @@ type Config struct {
 	Output OutputCfg `yaml:"output"`
 	AI     AICfg     `yaml:"ai"`
 	Deck   DeckCfg   `yaml:"deck"`
+	Render RenderCfg `yaml:"render"`
 }
 
 type OutputCfg struct {
@@ -32,6 +33,32 @@ type WatermarkCfg struct {
 	Enabled  *bool  `yaml:"enabled"`
 	Text     string `yaml:"text"`
 	Position string `yaml:"position"`
+}
+
+type RenderCfg struct {
+	Viewport ViewportCfg `yaml:"viewport"`
+	Animated AnimatedCfg `yaml:"animated"`
+	Live     LiveCfg     `yaml:"live"`
+}
+
+type ViewportCfg struct {
+	Width  int `yaml:"width"`
+	Height int `yaml:"height"`
+}
+
+type AnimatedCfg struct {
+	Enabled    bool   `yaml:"enabled"`
+	Format     string `yaml:"format"`
+	DurationMS int    `yaml:"duration_ms"`
+	FPS        int    `yaml:"fps"`
+}
+
+type LiveCfg struct {
+	Enabled     bool   `yaml:"enabled"`
+	PhotoFormat string `yaml:"photo_format"`
+	CoverFrame  string `yaml:"cover_frame"`
+	Assemble    bool   `yaml:"assemble"`
+	OutputDir   string `yaml:"output_dir"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -65,6 +92,27 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.Deck.Watermark.Position == "" {
 		cfg.Deck.Watermark.Position = "bottom-right"
+	}
+	if cfg.Render.Viewport.Width == 0 {
+		cfg.Render.Viewport.Width = 1242
+	}
+	if cfg.Render.Viewport.Height == 0 {
+		cfg.Render.Viewport.Height = 1656
+	}
+	if cfg.Render.Animated.Format == "" {
+		cfg.Render.Animated.Format = "webp"
+	}
+	if cfg.Render.Animated.DurationMS == 0 {
+		cfg.Render.Animated.DurationMS = 2400
+	}
+	if cfg.Render.Animated.FPS == 0 {
+		cfg.Render.Animated.FPS = 8
+	}
+	if cfg.Render.Live.PhotoFormat == "" {
+		cfg.Render.Live.PhotoFormat = "jpeg"
+	}
+	if cfg.Render.Live.CoverFrame == "" {
+		cfg.Render.Live.CoverFrame = "middle"
 	}
 	return &cfg, nil
 }
