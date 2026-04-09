@@ -211,6 +211,19 @@ func (a *fakeLivePhotoAssembler) Assemble(task appleLiveTask) error {
 	if a.callErr != nil {
 		return a.callErr
 	}
+	outputDir := task.OutputDir
+	if stringsTrim(outputDir) == "" {
+		outputDir = resolvedAppleLiveOutputDir(task)
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, task.PageName+".jpg"), []byte("jpg"), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, task.PageName+".mov"), []byte("mov"), 0o644); err != nil {
+		return err
+	}
 	return nil
 }
 

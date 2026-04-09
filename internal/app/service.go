@@ -22,11 +22,14 @@ type AnimatedOptions struct {
 }
 
 type LiveOptions struct {
-	Enabled     bool
-	PhotoFormat string
-	CoverFrame  string
-	Assemble    bool
-	OutputDir   string
+	Enabled       bool
+	PhotoFormat   string
+	CoverFrame    string
+	Assemble      bool
+	OutputDir     string
+	ImportPhotos  bool
+	ImportAlbum   string
+	ImportTimeout time.Duration
 }
 
 type Options struct {
@@ -54,9 +57,11 @@ type Options struct {
 }
 
 type Result struct {
-	PageCount int
-	OutDir    string
-	Warnings  []string
+	PageCount          int
+	OutDir             string
+	Warnings           []string
+	DeliveryReport     *render.DeliveryReport
+	DeliveryReportPath string
 }
 
 type DeckRenderer interface {
@@ -139,6 +144,9 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	if strings.TrimSpace(opts.Live.OutputDir) != "" && !filepath.IsAbs(opts.Live.OutputDir) {
 		opts.Live.OutputDir = filepath.Join(opts.OutDir, opts.Live.OutputDir)
 	}
+	if opts.Live.ImportPhotos && !opts.Live.Assemble {
+		return Result{}, fmt.Errorf("%w: invalid parameter: live import requires live assemble", ErrRenderPreview)
+	}
 	if opts.ViewportWidth == 0 {
 		opts.ViewportWidth = cfg.Render.Viewport.Width
 	}
@@ -158,11 +166,18 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	d.Themes = deck.RegisteredThemes()
 
 	renderResult, err := s.effectiveNewRenderer()(opts).Render(d)
+	result := Result{
+		PageCount:          len(d.Pages),
+		OutDir:             opts.OutDir,
+		Warnings:           append([]string(nil), renderResult.Warnings...),
+		DeliveryReport:     renderResult.DeliveryReport,
+		DeliveryReportPath: renderResult.DeliveryReportPath,
+	}
 	if err != nil {
-		return Result{}, fmt.Errorf("%w: %v", ErrRenderPreview, err)
+		return result, fmt.Errorf("%w: %v", ErrRenderPreview, err)
 	}
 
-	return Result{PageCount: len(d.Pages), OutDir: opts.OutDir, Warnings: append([]string(nil), renderResult.Warnings...)}, nil
+	return result, nil
 }
 
 func (s Service) effectiveLoadConfig() func(string) (*config.Config, error) {
@@ -208,11 +223,14 @@ func (s Service) effectiveNewRenderer() func(Options) DeckRenderer {
 				FPS:        opts.Animated.FPS,
 			},
 			Live: render.LiveOptions{
-				Enabled:     opts.Live.Enabled,
-				PhotoFormat: opts.Live.PhotoFormat,
-				CoverFrame:  opts.Live.CoverFrame,
-				Assemble:    opts.Live.Assemble,
-				OutputDir:   opts.Live.OutputDir,
+				Enabled:       opts.Live.Enabled,
+				PhotoFormat:   opts.Live.PhotoFormat,
+				CoverFrame:    opts.Live.CoverFrame,
+				Assemble:      opts.Live.Assemble,
+				OutputDir:     opts.Live.OutputDir,
+				ImportPhotos:  opts.Live.ImportPhotos,
+				ImportAlbum:   opts.Live.ImportAlbum,
+				ImportTimeout: opts.Live.ImportTimeout,
 			},
 		}
 	}
