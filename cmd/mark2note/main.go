@@ -14,6 +14,7 @@ import (
 	"github.com/walker1211/mark2note/internal/app"
 	"github.com/walker1211/mark2note/internal/config"
 	"github.com/walker1211/mark2note/internal/render"
+	"github.com/walker1211/mark2note/internal/xhs"
 )
 
 type Options = app.Options
@@ -46,10 +47,12 @@ func usageText() string {
 Usage:
   mark2note --input <file.md> [flags]
   mark2note capture-html --input <path> [flags]
+  mark2note publish-xhs --account <name> [flags]
   mark2note --help
 
 Commands:
   capture-html   capture existing html file(s) to sibling png files
+  publish-xhs    publish assets to Xiaohongshu only-self-visible or schedule queue
 
 Flags:
   --input <file.md>          markdown input path (required)
@@ -80,6 +83,8 @@ Examples:
   mark2note --input ./example.md --config ./config.yaml
   mark2note capture-html --input ./output/preview/p02-quote.html
   mark2note capture-html --input ./output/preview
+  mark2note publish-xhs --account main --title "标题" --content "正文" --images ./cover.jpg
+  mark2note publish-xhs --account main --title-file ./title.txt --content-file ./body.md --live-report ./output/report.json --live-pages p01-cover,p02-bullets
 
 Config defaults:
   deck.theme   default theme name used when --theme is not set
@@ -117,6 +122,39 @@ Examples:
   mark2note capture-html --input ./output/preview/p02-quote.html
   mark2note capture-html --input ./output/preview
   mark2note capture-html --input ./output/preview --config ./configs/config.yaml`
+}
+
+func publishXHSUsageText() string {
+	return `mark2note publish-xhs
+
+Publish generated assets to Xiaohongshu only-self-visible or schedule queue.
+
+Usage:
+  mark2note publish-xhs --account <name> [flags]
+  mark2note publish-xhs --help
+
+Flags:
+  --account <name>         publish account/profile target (required)
+  --title <text>           inline title text (exactly one of --title / --title-file)
+  --title-file <file>      title file path
+  --content <text>         inline content text (exactly one of --content / --content-file)
+  --content-file <file>    content file path
+  --tags <csv>             comma-separated tags
+  --mode <name>            publish mode: draft(only-self-visible) or schedule (default: draft)
+  --schedule-at <time>     schedule time in YYYY-MM-DD HH:MM:SS (Asia/Shanghai)
+  --images <csv>           comma-separated image paths
+  --live-report <file>     live delivery report path
+  --live-pages <csv>       ordered live page subset; requires --live-report
+  --chrome <path>          chrome binary path
+  --headless               run browser automation headless (default: true)
+  --profile-dir <dir>      browser profile directory
+
+Rules:
+  - exactly one of --title / --title-file is required
+  - exactly one of --content / --content-file is required
+  - exactly one media source is required: --images or --live-report
+  - --schedule-at is required when --mode schedule
+  - --live-pages is accepted only with --live-report`
 }
 
 func isHelpRequest(args []string) bool {
@@ -231,8 +269,70 @@ func parseCaptureHTMLOptions(args []string) (Options, error) {
 	return opts, nil
 }
 
+type publishXHSCLIOptions = app.PublishOptions
+
+func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
+	opts := publishXHSCLIOptions{
+		ChromePath: defaultOptions().ChromePath,
+		Headless:   true,
+		Mode:       string(xhs.PublishModeDraft),
+	}
+	var tags string
+	var images string
+	var livePages string
+	fs := flag.NewFlagSet("mark2note publish-xhs", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&opts.Account, "account", opts.Account, "publish account/profile target")
+	fs.StringVar(&opts.Title, "title", opts.Title, "inline title text")
+	fs.StringVar(&opts.TitleFile, "title-file", opts.TitleFile, "title file path")
+	fs.StringVar(&opts.Content, "content", opts.Content, "inline content text")
+	fs.StringVar(&opts.ContentFile, "content-file", opts.ContentFile, "content file path")
+	fs.StringVar(&tags, "tags", tags, "comma-separated tags")
+	fs.StringVar(&opts.Mode, "mode", opts.Mode, "publish mode")
+	fs.StringVar(&opts.ScheduleAt, "schedule-at", opts.ScheduleAt, "schedule time")
+	fs.StringVar(&images, "images", images, "comma-separated image paths")
+	fs.StringVar(&opts.LiveReportPath, "live-report", opts.LiveReportPath, "live delivery report path")
+	fs.StringVar(&livePages, "live-pages", livePages, "ordered live page subset")
+	fs.StringVar(&opts.ChromePath, "chrome", opts.ChromePath, "chrome binary path")
+	fs.BoolVar(&opts.Headless, "headless", opts.Headless, "run browser automation headless")
+	fs.StringVar(&opts.ProfileDir, "profile-dir", opts.ProfileDir, "browser profile directory")
+
+	if err := fs.Parse(args); err != nil {
+		return publishXHSCLIOptions{}, err
+	}
+	if fs.NArg() > 0 {
+		return publishXHSCLIOptions{}, fmt.Errorf("unexpected positional args: %s", strings.Join(fs.Args(), " "))
+	}
+	opts.Tags = splitCSV(tags)
+	opts.ImagePaths = splitCSV(images)
+	opts.LivePages = splitCSV(livePages)
+	if strings.TrimSpace(opts.Account) == "" {
+		return publishXHSCLIOptions{}, fmt.Errorf("--account is required\n\n%s", publishXHSUsageText())
+	}
+	if strings.TrimSpace(opts.Mode) == string(xhs.PublishModeSchedule) && strings.TrimSpace(opts.ScheduleAt) == "" {
+		return publishXHSCLIOptions{}, fmt.Errorf("--schedule-at is required when --mode schedule\n\n%s", publishXHSUsageText())
+	}
+	if len(opts.LivePages) > 0 && strings.TrimSpace(opts.LiveReportPath) == "" {
+		return publishXHSCLIOptions{}, fmt.Errorf("--live-pages requires --live-report\n\n%s", publishXHSUsageText())
+	}
+	if !exactlyOne(strings.TrimSpace(opts.Title) != "", strings.TrimSpace(opts.TitleFile) != "") {
+		return publishXHSCLIOptions{}, fmt.Errorf("exactly one of --title / --title-file is required\n\n%s", publishXHSUsageText())
+	}
+	if !exactlyOne(strings.TrimSpace(opts.Content) != "", strings.TrimSpace(opts.ContentFile) != "") {
+		return publishXHSCLIOptions{}, fmt.Errorf("exactly one of --content / --content-file is required\n\n%s", publishXHSUsageText())
+	}
+	if !exactlyOne(len(opts.ImagePaths) > 0, strings.TrimSpace(opts.LiveReportPath) != "") {
+		return publishXHSCLIOptions{}, fmt.Errorf("exactly one media source is required: --images or --live-report\n\n%s", publishXHSUsageText())
+	}
+	if _, err := xhs.ValidateMode(opts.Mode); err != nil {
+		return publishXHSCLIOptions{}, fmt.Errorf("%v\n\n%s", err, publishXHSUsageText())
+	}
+	return opts, nil
+}
+
 var loadConfig = config.Load
 var readFile = os.ReadFile
+var nowFunc = time.Now
 var buildDeckJSON = func(cfg *config.Config, markdown string) (string, error) {
 	b := ai.Builder{}
 	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
@@ -248,6 +348,13 @@ var generatePreview = func(opts Options) (app.Result, error) {
 		},
 	}
 	return svc.GeneratePreview(opts)
+}
+var publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+	svc := app.PublishService{
+		ReadFile: readFile,
+		Now:      nowFunc,
+	}
+	return svc.Publish(opts)
 }
 
 var captureHTML = func(opts Options) error {
@@ -314,8 +421,13 @@ func absolutePath(path string) string {
 }
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "capture-html" {
-		return runCaptureHTML(args[1:], stdout, stderr)
+	if len(args) > 0 {
+		switch args[0] {
+		case "capture-html":
+			return runCaptureHTML(args[1:], stdout, stderr)
+		case "publish-xhs":
+			return runPublishXHS(args[1:], stdout, stderr)
+		}
 	}
 	if isHelpRequest(args) {
 		fmt.Fprintln(stdout, usageText())
@@ -379,6 +491,98 @@ func runCaptureHTML(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "captured html to png")
 	return 0
+}
+
+func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
+	opts, err := parsePublishXHSOptions(args)
+	if err != nil {
+		if err == flag.ErrHelp {
+			fmt.Fprintln(stdout, publishXHSUsageText())
+			return 0
+		}
+		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
+		return 1
+	}
+	result, err := publishXHS(opts)
+	if err != nil {
+		switch {
+		case errors.Is(err, xhs.ErrNotLoggedIn):
+			fmt.Fprintln(stderr, "not logged in to Xiaohongshu creator center; open the Chrome profile and complete QR login")
+		case errors.Is(err, xhs.ErrLiveBridgeFailed), errors.Is(err, xhs.ErrLiveBridgePermissionDenied), errors.Is(err, xhs.ErrPhotosLookupFailed), errors.Is(err, xhs.ErrLivePublishUnsupported):
+			fmt.Fprintf(stderr, "live attach failed: %s\n", stripErrorPrefixes(err, app.ErrPublishExecute))
+		case errors.Is(err, app.ErrPublishRequestInvalid):
+			fmt.Fprintf(stderr, "invalid publish request: %s\n", stripErrorPrefixes(err, app.ErrPublishRequestInvalid))
+		case errors.Is(err, app.ErrPublishReadInput):
+			fmt.Fprintf(stderr, "error reading publish input: %s\n", stripErrorPrefixes(err, app.ErrPublishReadInput))
+		default:
+			fmt.Fprintf(stderr, "publish xhs failed: %s\n", stripErrorPrefixes(err, app.ErrPublishExecute))
+		}
+		return 1
+	}
+	if result.Result.DraftSaved {
+		fmt.Fprintln(stdout, "xiaohongshu only-self-visible published")
+		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)
+		fmt.Fprintf(stdout, "media: %s\n", result.Result.MediaKind)
+		if result.Result.AttachedCount > 0 {
+			fmt.Fprintf(stdout, "attached: %d\n", result.Result.AttachedCount)
+		}
+		if len(result.Result.AttachedItems) > 0 {
+			fmt.Fprintf(stdout, "items: %s\n", strings.Join(result.Result.AttachedItems, ","))
+		}
+		return 0
+	}
+	if result.Result.Mode == xhs.PublishModeSchedule && result.Result.ScheduleTime != nil {
+		fmt.Fprintln(stdout, "xiaohongshu scheduled publish submitted")
+		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)
+		fmt.Fprintf(stdout, "at: %s\n", result.Result.ScheduleTime.In(xhsShanghaiLocation()).Format("2006-01-02 15:04:05"))
+		fmt.Fprintf(stdout, "media: %s\n", result.Result.MediaKind)
+		if result.Result.AttachedCount > 0 {
+			fmt.Fprintf(stdout, "attached: %d\n", result.Result.AttachedCount)
+		}
+		if len(result.Result.AttachedItems) > 0 {
+			fmt.Fprintf(stdout, "items: %s\n", strings.Join(result.Result.AttachedItems, ","))
+		}
+		return 0
+	}
+	fmt.Fprintf(stdout, "xhs publish queued for %s (%s)\n", result.Request.Account, result.Request.Mode)
+	if result.Request.ScheduleTime != nil {
+		fmt.Fprintf(stdout, "schedule at: %s\n", result.Request.ScheduleTime.In(xhsShanghaiLocation()).Format("2006-01-02 15:04:05"))
+	}
+	return 0
+}
+
+func splitCSV(input string) []string {
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	parts := strings.Split(input, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func exactlyOne(values ...bool) bool {
+	count := 0
+	for _, value := range values {
+		if value {
+			count++
+		}
+	}
+	return count == 1
+}
+
+func xhsShanghaiLocation() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("Asia/Shanghai", 8*60*60)
+	}
+	return loc
 }
 
 func stripErrorPrefixes(err error, sentinels ...error) string {
