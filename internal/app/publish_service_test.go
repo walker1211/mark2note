@@ -33,7 +33,7 @@ func (f *fakePublishOrchestrator) Publish(request xhs.PublishRequest, options Pu
 }
 
 func TestPublishServiceBuildsStandardRequestFromInlineFields(t *testing.T) {
-	orchestrator := &fakePublishOrchestrator{result: xhs.PublishResult{TargetAccount: "creator-a", Mode: xhs.PublishModeDraft}}
+	orchestrator := &fakePublishOrchestrator{result: xhs.PublishResult{TargetAccount: "creator-a", Mode: xhs.PublishModeOnlySelf}}
 	service := PublishService{
 		ReadFile:        func(string) ([]byte, error) { t.Fatal("ReadFile() should not be called"); return nil, nil },
 		Now:             func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) },
@@ -45,7 +45,7 @@ func TestPublishServiceBuildsStandardRequestFromInlineFields(t *testing.T) {
 		Title:      "标题",
 		Content:    "正文",
 		Tags:       []string{"效率", "AI"},
-		Mode:       string(xhs.PublishModeDraft),
+		Mode:       string(xhs.PublishModeOnlySelf),
 		ImagePaths: []string{"cover.jpg", "detail.jpg"},
 		ChromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 		Headless:   true,
@@ -62,7 +62,7 @@ func TestPublishServiceBuildsStandardRequestFromInlineFields(t *testing.T) {
 		Title:      "标题",
 		Content:    "正文",
 		Tags:       []string{"效率", "AI"},
-		Mode:       xhs.PublishModeDraft,
+		Mode:       xhs.PublishModeOnlySelf,
 		MediaKind:  xhs.MediaKindStandard,
 		ImagePaths: []string{"cover.jpg", "detail.jpg"},
 	}
@@ -129,7 +129,7 @@ func TestPublishServiceBuildsLiveRequestFromFilesAndSchedule(t *testing.T) {
 
 func TestPublishServiceRejectsConflictingTitleSources(t *testing.T) {
 	service := PublishService{Now: func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) }}
-	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", TitleFile: "/tmp/title.txt", Content: "正文", Mode: string(xhs.PublishModeDraft), ImagePaths: []string{"cover.jpg"}})
+	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", TitleFile: "/tmp/title.txt", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), ImagePaths: []string{"cover.jpg"}})
 	if err == nil || !errors.Is(err, ErrPublishRequestInvalid) {
 		t.Fatalf("Publish() error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestPublishServiceRejectsConflictingTitleSources(t *testing.T) {
 
 func TestPublishServiceRejectsLivePagesWithoutLiveReport(t *testing.T) {
 	service := PublishService{Now: func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) }}
-	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeDraft), LivePages: []string{"p01-cover"}})
+	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), LivePages: []string{"p01-cover"}})
 	if err == nil || !errors.Is(err, ErrPublishRequestInvalid) {
 		t.Fatalf("Publish() error = %v", err)
 	}
@@ -148,7 +148,7 @@ func TestPublishServiceRejectsEmptyTitleFile(t *testing.T) {
 		ReadFile: func(string) ([]byte, error) { return []byte(" \n\t "), nil },
 		Now:      func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) },
 	}
-	_, err := service.Publish(PublishOptions{Account: "creator-a", TitleFile: "/tmp/title.txt", Content: "正文", Mode: string(xhs.PublishModeDraft), ImagePaths: []string{"cover.jpg"}})
+	_, err := service.Publish(PublishOptions{Account: "creator-a", TitleFile: "/tmp/title.txt", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), ImagePaths: []string{"cover.jpg"}})
 	if err == nil || !errors.Is(err, ErrPublishRequestInvalid) {
 		t.Fatalf("Publish() error = %v", err)
 	}
@@ -174,7 +174,7 @@ func TestPublishServiceRejectsFailedLiveReport(t *testing.T) {
 	liveRoot := t.TempDir()
 	reportPath := writePublishTestReport(t, liveRoot, "failed")
 	service := PublishService{Now: func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) }}
-	_, err := service.Publish(PublishOptions{Account: "creator-live", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeDraft), LiveReportPath: reportPath})
+	_, err := service.Publish(PublishOptions{Account: "creator-live", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), LiveReportPath: reportPath})
 	if err == nil || !errors.Is(err, ErrPublishRequestInvalid) {
 		t.Fatalf("Publish() error = %v", err)
 	}

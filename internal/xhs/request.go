@@ -11,7 +11,7 @@ const scheduleTimeLayout = "2006-01-02 15:04:05"
 type PublishMode string
 
 const (
-	PublishModeDraft    PublishMode = "draft"
+	PublishModeOnlySelf PublishMode = "only-self"
 	PublishModeSchedule PublishMode = "schedule"
 )
 
@@ -41,25 +41,25 @@ type LivePublishSource struct {
 }
 
 type PublishResult struct {
-	TargetAccount string
-	Mode          PublishMode
-	MediaKind     MediaKind
-	DraftSaved    bool
-	ScheduleTime  *time.Time
-	AttachedCount int
-	AttachedItems []string
-	BrowserKept   bool
-	Warnings      []string
+	TargetAccount     string
+	Mode              PublishMode
+	MediaKind         MediaKind
+	OnlySelfPublished bool
+	ScheduleTime      *time.Time
+	AttachedCount     int
+	AttachedItems     []string
+	BrowserKept       bool
+	Warnings          []string
 }
 
 func ValidateMode(input string) (PublishMode, error) {
 	switch PublishMode(strings.TrimSpace(input)) {
-	case "", PublishModeDraft:
-		return PublishModeDraft, nil
+	case "", PublishModeOnlySelf:
+		return PublishModeOnlySelf, nil
 	case PublishModeSchedule:
 		return PublishModeSchedule, nil
 	default:
-		return "", fmt.Errorf("mode must be draft or schedule")
+		return "", fmt.Errorf("mode must be only-self or schedule")
 	}
 }
 
@@ -74,9 +74,9 @@ func (r PublishRequest) Validate(now time.Time) error {
 		return fmt.Errorf("content is required")
 	}
 	switch r.Mode {
-	case PublishModeDraft:
+	case PublishModeOnlySelf:
 		if r.ScheduleTime != nil {
-			return fmt.Errorf("draft mode forbids schedule time")
+			return fmt.Errorf("only-self mode forbids schedule time")
 		}
 	case PublishModeSchedule:
 		if r.ScheduleTime == nil {
@@ -91,7 +91,7 @@ func (r PublishRequest) Validate(now time.Time) error {
 			return fmt.Errorf("schedule lead time must be at least 15 minutes")
 		}
 	default:
-		return fmt.Errorf("mode must be draft or schedule")
+		return fmt.Errorf("mode must be only-self or schedule")
 	}
 
 	switch r.MediaKind {

@@ -140,7 +140,7 @@ Flags:
   --content <text>         inline content text (exactly one of --content / --content-file)
   --content-file <file>    content file path
   --tags <csv>             comma-separated tags
-  --mode <name>            publish mode: draft(only-self-visible) or schedule (default: draft)
+  --mode <name>            publish mode: only-self or schedule (default: only-self)
   --schedule-at <time>     schedule time in YYYY-MM-DD HH:MM:SS (Asia/Shanghai)
   --images <csv>           comma-separated image paths
   --live-report <file>     live delivery report path
@@ -275,7 +275,7 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	opts := publishXHSCLIOptions{
 		ChromePath: defaultOptions().ChromePath,
 		Headless:   true,
-		Mode:       string(xhs.PublishModeDraft),
+		Mode:       string(xhs.PublishModeOnlySelf),
 	}
 	var tags string
 	var images string
@@ -519,7 +519,7 @@ func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		return 1
 	}
-	if result.Result.DraftSaved {
+	if result.Result.OnlySelfPublished {
 		fmt.Fprintln(stdout, "xiaohongshu only-self-visible published")
 		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)
 		fmt.Fprintf(stdout, "media: %s\n", result.Result.MediaKind)

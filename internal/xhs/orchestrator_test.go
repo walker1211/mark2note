@@ -37,14 +37,14 @@ func (f *fakeBrowserSession) PublisherPage(context.Context) (PublishPage, error)
 	return f.page, nil
 }
 
-func TestOrchestratorRunsStandardDraftFlow(t *testing.T) {
+func TestOrchestratorRunsStandardOnlySelfFlow(t *testing.T) {
 	session := &fakeBrowserSession{page: &fakePublishPage{}}
-	request := PublishRequest{Account: "writer", Title: "标题", Content: "正文", Mode: PublishModeDraft, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
+	request := PublishRequest{Account: "writer", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
 	result, err := NewOrchestrator(session).Publish(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if !result.DraftSaved || result.MediaKind != MediaKindStandard || result.Mode != PublishModeDraft {
+	if !result.OnlySelfPublished || result.MediaKind != MediaKindStandard || result.Mode != PublishModeOnlySelf {
 		t.Fatalf("result = %#v", result)
 	}
 	if session.closeCalls != 1 {
@@ -54,7 +54,7 @@ func TestOrchestratorRunsStandardDraftFlow(t *testing.T) {
 
 func TestOrchestratorPreservesBrowserContextOnStandardFailure(t *testing.T) {
 	session := &fakeBrowserSession{page: &fakePublishPage{uploadErr: errors.New("upload broken")}}
-	request := PublishRequest{Account: "writer", Title: "标题", Content: "正文", Mode: PublishModeDraft, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
+	request := PublishRequest{Account: "writer", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
 	result, err := NewOrchestrator(session).Publish(context.Background(), request)
 	if err == nil {
 		t.Fatal("Publish() error = nil, want error")
@@ -75,7 +75,7 @@ func TestOrchestratorRunsScheduledStandardFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if result.DraftSaved || result.ScheduleTime == nil || !result.ScheduleTime.Equal(scheduledAt) {
+	if result.OnlySelfPublished || result.ScheduleTime == nil || !result.ScheduleTime.Equal(scheduledAt) {
 		t.Fatalf("result = %#v", result)
 	}
 	if session.closeCalls != 1 {
@@ -88,7 +88,7 @@ func TestOrchestratorRunsLiveBridgeBeforeTextFill(t *testing.T) {
 	page := &fakePublishPage{orderCounter: &orderCounter}
 	session := &fakeBrowserSession{page: page}
 	bridge := &capturingLiveBridge{result: LiveAttachResult{AttachedCount: 2, ItemNames: []string{"p01-cover", "p02-bullets"}, UIPreserved: true}, orderCounter: &orderCounter}
-	request := livePublishRequest(PublishModeDraft, nil)
+	request := livePublishRequest(PublishModeOnlySelf, nil)
 	orchestrator := NewOrchestrator(session)
 	orchestrator.liveBridge = bridge
 
@@ -96,7 +96,7 @@ func TestOrchestratorRunsLiveBridgeBeforeTextFill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if !result.DraftSaved {
+	if !result.OnlySelfPublished {
 		t.Fatalf("result = %#v", result)
 	}
 	if bridge.calls != 1 {
@@ -117,7 +117,7 @@ func TestOrchestratorDoesNotDowngradeLiveAttachFailure(t *testing.T) {
 	page := &fakePublishPage{}
 	session := &fakeBrowserSession{page: page}
 	bridge := &capturingLiveBridge{err: fmtLiveAttachError(ErrLiveBridgeFailed, "photos selection failed")}
-	request := livePublishRequest(PublishModeDraft, nil)
+	request := livePublishRequest(PublishModeOnlySelf, nil)
 	orchestrator := NewOrchestrator(session)
 	orchestrator.liveBridge = bridge
 
@@ -139,7 +139,7 @@ func TestOrchestratorDoesNotDowngradeLiveAttachFailure(t *testing.T) {
 func TestOrchestratorKeepsBrowserContextAfterLiveAttachFailure(t *testing.T) {
 	session := &fakeBrowserSession{page: &fakePublishPage{}}
 	bridge := &capturingLiveBridge{err: fmtLiveAttachError(ErrLiveBridgeFailed, "permission denied")}
-	request := livePublishRequest(PublishModeDraft, nil)
+	request := livePublishRequest(PublishModeOnlySelf, nil)
 	orchestrator := NewOrchestrator(session)
 	orchestrator.liveBridge = bridge
 
