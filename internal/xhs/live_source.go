@@ -23,7 +23,7 @@ type ResolvedLiveSource struct {
 }
 
 func ResolveLiveSource(reportPath string, requested []string) (ResolvedLiveSource, error) {
-	trimmedReportPath := strings.TrimSpace(reportPath)
+	trimmedReportPath := expandUserHome(strings.TrimSpace(reportPath))
 	if trimmedReportPath == "" {
 		return ResolvedLiveSource{}, fmt.Errorf("live report path is required")
 	}

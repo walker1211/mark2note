@@ -65,6 +65,15 @@ func TestUsageTextMentionsConfiguredDefaultOutputDir(t *testing.T) {
 	}
 }
 
+func TestUsageTextMentionsPromptExtraFlag(t *testing.T) {
+	text := usageText()
+	for _, want := range []string{"--prompt-extra <text>", "extra natural-language guidance for deck generation"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("usageText() missing %q", want)
+		}
+	}
+}
+
 func TestUsageTextMentionsThemeAuthorAndAnimatedFlags(t *testing.T) {
 	text := usageText()
 	for _, want := range []string{"--theme <name>", "--author <name>", "--animated", "--animated-format <name>", "--animated-duration <ms>", "--animated-fps <n>", "--live", "--live-photo-format <name>", "--live-cover-frame <name>", "supported: first, middle, last", "--live-assemble", "--live-output-dir <dir>", "--live-import-photos", "--live-import-album", "--live-import-timeout", "page animation timeline duration; also affects Live motion timing", "animation capture fps / sampling density; affects Animated WebP/MP4 output and Live frame sampling", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
@@ -146,6 +155,16 @@ func TestParseOptionsOverridesFlags(t *testing.T) {
 	}
 	if opts.Jobs != 3 {
 		t.Fatalf("Jobs = %d, want %d", opts.Jobs, 3)
+	}
+}
+
+func TestParseOptionsParsesPromptExtra(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--prompt-extra", "封面更抓眼"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if opts.PromptExtra != "封面更抓眼" {
+		t.Fatalf("PromptExtra = %q, want %q", opts.PromptExtra, "封面更抓眼")
 	}
 }
 
@@ -279,6 +298,36 @@ func TestRunPassesThemeAuthorAndDefaultConfigToService(t *testing.T) {
 	}
 	if got.ConfigPath != "configs/config.yaml" {
 		t.Fatalf("ConfigPath = %q, want %q", got.ConfigPath, "configs/config.yaml")
+	}
+}
+
+func TestRunPassesPromptExtraToService(t *testing.T) {
+	originalGeneratePreview := generatePreview
+	defer func() { generatePreview = originalGeneratePreview }()
+
+	var got Options
+	generatePreview = func(opts Options) (app.Result, error) {
+		got = opts
+		return app.Result{PageCount: 3, OutDir: t.TempDir()}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--input", "article.md", "--prompt-extra", "封面更抓眼"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if got.PromptExtra != "封面更抓眼" {
+		t.Fatalf("PromptExtra = %q, want %q", got.PromptExtra, "封面更抓眼")
+	}
+}
+
+func TestNewPreviewServiceLeavesBuildDeckJSONNilAndCarriesPromptExtra(t *testing.T) {
+	svc := newPreviewService(Options{PromptExtra: "封面更抓眼"})
+	if svc.PromptExtra != "封面更抓眼" {
+		t.Fatalf("PromptExtra = %q, want %q", svc.PromptExtra, "封面更抓眼")
+	}
+	if svc.BuildDeckJSON != nil {
+		t.Fatalf("BuildDeckJSON should be nil so Service default AI builder handles PromptExtra")
 	}
 }
 

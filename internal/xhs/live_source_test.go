@@ -47,6 +47,25 @@ func TestResolveLivePublishSourceRejectsFailedReport(t *testing.T) {
 	}
 }
 
+func TestResolveLivePublishSourceExpandsHomeDirInReportPath(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	sourceDir := t.TempDir()
+	writeTestFile(t, filepath.Join(sourceDir, "p01-cover.jpg"), "jpg")
+	writeTestFile(t, filepath.Join(sourceDir, "p01-cover.mov"), "mov")
+	reportPath := filepath.Join(homeDir, ".config", "mark2note", "live", "report.json")
+	writeTestFile(t, reportPath, mustMarshalLiveReport(t, render.DeliveryReport{SourceDir: sourceDir, Status: "partial"}))
+
+	got, err := ResolveLiveSource("~/.config/mark2note/live/report.json", nil)
+	if err != nil {
+		t.Fatalf("ResolveLiveSource() error = %v", err)
+	}
+	want := []ResolvedLiveItem{{PageName: "p01-cover", PhotoPath: filepath.Join(sourceDir, "p01-cover.jpg"), VideoPath: filepath.Join(sourceDir, "p01-cover.mov")}}
+	if !reflect.DeepEqual(got.Items, want) {
+		t.Fatalf("items = %#v, want %#v", got.Items, want)
+	}
+}
+
 func TestResolveLivePublishSourceRejectsEmptySourceDir(t *testing.T) {
 	reportPath := writeLiveReport(t, render.DeliveryReport{Status: "partial", Message: "ok"})
 	_, err := ResolveLiveSource(reportPath, nil)
@@ -156,14 +175,17 @@ func writeLiveReport(t *testing.T, report render.DeliveryReport) string {
 	t.Helper()
 	root := t.TempDir()
 	path := filepath.Join(root, "import-result.json")
+	writeTestFile(t, path, mustMarshalLiveReport(t, report))
+	return path
+}
+
+func mustMarshalLiveReport(t *testing.T, report render.DeliveryReport) string {
+	t.Helper()
 	content, err := json.Marshal(report)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
-		t.Fatalf("WriteFile(%q) error = %v", path, err)
-	}
-	return path
+	return string(content)
 }
 
 func writeTestFile(t *testing.T, path string, content string) {

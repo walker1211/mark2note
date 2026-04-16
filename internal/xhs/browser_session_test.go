@@ -145,6 +145,17 @@ func TestBrowserSessionUsesExplicitProfileDir(t *testing.T) {
 	}
 }
 
+func TestBrowserSessionExpandsExplicitHomeDir(t *testing.T) {
+	t.Setenv("HOME", "/Users/tester")
+	got, err := resolveSessionProfileDir(func() (string, error) { t.Fatal("userConfigDir should not be called"); return "", nil }, "writer", "~/.config/news-briefing-studio/wechat/profiles/writer")
+	if err != nil {
+		t.Fatalf("resolveSessionProfileDir() error = %v", err)
+	}
+	if got != "/Users/tester/.config/news-briefing-studio/wechat/profiles/writer" {
+		t.Fatalf("resolveSessionProfileDir() = %q, want %q", got, "/Users/tester/.config/news-briefing-studio/wechat/profiles/writer")
+	}
+}
+
 func TestBrowserSessionCheckLoginReturnsNotLoggedIn(t *testing.T) {
 	tempDir := t.TempDir()
 	page := &fakeSessionPage{url: xhsLoginURL, hasLoginPrompt: true}

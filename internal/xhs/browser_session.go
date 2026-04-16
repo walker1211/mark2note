@@ -684,7 +684,7 @@ func discoverLoopbackBrowserControlURLs(ctx context.Context) ([]string, error) {
 
 func resolveSessionProfileDir(userConfigDir func() (string, error), account string, explicit string) (string, error) {
 	if trimmed := strings.TrimSpace(explicit); trimmed != "" {
-		return trimmed, nil
+		return expandUserHome(trimmed), nil
 	}
 	base, err := userConfigDir()
 	if err != nil {
@@ -698,6 +698,22 @@ func resolveSessionProfileDir(userConfigDir func() (string, error), account stri
 		return "", fmt.Errorf("invalid account name: %q", trimmedAccount)
 	}
 	return filepath.Join(base, "mark2note", "xhs", "profiles", trimmedAccount), nil
+}
+
+func expandUserHome(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	return path
 }
 
 func defaultXHSLogger(format string, args ...any) {

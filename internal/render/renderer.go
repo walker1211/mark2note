@@ -381,69 +381,102 @@ func (r Renderer) runAnimatedExports(pages []deck.Page, outDir string, captureMo
 		return warningsList
 	}
 
-	warnings := make(chan string, len(tasks))
-	work := make(chan animatedCaptureTask)
+	results := make(chan struct {
+		index    int
+		warning  string
+		assemble *appleLiveTask
+	}, len(tasks))
+	work := make(chan struct {
+		index int
+		task  animatedCaptureTask
+	})
+	assembleTasks := make([]*appleLiveTask, len(tasks))
 
 	var wg sync.WaitGroup
 	for i := 0; i < r.effectiveJobs(); i++ {
 		wg.Go(func() {
-			for task := range work {
-				if warning := r.runAnimatedExportTask(task, captureMode, live, webpEnabled, webpEncoder, mp4Enabled, mp4Encoder, liveBuilder, liveAssembler); warning != "" {
-					warnings <- warning
-				}
+			for job := range work {
+				warning, assemble := r.runAnimatedExportTask(job.task, captureMode, live, webpEnabled, webpEncoder, mp4Enabled, mp4Encoder, liveBuilder)
+				results <- struct {
+					index    int
+					warning  string
+					assemble *appleLiveTask
+				}{index: job.index, warning: warning, assemble: assemble}
 			}
 		})
 	}
 
-	for _, task := range tasks {
-		work <- task
+	for i, task := range tasks {
+		work <- struct {
+			index int
+			task  animatedCaptureTask
+		}{index: i, task: task}
 	}
 	close(work)
 	wg.Wait()
-	close(warnings)
+	close(results)
 
 	collected := append([]string(nil), warningsList...)
-	for warning := range warnings {
-		collected = append(collected, warning)
+	for result := range results {
+		if result.warning != "" {
+			collected = append(collected, result.warning)
+		}
+		if result.assemble != nil {
+			assembleTasks[result.index] = result.assemble
+		}
+	}
+	if live.Assemble && liveAssembler != nil {
+		// Keep earlier stages parallel and only serialize the final makelive call.
+		// Concurrency before this point is still bounded by --jobs (default 2):
+		// page-level frame capture/export tasks run with up to effectiveJobs workers,
+		// while frame capture within a single page stays serial (1) to preserve frame
+		// order. Concurrent makelive invocations have shown intermittent segfaults in
+		// practice, so assemble runs sequentially here in original page order.
+		for _, task := range assembleTasks {
+			if task == nil {
+				continue
+			}
+			if err := liveAssembler.Assemble(*task); err != nil {
+				collected = append(collected, fmt.Sprintf("live assemble failed for %s: %v", task.PageName, err))
+			}
+		}
 	}
 	sort.Strings(collected)
 	return collected
 }
 
-func (r Renderer) runAnimatedExportTask(task animatedCaptureTask, mode normalizedAnimatedOptions, live normalizedLiveOptions, webpEnabled bool, webpEncoder WebPEncoder, mp4Enabled bool, mp4Encoder MP4Encoder, liveBuilder LivePackageBuilder, liveAssembler LivePhotoAssembler) string {
+func (r Renderer) runAnimatedExportTask(task animatedCaptureTask, mode normalizedAnimatedOptions, live normalizedLiveOptions, webpEnabled bool, webpEncoder WebPEncoder, mp4Enabled bool, mp4Encoder MP4Encoder, liveBuilder LivePackageBuilder) (string, *appleLiveTask) {
 	captureTasks := make([]captureTask, 0, len(task.framePaths))
 	for i := range task.framePaths {
 		captureTasks = append(captureTasks, captureTask{name: task.pageName, htmlPath: task.frameURIs[i], pngPath: task.framePaths[i]})
 	}
 	for _, path := range task.framePaths {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return fmt.Sprintf("animated export skipped for %s: %v", task.pageName, err)
+			return fmt.Sprintf("animated export skipped for %s: %v", task.pageName, err), nil
 		}
 	}
 	if err := r.runCaptureTasksWithJobs(captureTasks, 1); err != nil {
-		return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err)
+		return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err), nil
 	}
 	if webpEnabled {
 		if err := webpEncoder.Encode(task.outputPath, frameSpecsForTask(task, mode.FrameMS)); err != nil {
-			return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err)
+			return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err), nil
 		}
 	}
 	if mp4Enabled {
 		if err := mp4Encoder.Encode(task.outputPath, animatedSequenceSpec{FramePattern: task.framePattern, FPS: mode.FPS}); err != nil {
-			return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err)
+			return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err), nil
 		}
 	}
 	if live.Enabled && liveBuilder != nil {
 		if err := liveBuilder.Build(livePackageTask{PageName: task.pageName, OutputDir: task.liveOutputDir, FramePaths: append([]string(nil), task.framePaths...), FramePattern: task.framePattern, DurationMS: mode.DurationMS, FPS: mode.FPS, PhotoFormat: live.PhotoFormat, CoverFrame: live.CoverFrame}); err != nil {
-			return fmt.Sprintf("live export failed for %s: %v", task.pageName, err)
+			return fmt.Sprintf("live export failed for %s: %v", task.pageName, err), nil
 		}
-		if live.Assemble && liveAssembler != nil {
-			if err := liveAssembler.Assemble(appleLiveTask{PageName: task.pageName, PackageDir: task.liveOutputDir, PhotoPath: filepath.Join(task.liveOutputDir, liveCoverFilename), VideoPath: filepath.Join(task.liveOutputDir, liveMotionFilename), OutputDir: live.OutputDir}); err != nil {
-				return fmt.Sprintf("live assemble failed for %s: %v", task.pageName, err)
-			}
+		if live.Assemble {
+			return "", &appleLiveTask{PageName: task.pageName, PackageDir: task.liveOutputDir, PhotoPath: filepath.Join(task.liveOutputDir, liveCoverFilename), VideoPath: filepath.Join(task.liveOutputDir, liveMotionFilename), OutputDir: live.OutputDir}
 		}
 	}
-	return ""
+	return "", nil
 }
 
 func collectCaptureTasks(inputPath string) ([]captureTask, error) {
