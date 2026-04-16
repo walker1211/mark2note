@@ -707,6 +707,25 @@ func TestRenderHTMLFailsOnUnknownTheme(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLFailsWhenResolvedThemeIsIncomplete(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeWarmPaper
+	d.Themes = map[string]deck.Theme{
+		deck.ThemeWarmPaper: {
+			Name: deck.ThemeWarmPaper,
+			BG:   "#fff",
+		},
+	}
+
+	_, err := RenderPageHTML(d, d.Pages[0])
+	if err == nil {
+		t.Fatalf("RenderPageHTML() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), `theme "warm-paper" missing`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRenderHTMLFailsOnUnknownVariant(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := d.Pages[0]

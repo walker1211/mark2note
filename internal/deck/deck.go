@@ -17,10 +17,56 @@ type Theme struct {
 	Line               string
 	Panel              string
 	White              string
+	AccentForeground   string
+	InversePillColor   string
+	WatermarkColor     string
+	EmphasisColor      string
+	NumberColor        string
+	InlineCodeBG       string
+	InlineCodeBorder   string
+	InlineCodeColor    string
+	CodeBlockBG        string
+	CodeBlockBorder    string
+	CodeBlockColor     string
 	AuthorColor        string
 	AuthorWeight       string
 	AuthorSize         string
 	AuthorBottomOffset string
+}
+
+func (t Theme) Validate() error {
+	for field, value := range map[string]string{
+		"Name":               t.Name,
+		"BG":                 t.BG,
+		"Card":               t.Card,
+		"Text":               t.Text,
+		"Sub":                t.Sub,
+		"Accent":             t.Accent,
+		"AccentSoft":         t.AccentSoft,
+		"Line":               t.Line,
+		"Panel":              t.Panel,
+		"White":              t.White,
+		"AccentForeground":   t.AccentForeground,
+		"InversePillColor":   t.InversePillColor,
+		"WatermarkColor":     t.WatermarkColor,
+		"EmphasisColor":      t.EmphasisColor,
+		"NumberColor":        t.NumberColor,
+		"InlineCodeBG":       t.InlineCodeBG,
+		"InlineCodeBorder":   t.InlineCodeBorder,
+		"InlineCodeColor":    t.InlineCodeColor,
+		"CodeBlockBG":        t.CodeBlockBG,
+		"CodeBlockBorder":    t.CodeBlockBorder,
+		"CodeBlockColor":     t.CodeBlockColor,
+		"AuthorColor":        t.AuthorColor,
+		"AuthorWeight":       t.AuthorWeight,
+		"AuthorSize":         t.AuthorSize,
+		"AuthorBottomOffset": t.AuthorBottomOffset,
+	} {
+		if value == "" {
+			return fmt.Errorf("theme %q missing %s", t.Name, field)
+		}
+	}
+	return nil
 }
 
 type PageMeta struct {
