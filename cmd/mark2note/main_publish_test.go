@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/walker1211/mark2note/internal/app"
+	"github.com/walker1211/mark2note/internal/config"
 	"github.com/walker1211/mark2note/internal/xhs"
 )
 
@@ -18,6 +20,38 @@ func TestUsageTextMentionsPublishXHSCommand(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("usageText() missing %q", want)
 		}
+	}
+}
+
+func TestPublishXHSUsageTextMentionsConfigDefaults(t *testing.T) {
+	text := publishXHSUsageText()
+	for _, want := range []string{"--config <file>", "default from xhs.publish.account", "default from xhs.publish.mode", "default from xhs.publish.profile_dir"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("publishXHSUsageText() missing %q", want)
+		}
+	}
+}
+
+func TestParsePublishXHSOptionsTracksConfigBackedFlagPresence(t *testing.T) {
+	opts, err := parsePublishXHSOptions([]string{"--config", "alt.yaml", "--account", "writer", "--headless=false", "--profile-dir", "/tmp/xhs", "--mode", "schedule", "--title", "标题", "--content", "正文", "--images", "cover.png"})
+	if err != nil {
+		t.Fatalf("parsePublishXHSOptions() error = %v", err)
+	}
+	if opts.ConfigPath != "alt.yaml" || !opts.ConfigPathChanged {
+		t.Fatalf("ConfigPath = %#v", opts)
+	}
+	if !opts.AccountChanged || !opts.HeadlessChanged || !opts.ProfileDirChanged || !opts.ModeChanged {
+		t.Fatalf("changed flags = %#v", opts)
+	}
+}
+
+func TestParsePublishXHSOptionsUsesDefaultConfigPath(t *testing.T) {
+	opts, err := parsePublishXHSOptions([]string{"--title", "标题", "--content", "正文", "--images", "cover.png"})
+	if err != nil {
+		t.Fatalf("parsePublishXHSOptions() error = %v", err)
+	}
+	if opts.ConfigPath != "configs/config.yaml" || opts.ConfigPathChanged {
+		t.Fatalf("opts = %#v", opts)
 	}
 }
 
@@ -250,4 +284,141 @@ func TestRunPublishXHSRejectsConflictingMediaSources(t *testing.T) {
 	if !strings.Contains(stderr.String(), "exactly one media source is required") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
+}
+
+func TestRunPublishXHSUsesConfigDefaultsWhenFlagsOmitted(t *testing.T) {
+	originalLoadConfig := loadConfig
+	originalPublishXHS := publishXHS
+	defer func() {
+		loadConfig = originalLoadConfig
+		publishXHS = originalPublishXHS
+	}()
+
+	headless := false
+	loadConfig = func(path string) (*config.Config, error) {
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:    "walker",
+			Headless:   &headless,
+			ProfileDir: "/tmp/from-config",
+			Mode:       "only-self",
+		}}}, nil
+	}
+
+	var got app.PublishOptions
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		got = opts
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if got.Account != "walker" || got.Headless != false || got.ProfileDir != "/tmp/from-config" || got.Mode != string(xhs.PublishModeOnlySelf) {
+		t.Fatalf("merged opts = %#v", got)
+	}
+}
+
+func TestRunPublishXHSCLIOverridesConfigDefaults(t *testing.T) {
+	originalLoadConfig := loadConfig
+	originalPublishXHS := publishXHS
+	defer func() {
+		loadConfig = originalLoadConfig
+		publishXHS = originalPublishXHS
+	}()
+
+	headless := false
+	loadConfig = func(path string) (*config.Config, error) {
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:    "walker",
+			Headless:   &headless,
+			ProfileDir: "/tmp/from-config",
+			Mode:       "only-self",
+		}}}, nil
+	}
+
+	var got app.PublishOptions
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		got = opts
+		scheduledAt := ptrSchedule("2026-04-16 10:00:00")
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeSchedule, MediaKind: xhs.MediaKindStandard, ScheduleTime: scheduledAt}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--account", "writer", "--headless=true", "--profile-dir", "/tmp/from-cli", "--mode", "schedule", "--schedule-at", "2026-04-16 10:00:00", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if got.Account != "writer" || got.Headless != true || got.ProfileDir != "/tmp/from-cli" || got.Mode != string(xhs.PublishModeSchedule) {
+		t.Fatalf("merged opts = %#v", got)
+	}
+}
+
+func TestRunPublishXHSFallsBackWhenDefaultConfigMissing(t *testing.T) {
+	originalLoadConfig := loadConfig
+	originalPublishXHS := publishXHS
+	defer func() {
+		loadConfig = originalLoadConfig
+		publishXHS = originalPublishXHS
+	}()
+
+	loadConfig = func(path string) (*config.Config, error) {
+		return nil, os.ErrNotExist
+	}
+
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		if opts.Account != "creator-a" {
+			t.Fatalf("Account = %q, want creator-a", opts.Account)
+		}
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--account", "creator-a", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+}
+
+func TestRunPublishXHSRejectsExplicitMissingConfig(t *testing.T) {
+	originalLoadConfig := loadConfig
+	defer func() { loadConfig = originalLoadConfig }()
+
+	loadConfig = func(path string) (*config.Config, error) {
+		return nil, os.ErrNotExist
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--config", "missing.yaml", "--account", "creator-a", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "error loading config") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunPublishXHSRejectsScheduleModeFromConfigWithoutScheduleAt(t *testing.T) {
+	originalLoadConfig := loadConfig
+	defer func() { loadConfig = originalLoadConfig }()
+
+	loadConfig = func(path string) (*config.Config, error) {
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker", Mode: "schedule"}}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "--schedule-at is required when --mode schedule") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func ptrSchedule(input string) *time.Time {
+	_ = input
+	tm := time.Date(2026, 4, 16, 10, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	return &tm
 }

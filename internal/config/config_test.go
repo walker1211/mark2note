@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -262,5 +263,69 @@ func TestLoadKeepsExplicitRenderConfig(t *testing.T) {
 	}
 	if cfg.Render.Animated.FPS != 10 {
 		t.Fatalf("Animated.FPS = %d, want 10", cfg.Render.Animated.FPS)
+	}
+}
+
+func TestLoadAppliesDefaultXHSPublishConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("output:\n  dir: out\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.Account != "" {
+		t.Fatalf("Account = %q, want empty", cfg.XHS.Publish.Account)
+	}
+	if cfg.XHS.Publish.Headless != nil {
+		t.Fatalf("Headless = %v, want nil", cfg.XHS.Publish.Headless)
+	}
+	if cfg.XHS.Publish.ProfileDir != "" {
+		t.Fatalf("ProfileDir = %q, want empty", cfg.XHS.Publish.ProfileDir)
+	}
+	if cfg.XHS.Publish.Mode != "only-self" {
+		t.Fatalf("Mode = %q, want only-self", cfg.XHS.Publish.Mode)
+	}
+}
+
+func TestLoadKeepsExplicitXHSPublishConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "xhs:\n  publish:\n    account: walker\n    headless: false\n    profile_dir: ~/.config/mark2note/xhs/profiles/walker\n    mode: schedule\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.Account != "walker" {
+		t.Fatalf("Account = %q, want walker", cfg.XHS.Publish.Account)
+	}
+	if cfg.XHS.Publish.Headless == nil || *cfg.XHS.Publish.Headless {
+		t.Fatalf("Headless = %#v, want false", cfg.XHS.Publish.Headless)
+	}
+	if cfg.XHS.Publish.ProfileDir != "~/.config/mark2note/xhs/profiles/walker" {
+		t.Fatalf("ProfileDir = %q", cfg.XHS.Publish.ProfileDir)
+	}
+	if cfg.XHS.Publish.Mode != "schedule" {
+		t.Fatalf("Mode = %q, want schedule", cfg.XHS.Publish.Mode)
+	}
+}
+
+func TestLoadRejectsInvalidXHSPublishMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("xhs:\n  publish:\n    mode: publish-now\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "validate xhs.publish.mode") {
+		t.Fatalf("Load() error = %v, want mode validation error", err)
 	}
 }
