@@ -7,10 +7,18 @@ A Markdown-to-deck CLI for generating HTML / PNG presentation assets, with optio
 ## Features
 
 - Convert Markdown into AI-generated deck JSON, then render HTML and capture PNG
+- Support deck themes including `shuffle-light`, which randomly reuses the six existing non-`tech-noir` palettes with no adjacent-page repeats
 - Optionally export Animated WebP or MP4 per page
 - Optionally build experimental Live package outputs and assemble Apple Live Photos
 - Capture existing HTML files into sibling PNG files via `capture-html`
 - Publish standard image posts or Live-photo assets to Xiaohongshu via `publish-xhs`
+
+## Theme Notes
+
+- `deck.theme` and `--theme` also support `shuffle-light`
+- `shuffle-light` rerandomizes page palette assignment on each run
+- It only reuses these existing palettes: `default-orange`, `default-green`, `warm-paper`, `editorial-cool`, `lifestyle-light`, `editorial-mono`
+- Adjacent pages never use the same palette; `tech-noir` is excluded from the pool
 
 ## Output Notes
 

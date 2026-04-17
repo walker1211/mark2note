@@ -266,6 +266,42 @@ func TestDeckFromJSONFallsBackWhenTopLevelThemeIsInvalid(t *testing.T) {
 	}
 }
 
+func TestDeckFromJSONAssignsConcretePageThemesForShuffleLight(t *testing.T) {
+	raw := `{
+  "theme": "shuffle-light",
+  "pages": [
+    {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},
+    {"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["a"]}},
+    {"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文3"}}
+  ]
+}`
+	d, err := FromJSON(raw, "/tmp/out")
+	if err != nil {
+		t.Fatalf("FromJSON() error = %v", err)
+	}
+	if d.ThemeName != ThemeShuffleLight {
+		t.Fatalf("ThemeName = %q, want %q", d.ThemeName, ThemeShuffleLight)
+	}
+	if len(d.PageThemeKeys) != len(d.Pages) {
+		t.Fatalf("len(PageThemeKeys) = %d, want %d", len(d.PageThemeKeys), len(d.Pages))
+	}
+	for i, key := range d.PageThemeKeys {
+		if key == "" {
+			t.Fatalf("PageThemeKeys[%d] is empty", i)
+		}
+		if i > 0 && d.PageThemeKeys[i-1] == key {
+			t.Fatalf("adjacent shuffle-light keys repeated %q", key)
+		}
+	}
+}
+
+func TestDefaultDeckDoesNotAssignPageThemeKeysForFixedThemes(t *testing.T) {
+	d := DefaultDeck("/tmp/out")
+	if len(d.PageThemeKeys) != 0 {
+		t.Fatalf("len(PageThemeKeys) = %d, want 0", len(d.PageThemeKeys))
+	}
+}
+
 func TestDeckFromJSONRejectsUnknownTheme(t *testing.T) {
 	raw := `{
   "pages": [

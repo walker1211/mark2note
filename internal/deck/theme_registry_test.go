@@ -1,6 +1,8 @@
 package deck
 
 import (
+	"math/rand"
+	"reflect"
 	"testing"
 )
 
@@ -47,6 +49,50 @@ func TestResolveDeckThemeReturnsNewThemesDirectly(t *testing.T) {
 	}
 	if got := ResolveDeckTheme(ThemeEditorialMono); got != ThemeEditorialMono {
 		t.Fatalf("ResolveDeckTheme() = %q, want %q", got, ThemeEditorialMono)
+	}
+	if got := ResolveDeckTheme(ThemeShuffleLight); got != ThemeShuffleLight {
+		t.Fatalf("ResolveDeckTheme() = %q, want %q", got, ThemeShuffleLight)
+	}
+}
+
+func TestShuffleLightPalettePoolExcludesTechNoir(t *testing.T) {
+	pool := ShuffleLightPaletteKeys()
+	want := []string{
+		paletteDefaultOrange,
+		paletteDefaultGreen,
+		ThemeWarmPaper,
+		ThemeEditorialCool,
+		ThemeLifestyle,
+		ThemeEditorialMono,
+	}
+	if !reflect.DeepEqual(pool, want) {
+		t.Fatalf("ShuffleLightPaletteKeys() = %#v, want %#v", pool, want)
+	}
+}
+
+func TestAssignShuffleLightPageThemesNeverRepeatsAdjacentPages(t *testing.T) {
+	r := rand.New(rand.NewSource(7))
+	got, err := AssignShuffleLightPageThemes(8, r)
+	if err != nil {
+		t.Fatalf("AssignShuffleLightPageThemes() error = %v", err)
+	}
+	if len(got) != 8 {
+		t.Fatalf("len(got) = %d, want 8", len(got))
+	}
+	allowed := make(map[string]struct{}, len(ShuffleLightPaletteKeys()))
+	for _, key := range ShuffleLightPaletteKeys() {
+		allowed[key] = struct{}{}
+	}
+	for i, key := range got {
+		if _, ok := allowed[key]; !ok {
+			t.Fatalf("got[%d] = %q, not in allowed pool", i, key)
+		}
+		if key == ThemeTechNoir {
+			t.Fatalf("got[%d] unexpectedly used tech-noir", i)
+		}
+		if i > 0 && got[i-1] == key {
+			t.Fatalf("adjacent pages repeated palette %q at index %d", key, i)
+		}
 	}
 }
 

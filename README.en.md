@@ -58,6 +58,13 @@ Notes:
 - If you still need the legacy root-level config behavior, pass it explicitly with `--config ./config.yaml`
 - You can also use `--config` to point to any other config file
 
+## Theme Notes
+
+- `deck.theme` and `--theme` now support `shuffle-light`
+- `shuffle-light` rerandomizes page palette assignment on each run
+- It only reuses these six existing non-`tech-noir` palettes: `default-orange`, `default-green`, `warm-paper`, `editorial-cool`, `lifestyle-light`, `editorial-mono`
+- Adjacent pages never repeat the same palette, and `tech-noir` is excluded from the pool
+
 ## Configuration
 
 Default config file: `configs/config.yaml`
@@ -66,7 +73,7 @@ Key fields:
 
 - `output.dir`: default output root directory
 - `ai.command` / `ai.args`: AI CLI command and arguments used to generate deck JSON
-- `deck.theme`: default theme, supporting `default`, `warm-paper`, `editorial-cool`, `lifestyle-light`, `tech-noir`, and `editorial-mono`
+- `deck.theme`: default theme, supporting `default`, `shuffle-light`, `warm-paper`, `editorial-cool`, `lifestyle-light`, `tech-noir`, and `editorial-mono`
 - `deck.author`: default cover author value
 - `deck.watermark.enabled`: enables the page watermark, on by default
 - `deck.watermark.text`: watermark text, defaulting to `walker1211/mark2note`
@@ -142,6 +149,7 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ./mark2note --input ./article.md --config ./configs/config.yaml
 ./mark2note --input ./article.md --config ./config.yaml
 ./mark2note --input ./article.md --theme warm-paper --author "Your Name"
+./mark2note --input ./article.md --theme shuffle-light
 ./mark2note --input ./article.md --theme tech-noir
 ./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8

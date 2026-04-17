@@ -159,6 +159,9 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	}
 
 	d.ThemeName = resolveThemeWithPrecedence(opts.Theme, cfg.Deck.Theme, d.ThemeName)
+	if err := deck.AssignPageThemesForDeck(&d); err != nil {
+		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
+	}
 	d.ViewportWidth = opts.ViewportWidth
 	d.ViewportHeight = opts.ViewportHeight
 	author := deck.ResolveCoverAuthor(opts.Author, cfg.Deck.Author)

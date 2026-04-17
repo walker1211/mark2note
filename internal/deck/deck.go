@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"time"
 )
 
 type Theme struct {
@@ -116,6 +118,7 @@ type Page struct {
 type Deck struct {
 	OutDir            string
 	ThemeName         string           `json:"theme,omitempty"`
+	PageThemeKeys     []string         `json:"-"`
 	ShowAuthor        bool             `json:"-"`
 	AuthorText        string           `json:"-"`
 	ShowWatermark     bool             `json:"-"`
@@ -197,6 +200,19 @@ var allowedCompareFields = map[string]struct{}{
 
 func defaultThemes() map[string]Theme {
 	return RegisteredThemes()
+}
+
+func AssignPageThemesForDeck(d *Deck) error {
+	if d.ThemeName != ThemeShuffleLight {
+		d.PageThemeKeys = nil
+		return nil
+	}
+	assignments, err := AssignShuffleLightPageThemes(len(d.Pages), rand.New(rand.NewSource(time.Now().UnixNano())))
+	if err != nil {
+		return err
+	}
+	d.PageThemeKeys = assignments
+	return nil
 }
 
 func normalizePageNames(pages []Page) []Page {
@@ -343,12 +359,16 @@ func DefaultDeck(outDir string) Deck {
 
 	pages = normalizePageNames(pages)
 
-	return Deck{
+	d := Deck{
 		OutDir:    outDir,
 		ThemeName: ThemeDefault,
 		Pages:     pages,
 		Themes:    defaultThemes(),
 	}
+	if err := AssignPageThemesForDeck(&d); err != nil {
+		panic(err)
+	}
+	return d
 }
 
 func FromJSON(raw string, outDir string) (Deck, error) {
@@ -377,6 +397,9 @@ func FromJSON(raw string, outDir string) (Deck, error) {
 		Pages:     pages,
 		Themes:    defaultThemes(),
 	}
+	if err := AssignPageThemesForDeck(&d); err != nil {
+		return Deck{}, err
+	}
 	if err := d.Validate(); err != nil {
 		return Deck{}, err
 	}
@@ -393,6 +416,25 @@ func (d Deck) Validate() error {
 	}
 	if d.Pages[len(d.Pages)-1].Variant != "ending" {
 		return fmt.Errorf("last page must use ending variant")
+	}
+	if d.ThemeName == ThemeShuffleLight {
+		if len(d.PageThemeKeys) != len(d.Pages) {
+			return fmt.Errorf("shuffle-light page theme assignment count mismatch")
+		}
+		for i, key := range d.PageThemeKeys {
+			if key == "" {
+				return fmt.Errorf("shuffle-light page theme assignment %d is empty", i)
+			}
+			if key == ThemeTechNoir {
+				return fmt.Errorf("shuffle-light page theme assignment %d unexpectedly used tech-noir", i)
+			}
+			if _, ok := d.Themes[key]; !ok {
+				return fmt.Errorf("shuffle-light page theme assignment %d uses unknown palette %q", i, key)
+			}
+			if i > 0 && d.PageThemeKeys[i-1] == key {
+				return fmt.Errorf("shuffle-light adjacent pages share palette %q", key)
+			}
+		}
 	}
 	seenNames := make(map[string]struct{}, len(d.Pages))
 	for _, page := range d.Pages {
