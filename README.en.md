@@ -58,6 +58,23 @@ Notes:
 - If you still need the legacy root-level config behavior, pass it explicitly with `--config ./config.yaml`
 - You can also use `--config` to point to any other config file
 
+## Regenerate from a saved layout
+
+Successful renders write `deck.json` and `render-meta.json` to the output directory. Use `--from-deck` to regenerate HTML/PNG from that saved layout without rereading Markdown or rerunning AI layout:
+
+```bash
+./mark2note --from-deck ./output/preview/deck.json
+```
+
+The rerender path reuses the same post-render flows:
+
+```bash
+./mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
+./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
+```
+
+Without `--out`, mark2note creates a new timestamped directory from the original deck directory name. If a sibling `render-meta.json` exists, it restores theme, viewport, author, watermark, and saved `shuffle-light` page colors. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
+
 ## Theme Notes
 
 - `deck.theme` and `--theme` now support `shuffle-light`

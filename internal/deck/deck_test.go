@@ -295,6 +295,68 @@ func TestDeckFromJSONAssignsConcretePageThemesForShuffleLight(t *testing.T) {
 	}
 }
 
+func TestDeckFromJSONUsesPersistedViewportAndPageThemeKeys(t *testing.T) {
+	raw := `{
+  "theme": "shuffle-light",
+  "viewport": {"width": 720, "height": 960},
+  "page_theme_keys": ["default-green", "lifestyle-light", "default-orange"],
+  "pages": [
+    {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},
+    {"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["a"]}},
+    {"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文3"}}
+  ]
+}`
+	d, err := FromJSON(raw, "/tmp/out")
+	if err != nil {
+		t.Fatalf("FromJSON() error = %v", err)
+	}
+	if d.ViewportWidth != 720 || d.ViewportHeight != 960 {
+		t.Fatalf("viewport = %dx%d, want 720x960", d.ViewportWidth, d.ViewportHeight)
+	}
+	wantPageThemeKeys := []string{"default-green", "lifestyle-light", "default-orange"}
+	if !reflect.DeepEqual(d.PageThemeKeys, wantPageThemeKeys) {
+		t.Fatalf("PageThemeKeys = %#v, want %#v", d.PageThemeKeys, wantPageThemeKeys)
+	}
+}
+
+func TestDeckFromJSONRejectsInvalidPersistedPageThemeKeys(t *testing.T) {
+	raw := `{
+  "theme": "shuffle-light",
+  "page_theme_keys": ["default-green"],
+  "pages": [
+    {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},
+    {"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["a"]}},
+    {"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文3"}}
+  ]
+}`
+	_, err := FromJSON(raw, "/tmp/out")
+	if err == nil {
+		t.Fatalf("FromJSON() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "shuffle-light page theme assignment count mismatch") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDeckFromJSONRejectsExplicitEmptyPersistedPageThemeKeys(t *testing.T) {
+	raw := `{
+  "theme": "shuffle-light",
+  "page_theme_keys": [],
+  "pages": [
+    {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},
+    {"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["a"]}},
+    {"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文3"}}
+  ]
+}`
+	_, err := FromJSON(raw, "/tmp/out")
+	if err == nil {
+		t.Fatalf("FromJSON() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "shuffle-light page theme assignment count mismatch") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestDefaultDeckDoesNotAssignPageThemeKeysForFixedThemes(t *testing.T) {
 	d := DefaultDeck("/tmp/out")
 	if len(d.PageThemeKeys) != 0 {

@@ -58,6 +58,23 @@ go build -o ./mark2note ./cmd/mark2note
 - 如果你确实需要继续使用根目录旧配置，可显式传入：`--config ./config.yaml`
 - 也可以通过 `--config` 指定任意其他配置文件
 
+## 从已保存布局重新生成
+
+每次成功渲染都会在输出目录写入 `deck.json` 和 `render-meta.json`。如果只想从已保存布局重新生成 HTML/PNG，不重新读取 Markdown，也不重新调用 AI 布局：
+
+```bash
+./mark2note --from-deck ./output/preview/deck.json
+```
+
+这个流程仍然支持后续导入相册和 Live 输出：
+
+```bash
+./mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
+./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
+```
+
+不传 `--out` 时，会按原 deck 所在目录名加时间戳生成新的输出目录。如果同目录存在 `render-meta.json`，会恢复旧运行的主题、视口、作者、水印和 `shuffle-light` 页面配色。`--prompt-extra` 只适用于 `--input`，不能和 `--from-deck` 一起使用。
+
 ## 主题说明
 
 - `deck.theme` 和 `--theme` 现在都支持 `shuffle-light`

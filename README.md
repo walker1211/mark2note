@@ -40,6 +40,23 @@ go build -o ./mark2note ./cmd/mark2note
 ./mark2note publish-xhs --help
 ```
 
+### Regenerate from saved layout
+
+Every successful render writes `deck.json` and `render-meta.json` into the output directory. To regenerate HTML/PNG from the saved layout without rereading Markdown or rerunning AI layout:
+
+```bash
+./mark2note --from-deck ./output/preview/deck.json
+```
+
+The rerender path still supports post-render flows:
+
+```bash
+./mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
+./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
+```
+
+When `--out` is omitted, the new output directory is based on the old deck directory name plus a timestamp. If a sibling `render-meta.json` exists, it restores theme, viewport, author, watermark, and saved `shuffle-light` page colors. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
+
 ## License
 
 See [LICENSE](./LICENSE).

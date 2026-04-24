@@ -10,7 +10,7 @@ import (
 )
 
 func TestServiceGeneratePreviewReturnsDeliveryReport(t *testing.T) {
-	cfg := &config.Config{Output: config.OutputCfg{Dir: "configured-output"}}
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}}
 	reportPath := filepath.Join(t.TempDir(), "apple-live", "import-result.json")
 	report := &render.DeliveryReport{
 		SourceDir: filepath.Dir(reportPath),
@@ -42,7 +42,7 @@ func TestServiceGeneratePreviewReturnsDeliveryReport(t *testing.T) {
 }
 
 func TestServiceGeneratePreviewReturnsFailedDeliveryReportWithError(t *testing.T) {
-	cfg := &config.Config{Output: config.OutputCfg{Dir: "configured-output"}}
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}}
 	reportPath := filepath.Join(t.TempDir(), "apple-live", "import-result.json")
 	report := &render.DeliveryReport{
 		SourceDir: filepath.Dir(reportPath),

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -37,6 +38,7 @@ type Options struct {
 	ChromePath               string
 	Jobs                     int
 	InputPath                string
+	FromDeckPath             string
 	ConfigPath               string
 	OutDirChanged            bool
 	Theme                    string
@@ -91,11 +93,13 @@ type Service struct {
 }
 
 var (
-	ErrLoadConfig    = errors.New("load config failed")
-	ErrReadMarkdown  = errors.New("read markdown failed")
-	ErrBuildDeckJSON = errors.New("build deck json failed")
-	ErrParseDeck     = errors.New("parse deck failed")
-	ErrRenderPreview = errors.New("render preview failed")
+	ErrLoadConfig     = errors.New("load config failed")
+	ErrReadMarkdown   = errors.New("read markdown failed")
+	ErrReadDeck       = errors.New("read deck failed")
+	ErrReadRenderMeta = errors.New("read render meta failed")
+	ErrBuildDeckJSON  = errors.New("build deck json failed")
+	ErrParseDeck      = errors.New("parse deck failed")
+	ErrRenderPreview  = errors.New("render preview failed")
 )
 
 func (s Service) GeneratePreview(opts Options) (Result, error) {
@@ -129,6 +133,39 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
 
+	return s.renderDeck(opts, cfg, d, sourceRenderMeta{})
+}
+
+func (s Service) GenerateFromDeck(opts Options) (Result, error) {
+	cfg, err := s.effectiveLoadConfig()(opts.ConfigPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: %v", ErrLoadConfig, err)
+	}
+	if !opts.OutDirChanged {
+		opts.OutDir = filepath.Join(cfg.Output.Dir, defaultDeckOutputDirName(opts.FromDeckPath, s.effectiveNow()()))
+	}
+	if !filepath.IsAbs(opts.OutDir) {
+		if abs, absErr := filepath.Abs(opts.OutDir); absErr == nil {
+			opts.OutDir = abs
+		}
+	}
+	deckBytes, err := s.effectiveReadFile()(opts.FromDeckPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: %v", ErrReadDeck, err)
+	}
+	d, err := deck.FromJSON(string(deckBytes), opts.OutDir)
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
+	}
+	meta, err := s.readRenderMetaForDeck(opts.FromDeckPath)
+	if err != nil {
+		return Result{}, err
+	}
+	return s.renderDeck(opts, cfg, d, sourceRenderMeta{FromDeck: true, Meta: meta})
+}
+
+func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, source sourceRenderMeta) (Result, error) {
+	meta := source.Meta
 	if !opts.AnimatedEnabledChanged {
 		opts.Animated.Enabled = cfg.Render.Animated.Enabled
 	}
@@ -186,6 +223,25 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	if opts.Live.ImportPhotos && opts.Live.ImportTimeout <= 0 {
 		return Result{}, fmt.Errorf("%w: invalid parameter: live import timeout must be > 0", ErrRenderPreview)
 	}
+	preserveSavedPageThemeKeys := source.FromDeck && len(d.PageThemeKeys) > 0
+	if meta != nil {
+		if len(meta.PageThemeKeys) > 0 {
+			d.PageThemeKeys = append([]string(nil), meta.PageThemeKeys...)
+			preserveSavedPageThemeKeys = true
+		}
+		if meta.Viewport.Width > 0 && opts.ViewportWidth == 0 {
+			opts.ViewportWidth = meta.Viewport.Width
+		}
+		if meta.Viewport.Height > 0 && opts.ViewportHeight == 0 {
+			opts.ViewportHeight = meta.Viewport.Height
+		}
+	}
+	if source.FromDeck && opts.ViewportWidth == 0 && d.ViewportWidth > 0 {
+		opts.ViewportWidth = d.ViewportWidth
+	}
+	if source.FromDeck && opts.ViewportHeight == 0 && d.ViewportHeight > 0 {
+		opts.ViewportHeight = d.ViewportHeight
+	}
 	if opts.ViewportWidth == 0 {
 		opts.ViewportWidth = cfg.Render.Viewport.Width
 	}
@@ -193,18 +249,40 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 		opts.ViewportHeight = cfg.Render.Viewport.Height
 	}
 
-	d.ThemeName = resolveThemeWithPrecedence(opts.Theme, cfg.Deck.Theme, d.ThemeName)
-	if err := deck.AssignPageThemesForDeck(&d); err != nil {
+	metaTheme := ""
+	if meta != nil {
+		metaTheme = meta.Theme
+	}
+	d.ThemeName = resolveThemeWithPrecedence(opts.Theme, metaTheme, cfg.Deck.Theme, d.ThemeName)
+	if err := assignPageThemesForRender(&d, preserveSavedPageThemeKeys); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
 	d.ViewportWidth = opts.ViewportWidth
 	d.ViewportHeight = opts.ViewportHeight
-	author := deck.ResolveCoverAuthor(opts.Author, cfg.Deck.Author)
-	d.ShowAuthor = author.Show
-	d.AuthorText = author.Text
-	d.ShowWatermark = resolveWatermarkEnabled(cfg.Deck.Watermark.Enabled)
-	d.WatermarkText = resolveWatermarkText(cfg.Deck.Watermark.Text)
-	d.WatermarkPosition = resolveWatermarkPosition(cfg.Deck.Watermark.Position)
+	if strings.TrimSpace(opts.Author) != "" {
+		author := deck.ResolveCoverAuthor(opts.Author, "")
+		d.ShowAuthor = author.Show
+		d.AuthorText = author.Text
+	} else if meta != nil && meta.ShowAuthor != nil {
+		d.ShowAuthor = *meta.ShowAuthor
+		d.AuthorText = strings.TrimSpace(meta.AuthorText)
+	} else if meta != nil && strings.TrimSpace(meta.AuthorText) != "" {
+		d.ShowAuthor = true
+		d.AuthorText = strings.TrimSpace(meta.AuthorText)
+	} else {
+		author := deck.ResolveCoverAuthor("", cfg.Deck.Author)
+		d.ShowAuthor = author.Show
+		d.AuthorText = author.Text
+	}
+	if meta != nil {
+		d.ShowWatermark = meta.ShowWatermark
+		d.WatermarkText = resolveWatermarkText(meta.WatermarkText)
+		d.WatermarkPosition = resolveWatermarkPosition(meta.WatermarkPosition)
+	} else {
+		d.ShowWatermark = resolveWatermarkEnabled(cfg.Deck.Watermark.Enabled)
+		d.WatermarkText = resolveWatermarkText(cfg.Deck.Watermark.Text)
+		d.WatermarkPosition = resolveWatermarkPosition(cfg.Deck.Watermark.Position)
+	}
 	d.Themes = deck.RegisteredThemes()
 
 	renderResult, err := s.effectiveNewRenderer()(opts).Render(d)
@@ -218,10 +296,37 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 		DeliveryReportPath: renderResult.DeliveryReportPath,
 	}
 	if err != nil {
+		if cleanupErr := removeLayoutArtifacts(opts.OutDir); cleanupErr != nil {
+			return result, fmt.Errorf("%w: %v; cleanup layout artifacts: %v", ErrRenderPreview, err, cleanupErr)
+		}
+		return result, fmt.Errorf("%w: %v", ErrRenderPreview, err)
+	}
+	artifactInputPath := opts.InputPath
+	artifactConfigPath := opts.ConfigPath
+	if meta != nil {
+		if strings.TrimSpace(meta.InputPath) != "" {
+			artifactInputPath = meta.InputPath
+		}
+		if strings.TrimSpace(meta.ConfigPath) != "" {
+			artifactConfigPath = meta.ConfigPath
+		}
+	}
+	if err := writeLayoutArtifacts(opts.OutDir, artifactInputPath, artifactConfigPath, d); err != nil {
 		return result, fmt.Errorf("%w: %v", ErrRenderPreview, err)
 	}
 
 	return result, nil
+}
+
+func assignPageThemesForRender(d *deck.Deck, preserveSavedKeys bool) error {
+	if d.ThemeName != deck.ThemeShuffleLight {
+		d.PageThemeKeys = nil
+		return d.Validate()
+	}
+	if preserveSavedKeys {
+		return d.Validate()
+	}
+	return deck.AssignPageThemesForDeck(d)
 }
 
 func (s Service) effectiveLoadConfig() func(string) (*config.Config, error) {
@@ -247,6 +352,116 @@ func (s Service) effectiveBuildDeckJSON() func(*config.Config, string) (string, 
 		b.SetCommand(cfg.AI.Command, cfg.AI.Args)
 		return b.BuildDeckJSON(markdown)
 	}
+}
+
+type persistedDeck struct {
+	Theme         string      `json:"theme"`
+	PageThemeKeys []string    `json:"page_theme_keys,omitempty"`
+	Viewport      viewportRef `json:"viewport"`
+	Pages         []deck.Page `json:"pages"`
+}
+
+type renderMeta struct {
+	SchemaVersion     int         `json:"schema_version"`
+	InputPath         string      `json:"input_path"`
+	ConfigPath        string      `json:"config_path"`
+	Theme             string      `json:"theme"`
+	Viewport          viewportRef `json:"viewport"`
+	ShowAuthor        *bool       `json:"show_author,omitempty"`
+	AuthorText        string      `json:"author_text,omitempty"`
+	ShowWatermark     bool        `json:"show_watermark"`
+	WatermarkText     string      `json:"watermark_text,omitempty"`
+	WatermarkPosition string      `json:"watermark_position,omitempty"`
+	PageThemeKeys     []string    `json:"page_theme_keys,omitempty"`
+}
+
+type sourceRenderMeta struct {
+	FromDeck bool
+	Meta     *renderMeta
+}
+
+type viewportRef struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+func removeLayoutArtifacts(outDir string) error {
+	for _, name := range []string{"deck.json", "render-meta.json"} {
+		path := filepath.Join(outDir, name)
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeLayoutArtifacts(outDir string, inputPath string, configPath string, d deck.Deck) error {
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("create layout artifact dir: %w", err)
+	}
+	viewport := viewportRef{Width: d.ViewportWidth, Height: d.ViewportHeight}
+	deckArtifact := persistedDeck{
+		Theme:         d.ThemeName,
+		PageThemeKeys: append([]string(nil), d.PageThemeKeys...),
+		Viewport:      viewport,
+		Pages:         append([]deck.Page(nil), d.Pages...),
+	}
+	deckPath := filepath.Join(outDir, "deck.json")
+	if err := writeJSONFile(deckPath, deckArtifact); err != nil {
+		if cleanupErr := removeLayoutArtifacts(outDir); cleanupErr != nil {
+			return fmt.Errorf("%w; cleanup layout artifacts: %v", err, cleanupErr)
+		}
+		return err
+	}
+	showAuthor := d.ShowAuthor
+	meta := renderMeta{
+		SchemaVersion:     1,
+		InputPath:         inputPath,
+		ConfigPath:        configPath,
+		Theme:             d.ThemeName,
+		Viewport:          viewport,
+		ShowAuthor:        &showAuthor,
+		AuthorText:        d.AuthorText,
+		ShowWatermark:     d.ShowWatermark,
+		WatermarkText:     d.WatermarkText,
+		WatermarkPosition: d.WatermarkPosition,
+		PageThemeKeys:     append([]string(nil), d.PageThemeKeys...),
+	}
+	if err := writeJSONFile(filepath.Join(outDir, "render-meta.json"), meta); err != nil {
+		if cleanupErr := removeLayoutArtifacts(outDir); cleanupErr != nil {
+			return fmt.Errorf("%w; cleanup layout artifacts: %v", err, cleanupErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func (s Service) readRenderMetaForDeck(fromDeckPath string) (*renderMeta, error) {
+	metaPath := filepath.Join(filepath.Dir(fromDeckPath), "render-meta.json")
+	content, err := s.effectiveReadFile()(metaPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%w: %v", ErrReadRenderMeta, err)
+	}
+	var meta renderMeta
+	if err := json.Unmarshal(content, &meta); err != nil {
+		return nil, fmt.Errorf("%w: parse render-meta.json: %v", ErrReadRenderMeta, err)
+	}
+	return &meta, nil
+}
+
+func writeJSONFile(path string, value any) error {
+	content, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", filepath.Base(path), err)
+	}
+	content = append(content, '\n')
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
+	}
+	return nil
 }
 
 func (s Service) effectiveNewRenderer() func(Options) DeckRenderer {
@@ -297,6 +512,14 @@ func defaultOutputDirName(inputPath string, now time.Time) string {
 		name = "deck"
 	}
 	return name + "-" + now.Format("20060102-150405")
+}
+
+func defaultDeckOutputDirName(fromDeckPath string, now time.Time) string {
+	parent := filepath.Base(filepath.Dir(strings.TrimSpace(fromDeckPath)))
+	if parent == "" || parent == "." || parent == string(filepath.Separator) {
+		parent = "deck"
+	}
+	return parent + "-" + now.Format("20060102-150405")
 }
 
 func resolveThemeWithPrecedence(values ...string) string {

@@ -138,8 +138,15 @@ type rawPage struct {
 }
 
 type rawDeck struct {
-	Theme string    `json:"theme"`
-	Pages []rawPage `json:"pages"`
+	Theme         string      `json:"theme"`
+	PageThemeKeys *[]string   `json:"page_theme_keys"`
+	Viewport      rawViewport `json:"viewport"`
+	Pages         []rawPage   `json:"pages"`
+}
+
+type rawViewport struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }
 
 const (
@@ -392,12 +399,16 @@ func FromJSON(raw string, outDir string) (Deck, error) {
 	}
 
 	d := Deck{
-		OutDir:    outDir,
-		ThemeName: ResolveDeckTheme(rd.Theme),
-		Pages:     pages,
-		Themes:    defaultThemes(),
+		OutDir:         outDir,
+		ThemeName:      ResolveDeckTheme(rd.Theme),
+		ViewportWidth:  rd.Viewport.Width,
+		ViewportHeight: rd.Viewport.Height,
+		Pages:          pages,
+		Themes:         defaultThemes(),
 	}
-	if err := AssignPageThemesForDeck(&d); err != nil {
+	if rd.PageThemeKeys != nil {
+		d.PageThemeKeys = append([]string(nil), (*rd.PageThemeKeys)...)
+	} else if err := AssignPageThemesForDeck(&d); err != nil {
 		return Deck{}, err
 	}
 	if err := d.Validate(); err != nil {
