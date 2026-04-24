@@ -55,6 +55,53 @@ func TestParsePublishXHSOptionsUsesDefaultConfigPath(t *testing.T) {
 	}
 }
 
+func TestParsePublishXHSOptionsTracksOriginalityFlagPresence(t *testing.T) {
+	opts, err := parsePublishXHSOptions([]string{"--declare-original=false", "--allow-content-copy=true", "--title", "标题", "--content", "正文", "--images", "cover.png"})
+	if err != nil {
+		t.Fatalf("parsePublishXHSOptions() error = %v", err)
+	}
+	if !opts.DeclareOriginalChanged || !opts.AllowContentCopyChanged {
+		t.Fatalf("changed flags = %#v", opts)
+	}
+	if opts.DeclareOriginal != false || opts.AllowContentCopy != true {
+		t.Fatalf("opts = %#v", opts)
+	}
+}
+
+func TestRunPublishXHSUsesConfigDefaultsForOriginalityFlags(t *testing.T) {
+	originalLoadConfig := loadConfig
+	originalPublishXHS := publishXHS
+	defer func() {
+		loadConfig = originalLoadConfig
+		publishXHS = originalPublishXHS
+	}()
+
+	declareOriginal := true
+	allowContentCopy := false
+	loadConfig = func(path string) (*config.Config, error) {
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:          "walker",
+			DeclareOriginal:  &declareOriginal,
+			AllowContentCopy: &allowContentCopy,
+		}}}, nil
+	}
+
+	var got app.PublishOptions
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		got = opts
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !got.DeclareOriginal || got.AllowContentCopy {
+		t.Fatalf("merged opts = %#v", got)
+	}
+}
+
 func TestRunPublishXHSParsesStandardMediaFlags(t *testing.T) {
 	originalGeneratePreview := generatePreview
 	originalPublishXHS := publishXHS

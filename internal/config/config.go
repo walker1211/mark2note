@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -38,9 +39,12 @@ type WatermarkCfg struct {
 }
 
 type RenderCfg struct {
-	Viewport ViewportCfg `yaml:"viewport"`
-	Animated AnimatedCfg `yaml:"animated"`
-	Live     LiveCfg     `yaml:"live"`
+	Viewport      ViewportCfg   `yaml:"viewport"`
+	Animated      AnimatedCfg   `yaml:"animated"`
+	ImportPhotos  bool          `yaml:"import_photos"`
+	ImportAlbum   string        `yaml:"import_album"`
+	ImportTimeout time.Duration `yaml:"import_timeout"`
+	Live          LiveCfg       `yaml:"live"`
 }
 
 type ViewportCfg struct {
@@ -56,11 +60,42 @@ type AnimatedCfg struct {
 }
 
 type LiveCfg struct {
-	Enabled     bool   `yaml:"enabled"`
-	PhotoFormat string `yaml:"photo_format"`
-	CoverFrame  string `yaml:"cover_frame"`
-	Assemble    bool   `yaml:"assemble"`
-	OutputDir   string `yaml:"output_dir"`
+	Enabled       bool          `yaml:"enabled"`
+	PhotoFormat   string        `yaml:"photo_format"`
+	CoverFrame    string        `yaml:"cover_frame"`
+	Assemble      bool          `yaml:"assemble"`
+	OutputDir     string        `yaml:"output_dir"`
+	ImportPhotos  bool          `yaml:"import_photos"`
+	ImportAlbum   string        `yaml:"import_album"`
+	ImportTimeout time.Duration `yaml:"import_timeout"`
+}
+
+type rawConfig struct {
+	Output OutputCfg    `yaml:"output"`
+	AI     AICfg        `yaml:"ai"`
+	Deck   DeckCfg      `yaml:"deck"`
+	Render rawRenderCfg `yaml:"render"`
+	XHS    XHSCfg       `yaml:"xhs"`
+}
+
+type rawRenderCfg struct {
+	Viewport      ViewportCfg `yaml:"viewport"`
+	Animated      AnimatedCfg `yaml:"animated"`
+	ImportPhotos  bool        `yaml:"import_photos"`
+	ImportAlbum   string      `yaml:"import_album"`
+	ImportTimeout string      `yaml:"import_timeout"`
+	Live          rawLiveCfg  `yaml:"live"`
+}
+
+type rawLiveCfg struct {
+	Enabled       bool   `yaml:"enabled"`
+	PhotoFormat   string `yaml:"photo_format"`
+	CoverFrame    string `yaml:"cover_frame"`
+	Assemble      bool   `yaml:"assemble"`
+	OutputDir     string `yaml:"output_dir"`
+	ImportPhotos  bool   `yaml:"import_photos"`
+	ImportAlbum   string `yaml:"import_album"`
+	ImportTimeout string `yaml:"import_timeout"`
 }
 
 type XHSCfg struct {
@@ -68,10 +103,12 @@ type XHSCfg struct {
 }
 
 type XHSPublishCfg struct {
-	Account    string `yaml:"account"`
-	Headless   *bool  `yaml:"headless"`
-	ProfileDir string `yaml:"profile_dir"`
-	Mode       string `yaml:"mode"`
+	Account          string `yaml:"account"`
+	Headless         *bool  `yaml:"headless"`
+	ProfileDir       string `yaml:"profile_dir"`
+	Mode             string `yaml:"mode"`
+	DeclareOriginal  *bool  `yaml:"declare_original"`
+	AllowContentCopy *bool  `yaml:"allow_content_copy"`
 }
 
 func validateXHSPublishMode(value string) error {
@@ -83,14 +120,67 @@ func validateXHSPublishMode(value string) error {
 	}
 }
 
+func parseConfigDuration(value string) (time.Duration, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, nil
+	}
+	parsed, err := time.ParseDuration(trimmed)
+	if err != nil {
+		return 0, err
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("must be > 0")
+	}
+	return parsed, nil
+}
+
+func normalizeRawConfig(raw rawConfig) (Config, error) {
+	importTimeout, err := parseConfigDuration(raw.Render.ImportTimeout)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse render.import_timeout: %w", err)
+	}
+	liveImportTimeout, err := parseConfigDuration(raw.Render.Live.ImportTimeout)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse render.live.import_timeout: %w", err)
+	}
+	return Config{
+		Output: raw.Output,
+		AI:     raw.AI,
+		Deck:   raw.Deck,
+		Render: RenderCfg{
+			Viewport:      raw.Render.Viewport,
+			Animated:      raw.Render.Animated,
+			ImportPhotos:  raw.Render.ImportPhotos,
+			ImportAlbum:   raw.Render.ImportAlbum,
+			ImportTimeout: importTimeout,
+			Live: LiveCfg{
+				Enabled:       raw.Render.Live.Enabled,
+				PhotoFormat:   raw.Render.Live.PhotoFormat,
+				CoverFrame:    raw.Render.Live.CoverFrame,
+				Assemble:      raw.Render.Live.Assemble,
+				OutputDir:     raw.Render.Live.OutputDir,
+				ImportPhotos:  raw.Render.Live.ImportPhotos,
+				ImportAlbum:   raw.Render.Live.ImportAlbum,
+				ImportTimeout: liveImportTimeout,
+			},
+		},
+		XHS: raw.XHS,
+	}, nil
+}
+
 func Load(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	var raw rawConfig
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	cfg, err := normalizeRawConfig(raw)
+	if err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	if cfg.Output.Dir == "" {
@@ -130,17 +220,31 @@ func Load(configPath string) (*Config, error) {
 	if cfg.Render.Animated.FPS == 0 {
 		cfg.Render.Animated.FPS = 8
 	}
+	if cfg.Render.ImportTimeout == 0 {
+		cfg.Render.ImportTimeout = 120 * time.Second
+	}
 	if cfg.Render.Live.PhotoFormat == "" {
 		cfg.Render.Live.PhotoFormat = "jpeg"
 	}
 	if cfg.Render.Live.CoverFrame == "" {
 		cfg.Render.Live.CoverFrame = "middle"
 	}
+	if cfg.Render.Live.ImportTimeout == 0 {
+		cfg.Render.Live.ImportTimeout = 120 * time.Second
+	}
 	if cfg.XHS.Publish.Mode == "" {
 		cfg.XHS.Publish.Mode = "only-self"
 	}
 	if err := validateXHSPublishMode(cfg.XHS.Publish.Mode); err != nil {
 		return nil, fmt.Errorf("validate xhs.publish.mode: %w", err)
+	}
+	if cfg.XHS.Publish.DeclareOriginal == nil {
+		enabled := true
+		cfg.XHS.Publish.DeclareOriginal = &enabled
+	}
+	if cfg.XHS.Publish.AllowContentCopy == nil {
+		enabled := false
+		cfg.XHS.Publish.AllowContentCopy = &enabled
 	}
 	return &cfg, nil
 }

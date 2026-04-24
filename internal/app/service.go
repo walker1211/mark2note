@@ -33,34 +33,45 @@ type LiveOptions struct {
 }
 
 type Options struct {
-	OutDir                  string
-	ChromePath              string
-	Jobs                    int
-	InputPath               string
-	ConfigPath              string
-	OutDirChanged           bool
-	Theme                   string
-	Author                  string
-	PromptExtra             string
-	Animated                AnimatedOptions
-	Live                    LiveOptions
-	AnimatedEnabledChanged  bool
-	AnimatedFormatChanged   bool
-	AnimatedDurationChanged bool
-	AnimatedFPSChanged      bool
-	LiveEnabledChanged      bool
-	LivePhotoFormatChanged  bool
-	LiveCoverFrameChanged   bool
-	LiveAssembleChanged     bool
-	LiveOutputDirChanged    bool
-	ViewportWidth           int
-	ViewportHeight          int
+	OutDir                   string
+	ChromePath               string
+	Jobs                     int
+	InputPath                string
+	ConfigPath               string
+	OutDirChanged            bool
+	Theme                    string
+	Author                   string
+	PromptExtra              string
+	Animated                 AnimatedOptions
+	Live                     LiveOptions
+	ImportPhotos             bool
+	ImportAlbum              string
+	ImportTimeout            time.Duration
+	ImportPhotosChanged      bool
+	ImportAlbumChanged       bool
+	ImportTimeoutChanged     bool
+	AnimatedEnabledChanged   bool
+	AnimatedFormatChanged    bool
+	AnimatedDurationChanged  bool
+	AnimatedFPSChanged       bool
+	LiveEnabledChanged       bool
+	LivePhotoFormatChanged   bool
+	LiveCoverFrameChanged    bool
+	LiveAssembleChanged      bool
+	LiveOutputDirChanged     bool
+	LiveImportPhotosChanged  bool
+	LiveImportAlbumChanged   bool
+	LiveImportTimeoutChanged bool
+	ViewportWidth            int
+	ViewportHeight           int
 }
 
 type Result struct {
 	PageCount          int
 	OutDir             string
 	Warnings           []string
+	ImportReport       *render.DeliveryReport
+	ImportReportPath   string
 	DeliveryReport     *render.DeliveryReport
 	DeliveryReportPath string
 }
@@ -130,6 +141,15 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	if !opts.AnimatedFPSChanged {
 		opts.Animated.FPS = cfg.Render.Animated.FPS
 	}
+	if !opts.ImportPhotosChanged {
+		opts.ImportPhotos = cfg.Render.ImportPhotos
+	}
+	if !opts.ImportAlbumChanged {
+		opts.ImportAlbum = cfg.Render.ImportAlbum
+	}
+	if !opts.ImportTimeoutChanged {
+		opts.ImportTimeout = cfg.Render.ImportTimeout
+	}
 	if !opts.LiveEnabledChanged {
 		opts.Live.Enabled = cfg.Render.Live.Enabled
 	}
@@ -145,11 +165,26 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	if !opts.LiveOutputDirChanged {
 		opts.Live.OutputDir = cfg.Render.Live.OutputDir
 	}
+	if !opts.LiveImportPhotosChanged {
+		opts.Live.ImportPhotos = cfg.Render.Live.ImportPhotos
+	}
+	if !opts.LiveImportAlbumChanged {
+		opts.Live.ImportAlbum = cfg.Render.Live.ImportAlbum
+	}
+	if !opts.LiveImportTimeoutChanged {
+		opts.Live.ImportTimeout = cfg.Render.Live.ImportTimeout
+	}
 	if strings.TrimSpace(opts.Live.OutputDir) != "" && !filepath.IsAbs(opts.Live.OutputDir) {
 		opts.Live.OutputDir = filepath.Join(opts.OutDir, opts.Live.OutputDir)
 	}
+	if opts.ImportPhotos && opts.ImportTimeout <= 0 {
+		return Result{}, fmt.Errorf("%w: invalid parameter: import timeout must be > 0", ErrRenderPreview)
+	}
 	if opts.Live.ImportPhotos && !opts.Live.Assemble {
 		return Result{}, fmt.Errorf("%w: invalid parameter: live import requires live assemble", ErrRenderPreview)
+	}
+	if opts.Live.ImportPhotos && opts.Live.ImportTimeout <= 0 {
+		return Result{}, fmt.Errorf("%w: invalid parameter: live import timeout must be > 0", ErrRenderPreview)
 	}
 	if opts.ViewportWidth == 0 {
 		opts.ViewportWidth = cfg.Render.Viewport.Width
@@ -177,6 +212,8 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 		PageCount:          len(d.Pages),
 		OutDir:             opts.OutDir,
 		Warnings:           append([]string(nil), renderResult.Warnings...),
+		ImportReport:       renderResult.ImportReport,
+		ImportReportPath:   renderResult.ImportReportPath,
 		DeliveryReport:     renderResult.DeliveryReport,
 		DeliveryReportPath: renderResult.DeliveryReportPath,
 	}
@@ -223,6 +260,9 @@ func (s Service) effectiveNewRenderer() func(Options) DeckRenderer {
 			Jobs:           opts.Jobs,
 			ViewportWidth:  opts.ViewportWidth,
 			ViewportHeight: opts.ViewportHeight,
+			ImportPhotos:   opts.ImportPhotos,
+			ImportAlbum:    opts.ImportAlbum,
+			ImportTimeout:  opts.ImportTimeout,
 			Animated: render.AnimatedOptions{
 				Enabled:    opts.Animated.Enabled,
 				Format:     opts.Animated.Format,

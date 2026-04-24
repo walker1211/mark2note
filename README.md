@@ -7,6 +7,7 @@ A Markdown-to-deck CLI for generating HTML / PNG presentation assets, with optio
 ## Features
 
 - Convert Markdown into AI-generated deck JSON, then render HTML and capture PNG
+- Import generated PNG files into Apple Photos with `--import-photos`
 - Support deck themes including `shuffle-light`, which randomly reuses the six existing non-`tech-noir` palettes with no adjacent-page repeats
 - Optionally export Animated WebP or MP4 per page
 - Optionally build experimental Live package outputs and assemble Apple Live Photos
@@ -23,6 +24,7 @@ A Markdown-to-deck CLI for generating HTML / PNG presentation assets, with optio
 ## Output Notes
 
 - HTML + PNG remain the primary stable outputs
+- Use `--import-photos` to import the generated top-level PNG files into Apple Photos; add `--import-album <name>` to choose the album. The same defaults can be set with `render.import_photos`, `render.import_album`, and `render.import_timeout` in config.
 - Animated output can be enabled through `render.animated.enabled`; experimental Live output can be enabled through `render.live.enabled`
 - Animated WebP export requires `img2webp`; MP4 or Live export requires `ffmpeg`; Live packaging also requires `exiftool`
 - `capture-html` does not export Animated WebP, MP4, or Live packages.
@@ -34,6 +36,7 @@ cp configs/config.example.yaml configs/config.yaml
 go build -o ./mark2note ./cmd/mark2note
 ./mark2note --help
 ./mark2note --input ./article.md
+./mark2note --input ./article.md --import-photos --import-album "mark2note"
 ./mark2note publish-xhs --help
 ```
 

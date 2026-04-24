@@ -23,15 +23,17 @@ const (
 )
 
 type PublishRequest struct {
-	Account      string
-	Title        string
-	Content      string
-	Tags         []string
-	Mode         PublishMode
-	ScheduleTime *time.Time
-	MediaKind    MediaKind
-	ImagePaths   []string
-	Live         LivePublishSource
+	Account          string
+	Title            string
+	Content          string
+	Tags             []string
+	Mode             PublishMode
+	ScheduleTime     *time.Time
+	MediaKind        MediaKind
+	ImagePaths       []string
+	Live             LivePublishSource
+	DeclareOriginal  bool
+	AllowContentCopy bool
 }
 
 type LivePublishSource struct {

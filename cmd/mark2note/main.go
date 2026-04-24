@@ -21,10 +21,11 @@ type Options = app.Options
 
 func defaultOptions() Options {
 	return Options{
-		OutDir:     "output",
-		ChromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-		Jobs:       2,
-		ConfigPath: "configs/config.yaml",
+		OutDir:        "output",
+		ChromePath:    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+		Jobs:          2,
+		ConfigPath:    "configs/config.yaml",
+		ImportTimeout: 120 * time.Second,
 		Animated: app.AnimatedOptions{
 			Format:     "webp",
 			DurationMS: 2400,
@@ -63,6 +64,9 @@ Flags:
   --theme <name>             one-off deck theme override (default from deck.theme)
   --author <name>            one-off cover author input (blank falls back to deck.author) (default from deck.author)
   --prompt-extra <text>      extra natural-language guidance for deck generation
+  --import-photos            import generated PNG files into Apple Photos after export
+  --import-album <name>      Apple Photos album name for imported PNG files
+  --import-timeout <d>       Apple Photos PNG import timeout (default: 2m0s)
   --animated                 enable animated enhancement output
   --animated-format <name>   animated format (default: webp; supported: webp, mp4)
   --animated-duration <ms>   page animation timeline duration; also affects Live motion timing when --live is enabled (default: 2400)
@@ -83,6 +87,7 @@ Examples:
   mark2note --input ./example.md --config ./configs/config.yaml
   mark2note --input ./example.md --config ./config.yaml
   mark2note --input ./example.md --prompt-extra "封面更抓眼，少一点教程感"
+  mark2note --input ./example.md --import-photos --import-album "mark2note"
   mark2note capture-html --input ./output/preview/p02-quote.html
   mark2note capture-html --input ./output/preview
   mark2note publish-xhs --account main --title "标题" --content "正文" --images ./cover.jpg
@@ -151,6 +156,8 @@ Flags:
   --chrome <path>          chrome binary path
   --headless               run browser automation headless (default: true; xhs.publish.headless can override)
   --profile-dir <dir>      browser profile directory (default from xhs.publish.profile_dir)
+  --declare-original       declare original content before submit (default from xhs.publish.declare_original)
+  --allow-content-copy     keep allow content copy enabled (default from xhs.publish.allow_content_copy)
 
 Rules:
   - exactly one of --title / --title-file is required
@@ -176,6 +183,9 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.Theme, "theme", opts.Theme, "one-off deck theme override")
 	fs.StringVar(&opts.Author, "author", opts.Author, "one-off cover author input (blank falls back to deck.author)")
 	fs.StringVar(&opts.PromptExtra, "prompt-extra", opts.PromptExtra, "extra natural-language guidance for deck generation")
+	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
+	fs.StringVar(&opts.ImportAlbum, "import-album", opts.ImportAlbum, "Apple Photos album name for imported PNG files")
+	fs.DurationVar(&opts.ImportTimeout, "import-timeout", opts.ImportTimeout, "Apple Photos PNG import timeout")
 	fs.BoolVar(&opts.Animated.Enabled, "animated", opts.Animated.Enabled, "enable animated enhancement output")
 	fs.StringVar(&opts.Animated.Format, "animated-format", opts.Animated.Format, "animated format")
 	fs.IntVar(&opts.Animated.DurationMS, "animated-duration", opts.Animated.DurationMS, "animated duration per page in milliseconds")
@@ -206,11 +216,17 @@ func parseOptions(args []string) (Options, error) {
 	animatedFormatChanged := false
 	animatedDurationChanged := false
 	animatedFPSChanged := false
+	importPhotosChanged := false
+	importAlbumChanged := false
+	importTimeoutChanged := false
 	liveEnabledChanged := false
 	livePhotoFormatChanged := false
 	liveCoverFrameChanged := false
 	liveAssembleChanged := false
 	liveOutputDirChanged := false
+	liveImportPhotosChanged := false
+	liveImportAlbumChanged := false
+	liveImportTimeoutChanged := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "out":
@@ -223,6 +239,12 @@ func parseOptions(args []string) (Options, error) {
 			animatedDurationChanged = true
 		case "animated-fps":
 			animatedFPSChanged = true
+		case "import-photos":
+			importPhotosChanged = true
+		case "import-album":
+			importAlbumChanged = true
+		case "import-timeout":
+			importTimeoutChanged = true
 		case "live":
 			liveEnabledChanged = true
 		case "live-photo-format":
@@ -233,6 +255,12 @@ func parseOptions(args []string) (Options, error) {
 			liveAssembleChanged = true
 		case "live-output-dir":
 			liveOutputDirChanged = true
+		case "live-import-photos":
+			liveImportPhotosChanged = true
+		case "live-import-album":
+			liveImportAlbumChanged = true
+		case "live-import-timeout":
+			liveImportTimeoutChanged = true
 		}
 	})
 	opts.OutDirChanged = outChanged
@@ -240,11 +268,17 @@ func parseOptions(args []string) (Options, error) {
 	opts.AnimatedFormatChanged = animatedFormatChanged
 	opts.AnimatedDurationChanged = animatedDurationChanged
 	opts.AnimatedFPSChanged = animatedFPSChanged
+	opts.ImportPhotosChanged = importPhotosChanged
+	opts.ImportAlbumChanged = importAlbumChanged
+	opts.ImportTimeoutChanged = importTimeoutChanged
 	opts.LiveEnabledChanged = liveEnabledChanged
 	opts.LivePhotoFormatChanged = livePhotoFormatChanged
 	opts.LiveCoverFrameChanged = liveCoverFrameChanged
 	opts.LiveAssembleChanged = liveAssembleChanged
 	opts.LiveOutputDirChanged = liveOutputDirChanged
+	opts.LiveImportPhotosChanged = liveImportPhotosChanged
+	opts.LiveImportAlbumChanged = liveImportAlbumChanged
+	opts.LiveImportTimeoutChanged = liveImportTimeoutChanged
 	return opts, nil
 }
 
@@ -276,12 +310,14 @@ func parseCaptureHTMLOptions(args []string) (Options, error) {
 type publishXHSCLIOptions struct {
 	app.PublishOptions
 
-	ConfigPath        string
-	ConfigPathChanged bool
-	AccountChanged    bool
-	HeadlessChanged   bool
-	ProfileDirChanged bool
-	ModeChanged       bool
+	ConfigPath              string
+	ConfigPathChanged       bool
+	AccountChanged          bool
+	HeadlessChanged         bool
+	ProfileDirChanged       bool
+	ModeChanged             bool
+	DeclareOriginalChanged  bool
+	AllowContentCopyChanged bool
 }
 
 func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
@@ -313,6 +349,8 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	fs.StringVar(&opts.ChromePath, "chrome", opts.ChromePath, "chrome binary path")
 	fs.BoolVar(&opts.Headless, "headless", opts.Headless, "run browser automation headless")
 	fs.StringVar(&opts.ProfileDir, "profile-dir", opts.ProfileDir, "browser profile directory")
+	fs.BoolVar(&opts.DeclareOriginal, "declare-original", opts.DeclareOriginal, "declare original content before submit")
+	fs.BoolVar(&opts.AllowContentCopy, "allow-content-copy", opts.AllowContentCopy, "leave allow content copy enabled")
 
 	if err := fs.Parse(args); err != nil {
 		return publishXHSCLIOptions{}, err
@@ -335,6 +373,10 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 			opts.ProfileDirChanged = true
 		case "mode":
 			opts.ModeChanged = true
+		case "declare-original":
+			opts.DeclareOriginalChanged = true
+		case "allow-content-copy":
+			opts.AllowContentCopyChanged = true
 		}
 	})
 	return opts, nil
@@ -365,6 +407,12 @@ func mergePublishXHSDefaults(cli publishXHSCLIOptions, cfg *config.Config) app.P
 	}
 	if !cli.ModeChanged && strings.TrimSpace(defaults.Mode) != "" {
 		opts.Mode = strings.TrimSpace(defaults.Mode)
+	}
+	if !cli.DeclareOriginalChanged && defaults.DeclareOriginal != nil {
+		opts.DeclareOriginal = *defaults.DeclareOriginal
+	}
+	if !cli.AllowContentCopyChanged && defaults.AllowContentCopy != nil {
+		opts.AllowContentCopy = *defaults.AllowContentCopy
 	}
 	return opts
 }
@@ -448,6 +496,9 @@ func buildRenderer(opts Options) render.Renderer {
 		Jobs:           opts.Jobs,
 		ViewportWidth:  opts.ViewportWidth,
 		ViewportHeight: opts.ViewportHeight,
+		ImportPhotos:   opts.ImportPhotos,
+		ImportAlbum:    opts.ImportAlbum,
+		ImportTimeout:  opts.ImportTimeout,
 		Animated:       renderAnimatedOptions(opts.Animated),
 		Live:           renderLiveOptions(opts.Live),
 	}
@@ -524,6 +575,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		default:
 			fmt.Fprintf(stderr, "render preview failed: %s\n", stripErrorPrefixes(err, app.ErrParseDeck, app.ErrRenderPreview))
 		}
+		if result.ImportReportPath != "" {
+			fmt.Fprintf(stderr, "photos import report: %s\n", result.ImportReportPath)
+		}
 		if result.DeliveryReportPath != "" {
 			fmt.Fprintf(stderr, "live delivery report: %s\n", result.DeliveryReportPath)
 		}
@@ -531,6 +585,12 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 
 	fmt.Fprintf(stdout, "generated %d preview pages\n", result.PageCount)
+	if result.ImportReport != nil {
+		fmt.Fprintf(stdout, "photos import: %s (%s)\n", result.ImportReport.Status, result.ImportReport.Message)
+		if result.ImportReportPath != "" {
+			fmt.Fprintf(stdout, "photos import report: %s\n", result.ImportReportPath)
+		}
+	}
 	if result.DeliveryReport != nil {
 		fmt.Fprintf(stdout, "live delivery: %s (%s)\n", result.DeliveryReport.Status, result.DeliveryReport.Message)
 		if result.DeliveryReportPath != "" {

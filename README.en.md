@@ -84,11 +84,17 @@ Key fields:
 - `render.animated.format`: animated format, supporting `webp` and `mp4`
 - `render.animated.duration_ms`: total page animation timeline duration, default `2400`; when Live export is enabled it also affects `motion.mov`
 - `render.animated.fps`: animation capture density, default `8`; it affects Animated WebP / MP4 output and also Live frame sampling density
+- `render.import_photos`: whether to import generated PNG files into Apple Photos, off by default
+- `render.import_album`: Apple Photos album name for PNG import; when empty, `mark2note-photos-<timestamp>` is generated
+- `render.import_timeout`: PNG import timeout, default `2m`; supports Go duration strings such as `45s` and `2m`
 - `render.live.enabled`: whether to additionally export one experimental Live package per page, off by default
 - `render.live.photo_format`: Live still photo format, currently emitted as `jpeg`
 - `render.live.cover_frame`: Live cover frame strategy, supporting `first`, `middle`, and `last`
 - `render.live.assemble`: whether to call `makelive` after `.live/` packages are generated, off by default
 - `render.live.output_dir`: final Apple Live Photo output directory; when empty it defaults to `<out>/apple-live/`
+- `render.live.import_photos`: whether to import assembled Live Photos into Apple Photos, off by default; requires `render.live.assemble`
+- `render.live.import_album`: Apple Photos album name for Live import; when empty, `mark2note-live-<timestamp>` is generated
+- `render.live.import_timeout`: Live import timeout, default `2m`; supports Go duration strings such as `45s` and `2m`
 - `xhs.publish.account`: default account for `publish-xhs`
 - `xhs.publish.headless`: default browser headless mode for `publish-xhs`
 - `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs`
@@ -103,6 +109,7 @@ Additional notes:
 - `render.viewport.width` / `render.viewport.height` affect both the HTML viewport and the PNG / animated capture size; when omitted they fall back to `1242 x 1656`
 - If you want to test a Xiaohongshu-friendly portrait pipeline, try `720 x 960` or `1080 x 1440` first
 - HTML + PNG remain the primary stable outputs; Animated WebP, MP4, and Live are optional enhancement outputs
+- CLI import flags override config defaults when explicitly passed, including `--import-photos=false` and `--live-import-photos=false`
 - Animated WebP export requires `img2webp`; MP4 export requires `ffmpeg`; if either tool is missing, the command keeps successful HTML + PNG output and prints a warning
 - `render.animated.duration_ms` / `--animated-duration` is not only for `.webp/.mp4`; when Live export is enabled it also affects the overall `motion.mov` timeline
 - `render.animated.fps` / `--animated-fps` is most intuitive for Animated WebP / MP4; in Live mode it means capture density rather than a fixed final playback FPS for `motion.mov`
@@ -154,7 +161,9 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
+./mark2note --input ./article.md --import-photos --import-album "mark2note"
 ./mark2note --input ./article.md --live --live-cover-frame middle
+./mark2note --input ./article.md --live --live-assemble --live-import-photos --live-import-album "mark2note-live"
 ./mark2note --input ./article.md --live --live-assemble --live-output-dir ./output/apple-live
 ./mark2note capture-html --input ./output/preview/p02-quote.html
 ./mark2note capture-html --input ./output/preview

@@ -183,7 +183,7 @@ func TestServiceGeneratePreviewReturnsRenderWarnings(t *testing.T) {
 func TestServiceGeneratePreviewUsesLiveConfigWhenOptionsUntouched(t *testing.T) {
 	cfg := &config.Config{
 		Output: config.OutputCfg{Dir: "configured-output"},
-		Render: config.RenderCfg{Live: config.LiveCfg{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first", Assemble: true, OutputDir: "apple-live"}},
+		Render: config.RenderCfg{Live: config.LiveCfg{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first", Assemble: true, OutputDir: "apple-live", ImportPhotos: true, ImportAlbum: "Live 相册", ImportTimeout: 75 * time.Second}},
 	}
 	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
 	var gotOpts Options
@@ -201,16 +201,16 @@ func TestServiceGeneratePreviewUsesLiveConfigWhenOptionsUntouched(t *testing.T) 
 	if err != nil {
 		t.Fatalf("GeneratePreview() error = %v", err)
 	}
-	want := LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first", Assemble: true, OutputDir: filepath.Join(gotOpts.OutDir, "apple-live")}
+	want := LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first", Assemble: true, OutputDir: filepath.Join(gotOpts.OutDir, "apple-live"), ImportPhotos: true, ImportAlbum: "Live 相册", ImportTimeout: 75 * time.Second}
 	if gotOpts.Live != want {
 		t.Fatalf("Live = %#v, want %#v", gotOpts.Live, want)
 	}
 }
 
-func TestServiceGeneratePreviewKeepsLiveOverrideFlagsOverConfig(t *testing.T) {
+func TestServiceGeneratePreviewUsesPNGImportConfigWhenOptionsUntouched(t *testing.T) {
 	cfg := &config.Config{
 		Output: config.OutputCfg{Dir: "configured-output"},
-		Render: config.RenderCfg{Live: config.LiveCfg{Enabled: false, PhotoFormat: "jpeg", CoverFrame: "middle"}},
+		Render: config.RenderCfg{ImportPhotos: true, ImportAlbum: "PNG 相册", ImportTimeout: 45 * time.Second},
 	}
 	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
 	var gotOpts Options
@@ -224,13 +224,65 @@ func TestServiceGeneratePreviewKeepsLiveOverrideFlagsOverConfig(t *testing.T) {
 		},
 	}
 
-	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Live: LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first"}, LiveEnabledChanged: true, LiveCoverFrameChanged: true})
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
 	if err != nil {
 		t.Fatalf("GeneratePreview() error = %v", err)
 	}
-	want := LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first"}
+	if !gotOpts.ImportPhotos || gotOpts.ImportAlbum != "PNG 相册" || gotOpts.ImportTimeout != 45*time.Second {
+		t.Fatalf("import options = photos:%v album:%q timeout:%v", gotOpts.ImportPhotos, gotOpts.ImportAlbum, gotOpts.ImportTimeout)
+	}
+}
+
+func TestServiceGeneratePreviewKeepsLiveOverrideFlagsOverConfig(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Live: config.LiveCfg{Enabled: false, PhotoFormat: "jpeg", CoverFrame: "middle", ImportPhotos: true, ImportAlbum: "config live", ImportTimeout: 75 * time.Second}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Live: LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first", ImportPhotos: false, ImportAlbum: "cli live", ImportTimeout: 15 * time.Second}, LiveEnabledChanged: true, LiveCoverFrameChanged: true, LiveImportPhotosChanged: true, LiveImportAlbumChanged: true, LiveImportTimeoutChanged: true})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	want := LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first", ImportPhotos: false, ImportAlbum: "cli live", ImportTimeout: 15 * time.Second}
 	if gotOpts.Live != want {
 		t.Fatalf("Live = %#v, want %#v", gotOpts.Live, want)
+	}
+}
+
+func TestServiceGeneratePreviewKeepsPNGImportOverrideFlagsOverConfig(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{ImportPhotos: true, ImportAlbum: "config png", ImportTimeout: 45 * time.Second},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, ImportPhotos: false, ImportAlbum: "cli png", ImportTimeout: 15 * time.Second, ImportPhotosChanged: true, ImportAlbumChanged: true, ImportTimeoutChanged: true})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if gotOpts.ImportPhotos || gotOpts.ImportAlbum != "cli png" || gotOpts.ImportTimeout != 15*time.Second {
+		t.Fatalf("import options = photos:%v album:%q timeout:%v", gotOpts.ImportPhotos, gotOpts.ImportAlbum, gotOpts.ImportTimeout)
 	}
 }
 
@@ -242,6 +294,75 @@ func TestServiceDefaultRendererReceivesLiveDeliveryOptions(t *testing.T) {
 	}
 	if !r.Live.Enabled || r.Live.PhotoFormat != "jpeg" || r.Live.CoverFrame != "first" || !r.Live.Assemble || r.Live.OutputDir != "/tmp/apple-live" || !r.Live.ImportPhotos || r.Live.ImportAlbum != "  Camera Roll  " || r.Live.ImportTimeout != 45*time.Second {
 		t.Fatalf("renderer.Live = %#v", r.Live)
+	}
+}
+
+func TestServiceDefaultRendererReceivesPNGImportOptions(t *testing.T) {
+	renderer := Service{}.effectiveNewRenderer()(Options{ImportPhotos: true, ImportAlbum: "  Camera Roll  ", ImportTimeout: 45 * time.Second})
+	r, ok := renderer.(render.Renderer)
+	if !ok {
+		t.Fatalf("renderer type = %T, want render.Renderer", renderer)
+	}
+	if !r.ImportPhotos || r.ImportAlbum != "  Camera Roll  " || r.ImportTimeout != 45*time.Second {
+		t.Fatalf("renderer import options = photos:%v album:%q timeout:%v", r.ImportPhotos, r.ImportAlbum, r.ImportTimeout)
+	}
+}
+
+func TestServiceGeneratePreviewRejectsInvalidPNGImportTimeoutBeforeRendererRuns(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:   func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			return `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`, nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, ImportPhotos: true, ImportTimeout: 0, ImportPhotosChanged: true, ImportTimeoutChanged: true})
+	if err == nil {
+		t.Fatalf("GeneratePreview() error = nil, want non-nil")
+	}
+	if !errors.Is(err, ErrRenderPreview) {
+		t.Fatalf("error = %v, want ErrRenderPreview", err)
+	}
+	if !strings.Contains(err.Error(), "import timeout must be > 0") {
+		t.Fatalf("error = %v, want import timeout validation message", err)
+	}
+	if r.called != 0 {
+		t.Fatalf("renderer called %d times, want 0", r.called)
+	}
+}
+
+func TestServiceGeneratePreviewRejectsInvalidLiveImportTimeoutBeforeRendererRuns(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:   func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			return `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`, nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Live: LiveOptions{Enabled: true, ImportPhotos: true, Assemble: true, ImportTimeout: -1 * time.Second}, LiveImportPhotosChanged: true, LiveAssembleChanged: true, LiveImportTimeoutChanged: true})
+	if err == nil {
+		t.Fatalf("GeneratePreview() error = nil, want non-nil")
+	}
+	if !errors.Is(err, ErrRenderPreview) {
+		t.Fatalf("error = %v, want ErrRenderPreview", err)
+	}
+	if !strings.Contains(err.Error(), "live import timeout must be > 0") {
+		t.Fatalf("error = %v, want live import timeout validation message", err)
+	}
+	if r.called != 0 {
+		t.Fatalf("renderer called %d times, want 0", r.called)
 	}
 }
 
@@ -259,7 +380,7 @@ func TestServiceGeneratePreviewRejectsImportWithoutAssembleBeforeRendererRuns(t 
 		NewRenderer: func(Options) DeckRenderer { return r },
 	}
 
-	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Live: LiveOptions{Enabled: true, ImportPhotos: true, Assemble: false}})
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Live: LiveOptions{Enabled: true, ImportPhotos: true, Assemble: false}, LiveImportPhotosChanged: true})
 	if err == nil {
 		t.Fatalf("GeneratePreview() error = nil, want non-nil")
 	}

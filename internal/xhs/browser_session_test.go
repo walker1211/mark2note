@@ -114,15 +114,15 @@ func (f *fakeSessionPage) Close() error {
 	return f.closeErr
 }
 
-func (f *fakeSessionPage) Open(context.Context) error                          { return nil }
-func (f *fakeSessionPage) UploadImages(context.Context, []string) error        { return nil }
-func (f *fakeSessionPage) FillTitle(context.Context, string) error             { return nil }
-func (f *fakeSessionPage) FillContent(context.Context, string, []string) error { return nil }
-func (f *fakeSessionPage) PublishOnlySelf(context.Context) error               { return nil }
-func (f *fakeSessionPage) ConfirmOnlySelfPublished(context.Context) error      { return nil }
-func (f *fakeSessionPage) SetSchedule(context.Context, time.Time) error        { return nil }
-func (f *fakeSessionPage) SubmitScheduled(context.Context) error               { return nil }
-func (f *fakeSessionPage) ConfirmScheduledSubmitted(context.Context) error     { return nil }
+func (f *fakeSessionPage) Open(context.Context) error                            { return nil }
+func (f *fakeSessionPage) UploadImages(context.Context, []string) error          { return nil }
+func (f *fakeSessionPage) FillTitle(context.Context, string) error               { return nil }
+func (f *fakeSessionPage) FillContent(context.Context, string, []string) error   { return nil }
+func (f *fakeSessionPage) PublishOnlySelf(context.Context, PublishRequest) error { return nil }
+func (f *fakeSessionPage) ConfirmOnlySelfPublished(context.Context) error        { return nil }
+func (f *fakeSessionPage) SetSchedule(context.Context, time.Time) error          { return nil }
+func (f *fakeSessionPage) SubmitScheduled(context.Context) error                 { return nil }
+func (f *fakeSessionPage) ConfirmScheduledSubmitted(context.Context) error       { return nil }
 
 func TestBrowserSessionResolvesDefaultProfileDir(t *testing.T) {
 	got, err := resolveSessionProfileDir(func() (string, error) { return "/Users/test/Library/Application Support", nil }, "writer", "")

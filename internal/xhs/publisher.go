@@ -21,11 +21,17 @@ type PublishPage interface {
 	UploadImages(ctx context.Context, paths []string) error
 	FillTitle(ctx context.Context, title string) error
 	FillContent(ctx context.Context, content string, tags []string) error
-	PublishOnlySelf(ctx context.Context) error
+	PublishOnlySelf(ctx context.Context, request PublishRequest) error
 	ConfirmOnlySelfPublished(ctx context.Context) error
 	SetSchedule(ctx context.Context, at time.Time) error
 	SubmitScheduled(ctx context.Context) error
 	ConfirmScheduledSubmitted(ctx context.Context) error
+}
+
+type scheduledPreSubmitPage interface {
+	dismissEditorOverlays() error
+	applyOriginalDeclaration(bool) error
+	applyContentCopyPreference(bool) error
 }
 
 type Publisher struct{}
@@ -46,7 +52,7 @@ func (Publisher) PublishStandardOnlySelf(ctx context.Context, page PublishPage, 
 	if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
 	}
-	if err := page.PublishOnlySelf(ctx); err != nil {
+	if err := page.PublishOnlySelf(ctx, request); err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
 	if err := page.ConfirmOnlySelfPublished(ctx); err != nil {
@@ -168,7 +174,7 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 	return nil
 }
 
-func (p *rodPage) PublishOnlySelf(ctx context.Context) error {
+func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -176,8 +182,12 @@ func (p *rodPage) PublishOnlySelf(ctx context.Context) error {
 	if err := p.dismissEditorOverlays(); err != nil {
 		return err
 	}
-	defaultXHSLogger("only-self publish disable content copy")
-	if err := p.disableContentCopy(); err != nil {
+	defaultXHSLogger("only-self publish declare original")
+	if err := p.applyOriginalDeclaration(request.DeclareOriginal); err != nil {
+		return err
+	}
+	defaultXHSLogger("only-self publish set content copy")
+	if err := p.applyContentCopyPreference(request.AllowContentCopy); err != nil {
 		return err
 	}
 	defaultXHSLogger("only-self publish set visibility")
@@ -229,6 +239,9 @@ func (Publisher) PublishStandardScheduled(ctx context.Context, page PublishPage,
 	if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
 	}
+	if err := runScheduledPreSubmitHooks(page, request); err != nil {
+		return err
+	}
 	if err := page.SetSchedule(ctx, *request.ScheduleTime); err != nil {
 		return fmt.Errorf("%w: %v", ErrScheduleFailed, err)
 	}
@@ -237,6 +250,23 @@ func (Publisher) PublishStandardScheduled(ctx context.Context, page PublishPage,
 	}
 	if err := page.ConfirmScheduledSubmitted(ctx); err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
+	}
+	return nil
+}
+
+func runScheduledPreSubmitHooks(page PublishPage, request PublishRequest) error {
+	preSubmitPage, ok := page.(scheduledPreSubmitPage)
+	if !ok {
+		return nil
+	}
+	if err := preSubmitPage.dismissEditorOverlays(); err != nil {
+		return err
+	}
+	if err := preSubmitPage.applyOriginalDeclaration(request.DeclareOriginal); err != nil {
+		return err
+	}
+	if err := preSubmitPage.applyContentCopyPreference(request.AllowContentCopy); err != nil {
+		return err
 	}
 	return nil
 }
@@ -267,7 +297,11 @@ func (p *rodPage) SubmitScheduled(ctx context.Context) error {
 		return err
 	}
 	return rodTry(func() {
-		p.page.MustElementR("button", "定时发布|确认发布").MustClick()
+		if clicked, err := p.clickVisibleNodeByText("button", "^确认发布$|^定时发布$"); err != nil {
+			panic(err)
+		} else if !clicked {
+			panic(fmt.Errorf("scheduled submit action not found"))
+		}
 		p.page.MustWaitStable()
 	})
 }
@@ -276,10 +310,13 @@ func (p *rodPage) ConfirmScheduledSubmitted(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := p.waitForBodyText(ctx, `发布成功|提交成功|预约成功`, 15*time.Second); err != nil {
-		return fmt.Errorf("scheduled publish confirmation not observed")
+	if err := p.waitForBodyText(ctx, `发布成功|提交成功|预约成功`, 15*time.Second); err == nil {
+		return nil
 	}
-	return nil
+	if err := p.waitForPublishedRedirect(ctx, 5*time.Second); err == nil {
+		return nil
+	}
+	return fmt.Errorf("scheduled publish confirmation not observed")
 }
 
 func (p *rodPage) clickByText(selector string, pattern string) (bool, error) {
@@ -292,6 +329,40 @@ func (p *rodPage) clickByText(selector string, pattern string) (bool, error) {
 		el.MustClick()
 		p.page.MustWaitStable()
 		clicked = true
+	})
+	if err != nil {
+		return false, err
+	}
+	return clicked, nil
+}
+
+func (p *rodPage) clickVisibleNodeByText(selector string, pattern string) (bool, error) {
+	clicked := false
+	err := rodTry(func() {
+		clicked = p.page.MustEval(`(selector, pattern) => {
+			const regex = new RegExp(pattern);
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const fire = (node, type) => node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: 0 }));
+			const nodes = Array.from(document.querySelectorAll(selector)).filter(isVisible);
+			for (const node of nodes) {
+				const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+				if (!regex.test(text)) continue;
+				node.scrollIntoView({ block: 'center', behavior: 'instant' });
+				fire(node, 'mousedown');
+				fire(node, 'mouseup');
+				node.click();
+				return true;
+			}
+			return false;
+		}`, selector, pattern).Bool()
+		if clicked {
+			p.page.MustWaitStable()
+		}
 	})
 	if err != nil {
 		return false, err
@@ -607,34 +678,83 @@ func (p *rodPage) permissionOptionClickable(candidate *rod.Element, text string)
 	return nil
 }
 
-func (p *rodPage) disableContentCopy() error {
-	return rodTry(func() {
-		nodes := p.page.MustElements("input[type='checkbox']")
-		for _, node := range nodes {
-			label := strings.TrimSpace(node.MustEval(`() => {
-				let current = this;
-				for (let i = 0; i < 4 && current; i++) {
-					const text = (current.innerText || current.textContent || '').replace(/\s+/g, ' ').trim();
+func (p *rodPage) setCheckboxState(labelNeedle string, checked bool) error {
+	applied := false
+	err := rodTry(func() {
+		applied = p.page.MustEval(`(labelNeedle, checked) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const wantChecked = checked === true || checked === 'true';
+			const nodes = Array.from(document.querySelectorAll("input[type='checkbox']"));
+			for (const node of nodes) {
+				let current = node;
+				let label = '';
+				for (let i = 0; i < 8 && current; i++) {
+					const text = normalize(current.innerText || current.textContent || '');
 					if (text) {
-						return text;
+						label = text;
+						break;
 					}
 					current = current.parentElement;
 				}
-				return '';
-			}`).String())
-			if !strings.Contains(label, "允许正文复制") {
-				continue
+				if (!label.includes(labelNeedle)) {
+					continue;
+				}
+				node.scrollIntoView({ block: 'center', behavior: 'instant' });
+				if (!!node.checked !== wantChecked) {
+					node.click();
+				}
+				if (!!node.checked !== wantChecked) {
+					node.checked = wantChecked;
+					node.dispatchEvent(new Event('input', { bubbles: true }));
+					node.dispatchEvent(new Event('change', { bubbles: true }));
+				}
+				return !!node.checked === wantChecked;
 			}
-			node.MustEval(`() => this.scrollIntoView({ block: 'center', behavior: 'instant' })`)
-			p.page.MustWaitStable()
-			checked := node.MustProperty("checked").Bool()
-			if checked {
-				node.MustEval(`() => this.click()`)
-				p.page.MustWaitStable()
-			}
-			return
-		}
+			return false;
+		}`, labelNeedle, checked).Bool()
 	})
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return fmt.Errorf("checkbox containing %q not found or not updated", labelNeedle)
+	}
+	p.page.MustWaitStable()
+	return nil
+}
+
+func (p *rodPage) applyOriginalDeclaration(enabled bool) error {
+	if !enabled {
+		return nil
+	}
+	entryClicked, err := p.clickVisibleNodeByText(".d-checkbox-main-label, .d-checkbox-label, .original-entry, div, span, label, button", "^声明原创$|^原创声明$|^原创$")
+	if err != nil {
+		return err
+	}
+	if !entryClicked {
+		if err := p.setCheckboxState("声明原创", true); err != nil {
+			if err := p.setCheckboxState("原创", true); err != nil {
+				return err
+			}
+		}
+	}
+	if err := p.setCheckboxState("我已阅读并同意", true); err != nil {
+		if !strings.Contains(err.Error(), `checkbox containing "我已阅读并同意" not found`) {
+			return err
+		}
+	}
+	clicked, err := p.clickByText("button", "声明原创")
+	if err != nil {
+		return err
+	}
+	if !clicked {
+		return nil
+	}
+	return nil
+}
+
+func (p *rodPage) applyContentCopyPreference(allow bool) error {
+	return p.setCheckboxState("允许正文复制", allow)
 }
 
 func (p *rodPage) setOnlySelfVisible() error {
@@ -667,23 +787,36 @@ func (p *rodPage) waitForBodyText(ctx context.Context, pattern string, timeout t
 	return fmt.Errorf("body text did not match %q", pattern)
 }
 
+func (p *rodPage) isPublishSuccessState() bool {
+	success := false
+	_ = rodTry(func() {
+		success = p.page.MustEval(`() => {
+			const href = window.location.href || '';
+			if (href.includes('published=true')) return true;
+			if (href.includes('/new/note-manager')) return true;
+
+			const text = document.body ? document.body.innerText : '';
+			if (/笔记管理|草稿箱/.test(text)) return true;
+
+			const hasPublishEntry = /上传视频|上传图文|写长文/.test(text);
+			const hasTitleInput = !!document.querySelector('input[placeholder="填写标题会有更多赞哦"], input[placeholder*="填写标题"], input[placeholder*="标题"]');
+			const hasContentEditor = !!document.querySelector('div.tiptap.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"], div[contenteditable="true"][role="textbox"]');
+			const buttons = Array.from(document.querySelectorAll('button')).map((el) => (el.innerText || el.textContent || '').trim());
+			const hasPublishButton = buttons.some((text) => /发布/.test(text));
+
+			return hasPublishEntry && !hasTitleInput && !hasContentEditor && !hasPublishButton;
+		}`).Bool()
+	})
+	return success
+}
+
 func (p *rodPage) waitForPublishedRedirect(ctx context.Context, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		published := false
-		if err := rodTry(func() {
-			published = p.page.MustEval(`() => {
-				const href = window.location.href || '';
-				if (href.includes('published=true')) {
-					return true;
-				}
-				const text = document.body ? document.body.innerText : '';
-				return /上传视频|上传图文|写长文/.test(text) && !/暂存离开|仅自己可见|公开可见/.test(text);
-			}`).Bool()
-		}); err == nil && published {
+		if p.isPublishSuccessState() {
 			return nil
 		}
 		time.Sleep(300 * time.Millisecond)
@@ -738,20 +871,48 @@ func (p *rodPage) selectRecommendedTopic(tag string) error {
 	closed := false
 	err = rodTry(func() {
 		closed = p.page.MustEval(`() => {
-			const root = document.querySelector('#tippy-1');
-			const items = document.querySelector('#creator-editor-topic-container');
-			if (!root || !items) {
-				return true;
-			}
-			return window.getComputedStyle(root).visibility === 'hidden' || window.getComputedStyle(items).display === 'none';
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const roots = Array.from(document.querySelectorAll('#tippy-1, [data-tippy-root], .tippy-box, .tippy-content')).filter(isVisible);
+			const items = Array.from(document.querySelectorAll('#creator-editor-topic-container, [id^="creator-editor-topic-container"]')).filter(isVisible);
+			return roots.length === 0 || items.length === 0;
 		}`).Bool()
 	})
 	if err != nil {
 		return err
 	}
 	if !closed {
+		clickedBody, clickErr := p.clickVisibleNodeByText("body", ".*")
+		if clickErr != nil {
+			return clickErr
+		}
+		if clickedBody {
+			err = rodTry(func() {
+				closed = p.page.MustEval(`() => {
+					const isVisible = (node) => {
+						if (!node) return false;
+						const rect = node.getBoundingClientRect();
+						const style = window.getComputedStyle(node);
+						return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+					};
+					const roots = Array.from(document.querySelectorAll('#tippy-1, [data-tippy-root], .tippy-box, .tippy-content')).filter(isVisible);
+					const items = Array.from(document.querySelectorAll('#creator-editor-topic-container, [id^="creator-editor-topic-container"]')).filter(isVisible);
+					return roots.length === 0 || items.length === 0;
+				}`).Bool()
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if !closed {
 		return fmt.Errorf("topic popup did not close after selecting %q", tag)
 	}
+	p.page.MustWaitStable()
 	return nil
 }
 
