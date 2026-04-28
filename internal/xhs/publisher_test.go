@@ -3,6 +3,7 @@ package xhs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"reflect"
 	"strings"
@@ -118,6 +119,42 @@ func (f *fakePublishPage) applyContentCopyPreference(allow bool) error {
 	return f.applyContentCopyErr
 }
 
+func TestComposePublishContentDoesNotDuplicateExistingTags(t *testing.T) {
+	text, tags := composePublishContent("#AI代理 #数据安全 #工程反思", []string{"AI代理", "数据安全", "工程反思"})
+
+	if text != "#AI代理 #数据安全 #工程反思" {
+		t.Fatalf("text = %q", text)
+	}
+	wantTags := []string{"AI代理", "数据安全", "工程反思"}
+	if !reflect.DeepEqual(tags, wantTags) {
+		t.Fatalf("tags = %#v, want %#v", tags, wantTags)
+	}
+}
+
+func TestComposePublishContentAppendsMissingTags(t *testing.T) {
+	text, tags := composePublishContent("正文 #AI代理", []string{"AI代理", "数据安全"})
+
+	if text != "正文 #AI代理\n#数据安全" {
+		t.Fatalf("text = %q", text)
+	}
+	wantTags := []string{"AI代理", "数据安全"}
+	if !reflect.DeepEqual(tags, wantTags) {
+		t.Fatalf("tags = %#v, want %#v", tags, wantTags)
+	}
+}
+
+func TestComposePublishContentMatchesExistingTagsExactly(t *testing.T) {
+	text, tags := composePublishContent("正文 #AI代理", []string{"AI", "AI代理"})
+
+	if text != "正文 #AI代理\n#AI" {
+		t.Fatalf("text = %q", text)
+	}
+	wantTags := []string{"AI", "AI代理"}
+	if !reflect.DeepEqual(tags, wantTags) {
+		t.Fatalf("tags = %#v, want %#v", tags, wantTags)
+	}
+}
+
 func (f *fakePublishPage) recordActionOrder() {
 	if f.orderCounter == nil {
 		return
@@ -184,6 +221,15 @@ func TestPublisherReturnsUploadFailure(t *testing.T) {
 	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}}
 	err := (Publisher{}).PublishStandardOnlySelf(context.Background(), page, request)
 	if err == nil || !errors.Is(err, ErrUploadFailed) {
+		t.Fatalf("PublishStandardOnlySelf() error = %v", err)
+	}
+}
+
+func TestPublisherPreservesUploadInputMissingError(t *testing.T) {
+	page := &fakePublishPage{uploadErr: fmt.Errorf("%w: selectors changed", ErrUploadInputMissing)}
+	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}}
+	err := (Publisher{}).PublishStandardOnlySelf(context.Background(), page, request)
+	if err == nil || !errors.Is(err, ErrUploadInputMissing) {
 		t.Fatalf("PublishStandardOnlySelf() error = %v", err)
 	}
 }

@@ -2,6 +2,7 @@ package xhs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,10 +11,11 @@ import (
 )
 
 var (
-	ErrUploadFailed   = fmt.Errorf("upload failed")
-	ErrFillFailed     = fmt.Errorf("fill failed")
-	ErrScheduleFailed = fmt.Errorf("schedule failed")
-	ErrSubmitFailed   = fmt.Errorf("submit failed")
+	ErrUploadFailed       = errors.New("upload failed")
+	ErrUploadInputMissing = errors.New("upload input not found")
+	ErrFillFailed         = errors.New("fill failed")
+	ErrScheduleFailed     = errors.New("schedule failed")
+	ErrSubmitFailed       = errors.New("submit failed")
 )
 
 type PublishPage interface {
@@ -44,7 +46,7 @@ func (Publisher) PublishStandardOnlySelf(ctx context.Context, page PublishPage, 
 		return err
 	}
 	if err := page.UploadImages(ctx, request.ImagePaths); err != nil {
-		return fmt.Errorf("%w: %v", ErrUploadFailed, err)
+		return fmt.Errorf("%w: %w", ErrUploadFailed, err)
 	}
 	if err := page.FillTitle(ctx, request.Title); err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
@@ -142,22 +144,7 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 	if err != nil {
 		return err
 	}
-	text := strings.TrimSpace(content)
-	trimmedTags := make([]string, 0, len(tags))
-	if len(tags) > 0 {
-		tagParts := make([]string, 0, len(tags))
-		for _, tag := range tags {
-			trimmed := strings.TrimSpace(tag)
-			if trimmed == "" {
-				continue
-			}
-			trimmedTags = append(trimmedTags, trimmed)
-			tagParts = append(tagParts, "#"+trimmed)
-		}
-		if len(tagParts) > 0 {
-			text = text + "\n" + strings.Join(tagParts, " ")
-		}
-	}
+	text, trimmedTags := composePublishContent(content, tags)
 	if err := rodTry(func() {
 		field.MustInput(text)
 	}); err != nil {
@@ -172,6 +159,47 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 		}
 	}
 	return nil
+}
+
+func composePublishContent(content string, tags []string) (string, []string) {
+	text := strings.TrimSpace(content)
+	trimmedTags := make([]string, 0, len(tags))
+	existingTags := existingHashtagTokens(text)
+	tagParts := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		trimmed := strings.TrimSpace(tag)
+		if trimmed == "" {
+			continue
+		}
+		trimmed = strings.TrimPrefix(trimmed, "#")
+		if trimmed == "" {
+			continue
+		}
+		trimmedTags = append(trimmedTags, trimmed)
+		if !existingTags[trimmed] {
+			tagParts = append(tagParts, "#"+trimmed)
+			existingTags[trimmed] = true
+		}
+	}
+	if len(tagParts) > 0 {
+		if text == "" {
+			text = strings.Join(tagParts, " ")
+		} else {
+			text = text + "\n" + strings.Join(tagParts, " ")
+		}
+	}
+	return text, trimmedTags
+}
+
+func existingHashtagTokens(text string) map[string]bool {
+	result := map[string]bool{}
+	for _, field := range strings.Fields(text) {
+		trimmed := strings.Trim(field, "，。；;：:、,.!?！？()（）[]【】{}《》\"'")
+		if strings.HasPrefix(trimmed, "#") && len([]rune(trimmed)) > 1 {
+			result[strings.TrimPrefix(trimmed, "#")] = true
+		}
+	}
+	return result
 }
 
 func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) error {
@@ -231,7 +259,7 @@ func (Publisher) PublishStandardScheduled(ctx context.Context, page PublishPage,
 		return err
 	}
 	if err := page.UploadImages(ctx, request.ImagePaths); err != nil {
-		return fmt.Errorf("%w: %v", ErrUploadFailed, err)
+		return fmt.Errorf("%w: %w", ErrUploadFailed, err)
 	}
 	if err := page.FillTitle(ctx, request.Title); err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
@@ -929,7 +957,7 @@ func (p *rodPage) waitForUploadInput(ctx context.Context, timeout time.Duration)
 		time.Sleep(300 * time.Millisecond)
 	}
 	p.debugUploadInputState()
-	return nil, fmt.Errorf("element not found for selectors: %s", strings.Join(uploadInputSelectors, ", "))
+	return nil, fmt.Errorf("%w: element not found for selectors: %s", ErrUploadInputMissing, strings.Join(uploadInputSelectors, ", "))
 }
 
 func (p *rodPage) debugUploadInputState() {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,6 +22,7 @@ func shanghaiNow(y int, m time.Month, d, hh, mm, ss int) time.Time {
 
 type fakePublishOrchestrator struct {
 	request xhs.PublishRequest
+	runtime PublishRuntimeOptions
 	result  xhs.PublishResult
 	err     error
 	called  int
@@ -29,6 +31,7 @@ type fakePublishOrchestrator struct {
 func (f *fakePublishOrchestrator) Publish(request xhs.PublishRequest, options PublishRuntimeOptions) (xhs.PublishResult, error) {
 	f.called++
 	f.request = request
+	f.runtime = options
 	return f.result, f.err
 }
 
@@ -177,6 +180,37 @@ func TestPublishServiceRejectsFailedLiveReport(t *testing.T) {
 	_, err := service.Publish(PublishOptions{Account: "creator-live", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), LiveReportPath: reportPath})
 	if err == nil || !errors.Is(err, ErrPublishRequestInvalid) {
 		t.Fatalf("Publish() error = %v", err)
+	}
+}
+
+func TestPublishServicePreservesPublishErrorType(t *testing.T) {
+	service := PublishService{
+		Now: func() time.Time { return shanghaiNow(2026, 4, 18, 16, 0, 0) },
+		NewOrchestrator: func(PublishRuntimeOptions) PublishOrchestrator {
+			return &fakePublishOrchestrator{err: fmt.Errorf("%w: selectors changed", xhs.ErrUploadInputMissing)}
+		},
+	}
+
+	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), ImagePaths: []string{"cover.jpg"}})
+	if err == nil || !errors.Is(err, xhs.ErrUploadInputMissing) {
+		t.Fatalf("Publish() error = %v", err)
+	}
+}
+
+func TestPublishServiceCarriesChromeArgsIntoRuntime(t *testing.T) {
+	orchestrator := &fakePublishOrchestrator{}
+	service := PublishService{
+		Now:             func() time.Time { return shanghaiNow(2026, 4, 18, 16, 0, 0) },
+		NewOrchestrator: func(PublishRuntimeOptions) PublishOrchestrator { return orchestrator },
+	}
+
+	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), ImagePaths: []string{"cover.jpg"}, ChromeArgs: []string{" --no-first-run ", ""}})
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	want := []string{"--no-first-run"}
+	if !reflect.DeepEqual(orchestrator.runtime.ChromeArgs, want) {
+		t.Fatalf("ChromeArgs = %#v, want %#v", orchestrator.runtime.ChromeArgs, want)
 	}
 }
 

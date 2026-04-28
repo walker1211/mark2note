@@ -103,12 +103,21 @@ type XHSCfg struct {
 }
 
 type XHSPublishCfg struct {
-	Account          string `yaml:"account"`
-	Headless         *bool  `yaml:"headless"`
-	ProfileDir       string `yaml:"profile_dir"`
-	Mode             string `yaml:"mode"`
-	DeclareOriginal  *bool  `yaml:"declare_original"`
-	AllowContentCopy *bool  `yaml:"allow_content_copy"`
+	Account          string   `yaml:"account"`
+	Headless         *bool    `yaml:"headless"`
+	BrowserPath      string   `yaml:"browser_path"`
+	ProfileDir       string   `yaml:"profile_dir"`
+	Mode             string   `yaml:"mode"`
+	DeclareOriginal  *bool    `yaml:"declare_original"`
+	AllowContentCopy *bool    `yaml:"allow_content_copy"`
+	ChromeArgs       []string `yaml:"chrome_args"`
+}
+
+var DefaultXHSPublishChromeArgs = []string{
+	"disable-background-networking",
+	"disable-component-update",
+	"no-first-run",
+	"no-default-browser-check",
 }
 
 func validateXHSPublishMode(value string) error {
@@ -245,6 +254,9 @@ func Load(configPath string) (*Config, error) {
 	if cfg.XHS.Publish.AllowContentCopy == nil {
 		enabled := false
 		cfg.XHS.Publish.AllowContentCopy = &enabled
+	}
+	if cfg.XHS.Publish.ChromeArgs == nil {
+		cfg.XHS.Publish.ChromeArgs = append([]string(nil), DefaultXHSPublishChromeArgs...)
 	}
 	return &cfg, nil
 }

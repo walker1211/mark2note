@@ -15,6 +15,7 @@
 - 可选导出实验性的 Live package，并进一步组装 Apple Live Photo
 - 支持把已有 HTML 直接截图为 PNG
 - 支持 `publish-xhs` 发布普通图片内容或 Live Photo 产物到小红书
+- 支持主渲染命令 `--publish-xhs` 在生成 PNG 后自动发布到小红书
 
 ## 环境要求
 
@@ -112,10 +113,12 @@ go build -o ./mark2note ./cmd/mark2note
 - `render.live.import_photos`：是否把组装后的 Live Photos 导入 Apple Photos，默认关闭；需要同时启用 `render.live.assemble`
 - `render.live.import_album`：Live 导入相册名；留空时自动生成 `mark2note-live-<timestamp>`
 - `render.live.import_timeout`：Live 导入超时，默认 `2m`；支持 `45s`、`2m` 这类 Go duration 字符串
-- `xhs.publish.account`：`publish-xhs` 默认发布账号
-- `xhs.publish.headless`：`publish-xhs` 默认是否无头运行浏览器
-- `xhs.publish.profile_dir`：`publish-xhs` 默认浏览器 profile 目录
-- `xhs.publish.mode`：`publish-xhs` 默认发布模式，支持 `only-self`、`schedule`
+- `xhs.publish.account`：`publish-xhs` 和 `--publish-xhs` 默认发布账号
+- `xhs.publish.headless`：`publish-xhs` 和 `--publish-xhs` 默认是否无头运行浏览器
+- `xhs.publish.browser_path`：`publish-xhs` 和 `--publish-xhs` 默认浏览器可执行文件路径；命令行 `--chrome` 可单次覆盖
+- `xhs.publish.profile_dir`：`publish-xhs` 和 `--publish-xhs` 默认浏览器 profile 目录
+- `xhs.publish.mode`：`publish-xhs` 和 `--publish-xhs` 默认发布模式，支持 `only-self`、`schedule`
+- `xhs.publish.chrome_args`：小红书发布浏览器使用的额外 Chrome 启动参数
 
 补充说明：
 
@@ -140,6 +143,10 @@ go build -o ./mark2note ./cmd/mark2note
 - `--config` 可显式指定其他配置文件
 - `--prompt-extra` 支持单次追加自然语言引导，用来控制 Markdown -> deck JSON 阶段的分页、标题语气和内容组织方向
 - `--prompt-extra` 只影响 deck 生成，不直接改变 HTML 渲染、PNG 截图、Animated / Live 导出或 `publish-xhs` 发布逻辑
+- `--publish-xhs` 会在主渲染流程成功生成普通 PNG 后发布到小红书；标题来自 Markdown 一级标题，小红书正文只包含解析出的 3-6 个话题
+- `--xhs-tags` 可手动覆盖自动解析话题，例如 `--xhs-tags "AI代理,数据安全,工程反思"`；它只能和 `--publish-xhs` 一起使用
+- `xhs.publish.chrome_args` 不配置时，小红书发布默认使用 `disable-background-networking`、`disable-component-update`、`no-first-run`、`no-default-browser-check`；调试时可写 `chrome_args: []` 表示不加额外参数
+- `xhs.publish.chrome_args` 每项可以带或不带开头的 `--`，也支持 `name=value` 形式
 
 ## AI CLI 示例
 
@@ -176,6 +183,8 @@ ai:
 ./mark2note --input ./article.md --theme shuffle-light
 ./mark2note --input ./article.md --theme tech-noir
 ./mark2note --input ./article.md --prompt-extra "封面更抓眼，整体更像经验复盘"
+./mark2note --input ./article.md --theme shuffle-light --prompt-extra "精简输出，但不要精简掉图片" --live=false --publish-xhs
+./mark2note --input ./article.md --theme shuffle-light --publish-xhs --xhs-tags "AI代理,数据安全,工程反思"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --import-photos --import-album "mark2note"
@@ -191,7 +200,44 @@ ai:
 
 说明：`capture-html` 的目录模式只扫描当前目录，不递归子目录，只处理小写 `.html`，PNG 输出在 HTML 同级目录。
 
-## 小红书发布 `publish-xhs`
+## 小红书发布
+
+### 渲染后自动发布 `--publish-xhs`
+
+主渲染命令可以在成功生成普通 PNG 后自动调用小红书发布流程。这个流程复用 `xhs.publish` 的账号、浏览器路径、浏览器 profile、无头模式、发布模式、原创声明和正文复制配置；发布素材使用本次渲染出的普通 PNG，不使用 Live Photo 产物。
+
+```bash
+./mark2note \
+  --input ~/mark/2026/26.04.26-一个AI代理删库之后我开始关心刹车.md \
+  --theme shuffle-light \
+  --prompt-extra "精简输出，但不要精简掉图片" \
+  --live=false \
+  --publish-xhs
+```
+
+自动发布时：
+
+- 标题来自 Markdown 第一个一级标题；没有一级标题时回退到清理后的文件名
+- 正文只包含话题，例如 `#AI代理 #数据安全 #工程反思`
+- 话题会从 frontmatter `tags`、正文 hashtag、标题、二/三级标题和正文高频词里本地解析，自动结果会尽量保持 3-6 个
+- 如果要手动指定话题，可以加 `--xhs-tags`，手动值会跳过自动解析并仍用于正文 hashtag：
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --theme shuffle-light \
+  --publish-xhs \
+  --xhs-tags "AI代理,数据安全,工程反思"
+```
+
+约束：
+
+- `--publish-xhs` 只支持 `--input` 流程，不能和 `--from-deck` 一起使用
+- `--xhs-tags` 只能和 `--publish-xhs` 一起使用
+- 如果渲染失败，不会尝试发布
+- 如果没有找到本次生成的普通 PNG，或 PNG 路径不存在，会在打印渲染摘要后返回错误
+
+### 独立发布子命令 `publish-xhs`
 
 `publish-xhs` 用于把已生成好的图片资源或 Live Photo 产物发布到小红书创作中心。
 
@@ -222,7 +268,7 @@ mark2note publish-xhs --help
 - `--images <csv>`：逗号分隔图片路径列表，用于普通图文发布
 - `--live-report <file>`：Live 交付报告路径，用于从 Live 导出结果里提取可发布素材
 - `--live-pages <csv>`：只发布指定顺序的 Live 页面子集；必须和 `--live-report` 一起使用
-- `--chrome <path>`：Chrome 可执行文件路径
+- `--chrome <path>`：Chrome 可执行文件路径；未显式传入时先回退到 `xhs.publish.browser_path`
 - `--headless`：是否无头运行浏览器；默认值是 `true`，但可被 `xhs.publish.headless` 覆盖
 - `--profile-dir <dir>`：浏览器 profile 目录；未显式传入时先回退到 `xhs.publish.profile_dir`
 
@@ -255,6 +301,7 @@ xhs:
   publish:
     account: walker
     headless: false
+    browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
     mode: only-self
 ```

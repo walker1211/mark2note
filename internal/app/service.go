@@ -36,6 +36,7 @@ type LiveOptions struct {
 type Options struct {
 	OutDir                   string
 	ChromePath               string
+	ChromePathChanged        bool
 	Jobs                     int
 	InputPath                string
 	FromDeckPath             string
@@ -44,6 +45,9 @@ type Options struct {
 	Theme                    string
 	Author                   string
 	PromptExtra              string
+	PublishXHS               bool
+	XHSTags                  []string
+	XHSTagsChanged           bool
 	Animated                 AnimatedOptions
 	Live                     LiveOptions
 	ImportPhotos             bool
@@ -72,6 +76,7 @@ type Result struct {
 	PageCount          int
 	OutDir             string
 	Warnings           []string
+	ImagePaths         []string
 	ImportReport       *render.DeliveryReport
 	ImportReportPath   string
 	DeliveryReport     *render.DeliveryReport
@@ -290,6 +295,7 @@ func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, sourc
 		PageCount:          len(d.Pages),
 		OutDir:             opts.OutDir,
 		Warnings:           append([]string(nil), renderResult.Warnings...),
+		ImagePaths:         append([]string(nil), renderResult.ImagePaths...),
 		ImportReport:       renderResult.ImportReport,
 		ImportReportPath:   renderResult.ImportReportPath,
 		DeliveryReport:     renderResult.DeliveryReport,

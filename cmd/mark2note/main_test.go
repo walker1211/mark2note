@@ -92,6 +92,19 @@ func TestUsageTextMentionsFromDeckFlag(t *testing.T) {
 	}
 }
 
+func TestUsageTextMentionsAutoPublishXHSFlags(t *testing.T) {
+	text := usageText()
+	for _, want := range []string{
+		"--publish-xhs              publish generated PNG files to Xiaohongshu after render",
+		"--xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs",
+		"mark2note --input ./example.md --theme shuffle-light --publish-xhs",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("usageText() missing %q", want)
+		}
+	}
+}
+
 func TestUsageTextMentionsThemeAuthorAndAnimatedFlags(t *testing.T) {
 	text := usageText()
 	for _, want := range []string{"--theme <name>", "--author <name>", "--animated", "--animated-format <name>", "--animated-duration <ms>", "--animated-fps <n>", "--import-photos", "--import-album <name>", "--import-timeout <d>", "import generated PNG files into Apple Photos after export", "Apple Photos album name for imported PNG files", "--live", "--live-photo-format <name>", "--live-cover-frame <name>", "supported: first, middle, last", "--live-assemble", "--live-output-dir <dir>", "--live-import-photos", "--live-import-album", "--live-import-timeout", "page animation timeline duration; also affects Live motion timing", "animation capture fps / sampling density; affects Animated WebP/MP4 output and Live frame sampling", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
@@ -183,6 +196,43 @@ func TestParseOptionsParsesPromptExtra(t *testing.T) {
 	}
 	if opts.PromptExtra != "封面更抓眼" {
 		t.Fatalf("PromptExtra = %q, want %q", opts.PromptExtra, "封面更抓眼")
+	}
+}
+
+func TestParseOptionsParsesAutoPublishXHSFlags(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--publish-xhs", "--xhs-tags", "AI, 写作,  小红书"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.PublishXHS {
+		t.Fatalf("PublishXHS = false, want true")
+	}
+	wantTags := []string{"AI", "写作", "小红书"}
+	if !reflect.DeepEqual(opts.XHSTags, wantTags) {
+		t.Fatalf("XHSTags = %#v, want %#v", opts.XHSTags, wantTags)
+	}
+	if !opts.XHSTagsChanged {
+		t.Fatalf("XHSTagsChanged = false, want true")
+	}
+}
+
+func TestParseOptionsRejectsXHSTagsWithoutPublishXHS(t *testing.T) {
+	_, err := parseOptions([]string{"--input", "article.md", "--xhs-tags", "AI"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--xhs-tags requires --publish-xhs") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseOptionsRejectsPublishXHSWithFromDeck(t *testing.T) {
+	_, err := parseOptions([]string{"--from-deck", "output/old/deck.json", "--publish-xhs"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--publish-xhs can only be used with --input") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

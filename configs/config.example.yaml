@@ -44,7 +44,14 @@ xhs:
     # publish-xhs 的稳定默认值；命令行可单次覆盖
     account: walker
     headless: false
+    browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
     mode: only-self
     declare_original: true
     allow_content_copy: false
+    # Extra Chrome launch args for Xiaohongshu publishing; entries may omit leading "--".
+    chrome_args:
+      - no-first-run
+      - no-default-browser-check
+      - disable-background-networking
+      - disable-component-update

@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-rod/rod/lib/launcher/flags"
 )
 
 type fakeSessionLauncher struct {
@@ -153,6 +156,42 @@ func TestBrowserSessionExpandsExplicitHomeDir(t *testing.T) {
 	}
 	if got != "/Users/tester/.config/news-briefing-studio/wechat/profiles/writer" {
 		t.Fatalf("resolveSessionProfileDir() = %q, want %q", got, "/Users/tester/.config/news-briefing-studio/wechat/profiles/writer")
+	}
+}
+
+func TestDefaultSessionLauncherUsesDefaultChromeArgs(t *testing.T) {
+	launcher, ok := defaultSessionLauncher(SessionOptions{Headless: false}, "/tmp/xhs-profile").(*rodLauncher)
+	if !ok {
+		t.Fatalf("defaultSessionLauncher() = %T, want *rodLauncher", launcher)
+	}
+	for _, arg := range xhsBrowserDefaultArgs {
+		if !launcher.launcher.Has(flags.Flag(arg)) {
+			t.Fatalf("launcher missing %q", arg)
+		}
+	}
+}
+
+func TestDefaultSessionLauncherUsesConfiguredChromeArgs(t *testing.T) {
+	launcher, ok := defaultSessionLauncher(SessionOptions{Headless: false, ChromeArgs: []string{"--no-first-run", "proxy-server=http://127.0.0.1:8080", "no-first-run", " "}}, "/tmp/xhs-profile").(*rodLauncher)
+	if !ok {
+		t.Fatalf("defaultSessionLauncher() = %T, want *rodLauncher", launcher)
+	}
+	if !launcher.launcher.Has("no-first-run") {
+		t.Fatal("launcher missing no-first-run")
+	}
+	if got := launcher.launcher.Get("proxy-server"); got != "http://127.0.0.1:8080" {
+		t.Fatalf("proxy-server = %q", got)
+	}
+	if launcher.launcher.Has("disable-component-update") {
+		t.Fatal("launcher should not include default args when ChromeArgs is configured")
+	}
+}
+
+func TestNormalizeChromeArgsPreservesOrderAndDeduplicates(t *testing.T) {
+	got := normalizeChromeArgs([]string{" --no-first-run ", "proxy-server=http://127.0.0.1:8080", "no-first-run", "--disable-component-update"})
+	want := []chromeArg{{name: "no-first-run"}, {name: "proxy-server", value: "http://127.0.0.1:8080"}, {name: "disable-component-update"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("normalizeChromeArgs() = %#v, want %#v", got, want)
 	}
 }
 

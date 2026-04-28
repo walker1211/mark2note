@@ -26,6 +26,7 @@ type PublishOptions struct {
 	ChromePath       string
 	Headless         bool
 	ProfileDir       string
+	ChromeArgs       []string
 	DeclareOriginal  bool
 	AllowContentCopy bool
 }
@@ -34,6 +35,7 @@ type PublishRuntimeOptions struct {
 	ChromePath string
 	Headless   bool
 	ProfileDir string
+	ChromeArgs []string
 }
 
 type PublishOrchestrator interface {
@@ -82,10 +84,10 @@ func (s PublishService) Publish(opts PublishOptions) (PublishResult, error) {
 	if err := request.Validate(now); err != nil {
 		return PublishResult{}, fmt.Errorf("%w: %v", ErrPublishRequestInvalid, err)
 	}
-	runtime := PublishRuntimeOptions{ChromePath: strings.TrimSpace(opts.ChromePath), Headless: opts.Headless, ProfileDir: strings.TrimSpace(opts.ProfileDir)}
+	runtime := PublishRuntimeOptions{ChromePath: strings.TrimSpace(opts.ChromePath), Headless: opts.Headless, ProfileDir: strings.TrimSpace(opts.ProfileDir), ChromeArgs: trimOptionalSlice(opts.ChromeArgs)}
 	result, err := s.effectiveNewOrchestrator()(runtime).Publish(request, runtime)
 	if err != nil {
-		return PublishResult{Request: request, Result: result}, fmt.Errorf("%w: %v", ErrPublishExecute, err)
+		return PublishResult{Request: request, Result: result}, fmt.Errorf("%w: %w", ErrPublishExecute, err)
 	}
 	return PublishResult{Request: request, Result: result}, nil
 }
@@ -181,6 +183,7 @@ func (o defaultPublishOrchestrator) Publish(request xhs.PublishRequest, _ Publis
 		ChromePath: o.runtime.ChromePath,
 		Headless:   o.runtime.Headless,
 		ProfileDir: o.runtime.ProfileDir,
+		ChromeArgs: o.runtime.ChromeArgs,
 	})
 	return xhs.NewOrchestrator(session).Publish(context.Background(), request)
 }
@@ -195,4 +198,11 @@ func trimSlice(values []string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+func trimOptionalSlice(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	return trimSlice(values)
 }
