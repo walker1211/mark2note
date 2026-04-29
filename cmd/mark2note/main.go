@@ -92,7 +92,7 @@ Examples:
   mark2note --input ./example.md --config ./configs/config.yaml
   mark2note --input ./example.md --config ./config.yaml
   mark2note --input ./example.md --prompt-extra "封面更抓眼，少一点教程感"
-  mark2note --input ./example.md --theme shuffle-light --publish-xhs
+  mark2note --input ./example.md --theme fresh-green --publish-xhs
   mark2note --input ./example.md --import-photos --import-album "mark2note"
   mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
   mark2note capture-html --input ./output/preview/p02-quote.html
@@ -101,11 +101,12 @@ Examples:
   mark2note publish-xhs --account main --title-file ./title.txt --content-file ./body.md --live-report ./output/report.json --live-pages p01-cover,p02-bullets
 
 Config defaults:
-  deck.theme   default theme name used when --theme is not set
-  deck.author  default cover author used when --author is not set
+  deck.theme_mode fixed / weekly theme selection mode
+  deck.theme      fallback theme name used when --theme is not set
+  deck.author     default cover author used when --author is not set
 
 Supported themes:
-  default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono`
+  default / warm-paper / editorial-cool / tech-noir / plum-ink / sage-mist / fresh-green`
 }
 
 func captureHTMLUsageText() string {

@@ -8,7 +8,7 @@ A Markdown-to-deck CLI for generating HTML / PNG presentation assets, with optio
 
 - Convert Markdown into AI-generated deck JSON, then render HTML and capture PNG
 - Import generated PNG files into Apple Photos with `--import-photos`
-- Support deck themes including `shuffle-light`, which randomly reuses the six existing non-`tech-noir` palettes with no adjacent-page repeats
+- Support deck themes: `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `sage-mist`, and `fresh-green`
 - Optionally export Animated WebP or MP4 per page
 - Optionally build experimental Live package outputs and assemble Apple Live Photos
 - Capture existing HTML files into sibling PNG files via `capture-html`
@@ -16,10 +16,10 @@ A Markdown-to-deck CLI for generating HTML / PNG presentation assets, with optio
 
 ## Theme Notes
 
-- `deck.theme` and `--theme` also support `shuffle-light`
-- `shuffle-light` rerandomizes page palette assignment on each run
-- It only reuses these existing palettes: `default-orange`, `default-green`, `warm-paper`, `editorial-cool`, `lifestyle-light`, `editorial-mono`
-- Adjacent pages never use the same palette; `tech-noir` is excluded from the pool
+- Supported stable themes: `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `sage-mist`, `fresh-green`
+- `deck.theme_mode: weekly` chooses a fixed theme from `deck.weekly_themes` by local weekday; `deck.theme` remains the fallback
+- `--theme` overrides fixed or weekly selection for one run
+- Unknown theme names fall back to `default`
 
 ## Output Notes
 
@@ -55,7 +55,7 @@ The rerender path still supports post-render flows:
 ./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
 ```
 
-When `--out` is omitted, the new output directory is based on the old deck directory name plus a timestamp. If a sibling `render-meta.json` exists, it restores theme, viewport, author, watermark, and saved `shuffle-light` page colors. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
+When `--out` is omitted, the new output directory is based on the old deck directory name plus a timestamp. If a sibling `render-meta.json` exists, it restores theme, viewport, author, and watermark. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
 
 ## License
 

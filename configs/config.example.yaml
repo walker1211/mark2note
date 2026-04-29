@@ -8,8 +8,19 @@ ai:
     - --bare
 
 deck:
-  # deck.theme 可选值：default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono
+  # deck.theme_mode 可选值：fixed / weekly；weekly 会按本机星期选择 weekly_themes 中的固定主题。
+  theme_mode: weekly
+  # deck.theme 是 fixed 模式的主题，也是 weekly 当天未配置时的兜底主题。
+  # 可选值：default / warm-paper / editorial-cool / tech-noir / plum-ink / sage-mist / fresh-green
   theme: default
+  weekly_themes:
+    mon: default
+    tue: warm-paper
+    wed: editorial-cool
+    thu: plum-ink
+    fri: sage-mist
+    sat: fresh-green
+    sun: tech-noir
   author: "搁剑听风"
   watermark:
     enabled: true

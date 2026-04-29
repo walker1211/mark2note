@@ -1,5 +1,5 @@
 {
-  "theme": "lifestyle-light",
+  "theme": "plum-ink",
   "pages": [
     {
       "name": "p01-cover",
@@ -8,11 +8,11 @@
         "badge": "第 1 页",
         "counter": "1/7",
         "theme": "orange",
-        "cta": "先看 **重点结构**"
+        "cta": "cta1"
       },
       "content": {
-        "title": "把 **80%** 的信息压成 **3 个重点**",
-        "subtitle": "让 `mark2note` 先给出结构，再补细节"
+        "title": "暖纸封面",
+        "subtitle": "暖纸副标题"
       }
     },
     {
@@ -22,13 +22,13 @@
         "badge": "第 2 页",
         "counter": "2/7",
         "theme": "orange",
-        "cta": "先跑 `mark2note`"
+        "cta": "cta2"
       },
       "content": {
-        "title": "观点页",
-        "quote": "真正重要的是先把 **结论** 讲明白。",
-        "note": "命令入口是 `mark2note --input article.md`",
-        "tip": "把 **20%** 的重点词提亮，就够了。"
+        "title": "暖纸引用",
+        "quote": "先结论，再补背景。",
+        "note": "说明",
+        "tip": "提示"
       }
     },
     {
@@ -38,11 +38,11 @@
         "badge": "第 3 页",
         "counter": "3/7",
         "theme": "orange",
-        "cta": "看代码块示例"
+        "cta": "cta3"
       },
       "content": {
-        "title": "图文页",
-        "body": "先执行命令：\n```bash\nmark2note --input article.md --theme default\n```"
+        "title": "暖纸图文",
+        "body": "暖纸说明"
       }
     },
     {
@@ -52,14 +52,14 @@
         "badge": "第 4 页",
         "counter": "4/7",
         "theme": "orange",
-        "cta": "列表页也要有重点"
+        "cta": "cta4"
       },
       "content": {
-        "title": "列表页",
+        "title": "暖纸列表",
         "items": [
-          "先找 **重点词**",
-          "把 `CLI` 名称单独做身份区分",
-          "保留 3 个最重要的结论"
+          "一",
+          "二",
+          "三"
         ]
       }
     },
@@ -70,21 +70,17 @@
         "badge": "第 5 页",
         "counter": "5/7",
         "theme": "green",
-        "cta": "对比结果更清楚"
+        "cta": "cta5"
       },
       "content": {
-        "title": "对比页",
+        "title": "暖纸对比",
         "compare": {
-          "leftLabel": "旧方式",
-          "rightLabel": "新方式",
+          "leftLabel": "旧",
+          "rightLabel": "新",
           "rows": [
             {
-              "left": "信息堆叠",
-              "right": "**80%** 内容先压缩"
-            },
-            {
-              "left": "结论埋太深",
-              "right": "先亮出 **核心判断**"
+              "left": "慢",
+              "right": "快"
             }
           ]
         }
@@ -97,13 +93,13 @@
         "badge": "第 6 页",
         "counter": "6/7",
         "theme": "green",
-        "cta": "步骤页看节奏"
+        "cta": "cta6"
       },
       "content": {
-        "title": "步骤页",
+        "title": "暖纸步骤",
         "steps": [
-          "第 1 步：拆出 **主题**",
-          "第 2 步：确认 `command` 与结论"
+          "一",
+          "二"
         ]
       }
     },
@@ -114,11 +110,11 @@
         "badge": "第 7 页",
         "counter": "7/7",
         "theme": "green",
-        "cta": "先做出可读版本"
+        "cta": "cta7"
       },
       "content": {
-        "title": "结尾页",
-        "body": "把 **重点词**、`命令`、结构化数字拉开层次，整套主题都会更容易读。"
+        "title": "暖纸结尾",
+        "body": "暖纸总结"
       }
     }
   ]

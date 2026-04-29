@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -18,7 +19,7 @@ const deckPromptConstraints = `你是一个严格的 JSON 生成器。
 5. 每页结构必须包含：name、variant、meta、content
 6. 每页 name 必须唯一，建议使用顺序编号命名
 7. 每页 meta 必须包含：badge、counter、theme、cta
-8. meta.theme 只能使用 orange 或 green
+8. meta.theme 保留为兼容字段，可使用 default；实际整套卡片颜色由顶层 theme 决定
 9. variant 只能使用：cover、quote、image-caption、bullets、compare、gallery-steps、ending
 10. content 字段按 variant 严格约束：
    - cover 只能使用 title/subtitle，且 cover 的 title 必填
@@ -185,12 +186,7 @@ func extractFirstJSONObject(raw string) (string, error) {
 }
 
 func containsArg(args []string, target string) bool {
-	for _, arg := range args {
-		if arg == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, target)
 }
 
 func shouldUseBareOutput(command string, args []string) bool {

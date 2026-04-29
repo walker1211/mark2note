@@ -196,7 +196,7 @@ func TestRenderHTMLUsesDeckLevelThemeForWarmPaper(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLDefaultStillUsesOrangeGreenPerPageTokens(t *testing.T) {
+func TestRenderHTMLDefaultIgnoresPageMetaTheme(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	coverHTML, err := RenderPageHTML(d, d.Pages[0])
 	if err != nil {
@@ -206,76 +206,42 @@ func TestRenderHTMLDefaultStillUsesOrangeGreenPerPageTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderPageHTML() ending error = %v", err)
 	}
-	if !strings.Contains(coverHTML, "--bg: #F7F3EC;") {
-		t.Fatalf("cover html missing default orange vars")
-	}
-	if !strings.Contains(endingHTML, "--bg: #F2F7F2;") {
-		t.Fatalf("ending html missing default green vars")
+	for name, html := range map[string]string{"cover": coverHTML, "ending": endingHTML} {
+		if !strings.Contains(html, "--bg: #F4F1EB;") {
+			t.Fatalf("%s html missing default bg vars", name)
+		}
+		if !strings.Contains(html, "--accent: #181818;") {
+			t.Fatalf("%s html missing default accent vars", name)
+		}
 	}
 }
 
-func TestRenderHTMLShuffleLightUsesAssignedConcretePalette(t *testing.T) {
+func TestRenderHTMLFreshGreenUsesDeckLevelTheme(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
-	d.ThemeName = deck.ThemeShuffleLight
+	d.ThemeName = deck.ThemeFreshGreen
 	d.Themes = deck.RegisteredThemes()
-	d.PageThemeKeys = []string{
-		deck.ThemeEditorialCool,
-		deck.ThemeWarmPaper,
-		deck.ThemeEditorialMono,
-		deck.ThemeLifestyle,
-		"default-orange",
-		"default-green",
-		deck.ThemeWarmPaper,
-		deck.ThemeEditorialCool,
-	}
 
 	html, err := RenderPageHTML(d, d.Pages[0])
 	if err != nil {
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
-	if !strings.Contains(html, "--bg: #EEF3F7;") {
-		t.Fatalf("html missing editorial-cool vars: %s", html)
+	if !strings.Contains(html, "--bg: #F2F7F2;") {
+		t.Fatalf("html missing fresh-green vars")
 	}
 }
 
-func TestRenderHTMLShuffleLightRejectsMissingAssignment(t *testing.T) {
+func TestRenderHTMLRetiredShuffleLightFallsBackToDefaultAndIgnoresAssignments(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
-	d.ThemeName = deck.ThemeShuffleLight
+	d.ThemeName = "shuffle-light"
 	d.Themes = deck.RegisteredThemes()
-	d.PageThemeKeys = []string{"", deck.ThemeWarmPaper, deck.ThemeEditorialMono, deck.ThemeLifestyle, "default-orange", "default-green", deck.ThemeWarmPaper, deck.ThemeEditorialCool}
+	d.PageThemeKeys = []string{deck.ThemeEditorialCool}
 
-	_, err := RenderPageHTML(d, d.Pages[0])
-	if err == nil {
-		t.Fatalf("RenderPageHTML() error = nil, want non-nil")
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "missing shuffle-light palette assignment") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestRenderHTMLShuffleLightAssignmentsNeverUseTechNoir(t *testing.T) {
-	d := deck.DefaultDeck("/tmp/out")
-	d.ThemeName = deck.ThemeShuffleLight
-	d.Themes = deck.RegisteredThemes()
-	d.PageThemeKeys = []string{
-		"default-orange",
-		deck.ThemeWarmPaper,
-		deck.ThemeEditorialCool,
-		deck.ThemeLifestyle,
-		deck.ThemeEditorialMono,
-		"default-green",
-		deck.ThemeWarmPaper,
-		deck.ThemeEditorialCool,
-	}
-
-	for _, page := range d.Pages {
-		html, err := RenderPageHTML(d, page)
-		if err != nil {
-			t.Fatalf("RenderPageHTML(%s) error = %v", page.Name, err)
-		}
-		if strings.Contains(html, "--bg: #111315;") {
-			t.Fatalf("shuffle-light should not render tech-noir background for page %s", page.Name)
-		}
+	if !strings.Contains(html, "--bg: #F4F1EB;") {
+		t.Fatalf("html missing fallback default vars")
 	}
 }
 
@@ -694,8 +660,8 @@ func TestRenderHTMLEmbedsUsableCSSInsteadOfZgotmplZ(t *testing.T) {
 	}
 	mustContain := []string{
 		":root {",
-		"--bg: #F7F3EC;",
-		"--author-color: #5E5A56;",
+		"--bg: #F4F1EB;",
+		"--author-color: #5F5A54;",
 		".header-row {",
 		".cta-bar {",
 	}
@@ -845,13 +811,13 @@ func TestRenderHTMLTitleDowngradesDisallowedCodeBlockToPlainText(t *testing.T) {
 func TestRenderHTMLExposesSemanticThemeVarsForAllUserFacingThemes(t *testing.T) {
 	themes := deck.RegisteredThemes()
 	cases := []string{
-		"default-orange",
-		"default-green",
+		deck.ThemeDefault,
+		deck.ThemeFreshGreen,
 		deck.ThemeWarmPaper,
 		deck.ThemeEditorialCool,
-		deck.ThemeLifestyle,
 		deck.ThemeTechNoir,
-		deck.ThemeEditorialMono,
+		deck.ThemePlumInk,
+		deck.ThemeSageMist,
 	}
 
 	for _, themeName := range cases {
@@ -942,17 +908,17 @@ func TestRenderHTMLSupportsAllCurrentVariants(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLFailsOnUnknownTheme(t *testing.T) {
+func TestRenderHTMLIgnoresUnknownPageMetaTheme(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := d.Pages[0]
 	page.Meta.Theme = "missing"
 
-	_, err := RenderPageHTML(d, page)
-	if err == nil {
-		t.Fatalf("RenderPageHTML() error = nil, want non-nil")
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), `unknown theme "missing"`) {
-		t.Fatalf("error = %v", err)
+	if !strings.Contains(html, "--bg: #F4F1EB;") {
+		t.Fatalf("html missing fallback default vars")
 	}
 }
 

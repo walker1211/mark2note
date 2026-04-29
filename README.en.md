@@ -74,14 +74,14 @@ The rerender path reuses the same post-render flows:
 ./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
 ```
 
-Without `--out`, mark2note creates a new timestamped directory from the original deck directory name. If a sibling `render-meta.json` exists, it restores theme, viewport, author, watermark, and saved `shuffle-light` page colors. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
+Without `--out`, mark2note creates a new timestamped directory from the original deck directory name. If a sibling `render-meta.json` exists, it restores theme, viewport, author, and watermark. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
 
 ## Theme Notes
 
-- `deck.theme` and `--theme` now support `shuffle-light`
-- `shuffle-light` rerandomizes page palette assignment on each run
-- It only reuses these six existing non-`tech-noir` palettes: `default-orange`, `default-green`, `warm-paper`, `editorial-cool`, `lifestyle-light`, `editorial-mono`
-- Adjacent pages never repeat the same palette, and `tech-noir` is excluded from the pool
+- Stable themes: `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `sage-mist`, `fresh-green`
+- `deck.theme_mode: weekly` chooses a fixed theme from `deck.weekly_themes` by local weekday; `deck.theme` remains the fallback
+- `--theme` overrides fixed or weekly selection for one run
+- Unknown theme names fall back to `default`
 
 ## Configuration
 
@@ -91,7 +91,9 @@ Key fields:
 
 - `output.dir`: default output root directory
 - `ai.command` / `ai.args`: AI CLI command and arguments used to generate deck JSON
-- `deck.theme`: default theme, supporting `default`, `shuffle-light`, `warm-paper`, `editorial-cool`, `lifestyle-light`, `tech-noir`, and `editorial-mono`
+- `deck.theme_mode`: theme selection mode, supporting `fixed` and `weekly`; `weekly` reads `deck.weekly_themes` by local weekday
+- `deck.theme`: default / fallback theme, supporting `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `sage-mist`, and `fresh-green`; unknown names fall back to `default`
+- `deck.weekly_themes`: weekday-to-theme map for weekly mode, such as `mon` and `tue`
 - `deck.author`: default cover author value
 - `deck.watermark.enabled`: enables the page watermark, on by default
 - `deck.watermark.text`: watermark text, defaulting to `walker1211/mark2note`
@@ -141,7 +143,7 @@ Additional notes:
 - `<page>.live/` is an intermediate package, not the final directly importable asset; after assembly, final outputs are written to `<out>/apple-live/` or the directory specified by `render.live.output_dir` / `--live-output-dir`
 - When only Live export is enabled, the renderer still captures frames on the animation timeline, but it does not emit root-level `.webp` or `.mp4` files
 - `capture-html` still only converts existing HTML into PNG files; if you want it to reuse configured export dimensions, pass `--config` so it can read `render.viewport.width/height`
-- `--theme` supports one-off theme overrides
+- `--theme` supports one-off theme overrides, including the theme selected by weekly mode
 - `--author` supports one-off author overrides
 - `--config` can explicitly select another config file
 - `--prompt-extra` appends one-off natural-language guidance for the Markdown -> deck JSON stage, such as pacing, tone, or structure
@@ -185,11 +187,11 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ./mark2note --input ./article.md --config ./configs/config.yaml
 ./mark2note --input ./article.md --config ./config.yaml
 ./mark2note --input ./article.md --theme warm-paper --author "Your Name"
-./mark2note --input ./article.md --theme shuffle-light
-./mark2note --input ./article.md --theme tech-noir
+./mark2note --input ./article.md --theme plum-ink
+./mark2note --input ./article.md --theme sage-mist
 ./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
-./mark2note --input ./article.md --theme shuffle-light --prompt-extra "make the output concise but keep image pages" --live=false --publish-xhs
-./mark2note --input ./article.md --theme shuffle-light --publish-xhs --xhs-tags "AI agent,data safety,engineering reflection"
+./mark2note --input ./article.md --theme fresh-green --prompt-extra "make the output concise but keep image pages" --live=false --publish-xhs
+./mark2note --input ./article.md --theme fresh-green --publish-xhs --xhs-tags "AI agent,data safety,engineering reflection"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --import-photos --import-album "mark2note"
@@ -214,7 +216,7 @@ The main render command can automatically invoke the Xiaohongshu publish flow af
 ```bash
 ./mark2note \
   --input ./article.md \
-  --theme shuffle-light \
+  --theme fresh-green \
   --prompt-extra "make the output concise but keep image pages" \
   --live=false \
   --publish-xhs
@@ -231,7 +233,7 @@ Auto-publish behavior:
 ```bash
 ./mark2note \
   --input ./article.md \
-  --theme shuffle-light \
+  --theme fresh-green \
   --publish-xhs \
   --xhs-tags "AI agent,data safety,engineering reflection"
 ```

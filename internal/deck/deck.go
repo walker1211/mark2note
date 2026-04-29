@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math/rand"
-	"time"
 )
 
 type Theme struct {
@@ -210,15 +208,7 @@ func defaultThemes() map[string]Theme {
 }
 
 func AssignPageThemesForDeck(d *Deck) error {
-	if d.ThemeName != ThemeShuffleLight {
-		d.PageThemeKeys = nil
-		return nil
-	}
-	assignments, err := AssignShuffleLightPageThemes(len(d.Pages), rand.New(rand.NewSource(time.Now().UnixNano())))
-	if err != nil {
-		return err
-	}
-	d.PageThemeKeys = assignments
+	d.PageThemeKeys = nil
 	return nil
 }
 
@@ -239,7 +229,7 @@ func DefaultDeck(outDir string) Deck {
 			Meta: PageMeta{
 				Badge:   "第 1 页",
 				Counter: "1/8",
-				Theme:   "orange",
+				Theme:   ThemeDefault,
 				CTA:     "先抓主线，再做分屏",
 			},
 			Content: PageContent{
@@ -253,7 +243,7 @@ func DefaultDeck(outDir string) Deck {
 			Meta: PageMeta{
 				Badge:   "第 2 页",
 				Counter: "2/8",
-				Theme:   "orange",
+				Theme:   ThemeDefault,
 				CTA:     "每一页只讲一个重点",
 			},
 			Content: PageContent{
@@ -268,7 +258,7 @@ func DefaultDeck(outDir string) Deck {
 			Meta: PageMeta{
 				Badge:   "第 3 页",
 				Counter: "3/8",
-				Theme:   "orange",
+				Theme:   ThemeDefault,
 				CTA:     "图文页负责解释关键上下文",
 			},
 			Content: PageContent{
@@ -282,7 +272,7 @@ func DefaultDeck(outDir string) Deck {
 			Meta: PageMeta{
 				Badge:   "第 4 页",
 				Counter: "4/8",
-				Theme:   "orange",
+				Theme:   ThemeDefault,
 				CTA:     "列表页用于稳定传达步骤",
 			},
 			Content: PageContent{
@@ -300,7 +290,7 @@ func DefaultDeck(outDir string) Deck {
 			Meta: PageMeta{
 				Badge:   "第 5 页",
 				Counter: "5/8",
-				Theme:   "green",
+				Theme:   ThemeDefault,
 				CTA:     "对比页帮助建立判断标准",
 			},
 			Content: PageContent{
@@ -322,7 +312,7 @@ func DefaultDeck(outDir string) Deck {
 			Meta: PageMeta{
 				Badge:   "第 6 页",
 				Counter: "6/8",
-				Theme:   "green",
+				Theme:   ThemeDefault,
 				CTA:     "示意图可以降低理解门槛",
 			},
 			Content: PageContent{
@@ -336,7 +326,7 @@ func DefaultDeck(outDir string) Deck {
 			Meta: PageMeta{
 				Badge:   "第 7 页",
 				Counter: "7/8",
-				Theme:   "green",
+				Theme:   ThemeDefault,
 				CTA:     "把方法沉淀为可复用流程",
 			},
 			Content: PageContent{
@@ -354,7 +344,7 @@ func DefaultDeck(outDir string) Deck {
 			Meta: PageMeta{
 				Badge:   "第 8 页",
 				Counter: "8/8",
-				Theme:   "green",
+				Theme:   ThemeDefault,
 				CTA:     "先完成一版，再持续迭代",
 			},
 			Content: PageContent{
@@ -406,9 +396,7 @@ func FromJSON(raw string, outDir string) (Deck, error) {
 		Pages:          pages,
 		Themes:         defaultThemes(),
 	}
-	if rd.PageThemeKeys != nil {
-		d.PageThemeKeys = append([]string(nil), (*rd.PageThemeKeys)...)
-	} else if err := AssignPageThemesForDeck(&d); err != nil {
+	if err := AssignPageThemesForDeck(&d); err != nil {
 		return Deck{}, err
 	}
 	if err := d.Validate(); err != nil {
@@ -428,25 +416,6 @@ func (d Deck) Validate() error {
 	if d.Pages[len(d.Pages)-1].Variant != "ending" {
 		return fmt.Errorf("last page must use ending variant")
 	}
-	if d.ThemeName == ThemeShuffleLight {
-		if len(d.PageThemeKeys) != len(d.Pages) {
-			return fmt.Errorf("shuffle-light page theme assignment count mismatch")
-		}
-		for i, key := range d.PageThemeKeys {
-			if key == "" {
-				return fmt.Errorf("shuffle-light page theme assignment %d is empty", i)
-			}
-			if key == ThemeTechNoir {
-				return fmt.Errorf("shuffle-light page theme assignment %d unexpectedly used tech-noir", i)
-			}
-			if _, ok := d.Themes[key]; !ok {
-				return fmt.Errorf("shuffle-light page theme assignment %d uses unknown palette %q", i, key)
-			}
-			if i > 0 && d.PageThemeKeys[i-1] == key {
-				return fmt.Errorf("shuffle-light adjacent pages share palette %q", key)
-			}
-		}
-	}
 	seenNames := make(map[string]struct{}, len(d.Pages))
 	for _, page := range d.Pages {
 		if page.Name == "" {
@@ -464,9 +433,6 @@ func (d Deck) Validate() error {
 		}
 		if page.Meta.Badge == "" || page.Meta.Counter == "" || page.Meta.Theme == "" || page.Meta.CTA == "" {
 			return fmt.Errorf("page %q meta fields are required", page.Name)
-		}
-		if page.Meta.Theme != "orange" && page.Meta.Theme != "green" {
-			return fmt.Errorf("unknown theme %q", page.Meta.Theme)
 		}
 		if err := validateContent(page); err != nil {
 			return err

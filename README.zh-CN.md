@@ -74,14 +74,14 @@ go build -o ./mark2note ./cmd/mark2note
 ./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
 ```
 
-不传 `--out` 时，会按原 deck 所在目录名加时间戳生成新的输出目录。如果同目录存在 `render-meta.json`，会恢复旧运行的主题、视口、作者、水印和 `shuffle-light` 页面配色。`--prompt-extra` 只适用于 `--input`，不能和 `--from-deck` 一起使用。
+不传 `--out` 时，会按原 deck 所在目录名加时间戳生成新的输出目录。如果同目录存在 `render-meta.json`，会恢复旧运行的主题、视口、作者和水印。`--prompt-extra` 只适用于 `--input`，不能和 `--from-deck` 一起使用。
 
 ## 主题说明
 
-- `deck.theme` 和 `--theme` 现在都支持 `shuffle-light`
-- `shuffle-light` 每次生成都会重新随机分配页面配色
-- 它只会复用这 6 套现有非 `tech-noir` 配色：`default-orange`、`default-green`、`warm-paper`、`editorial-cool`、`lifestyle-light`、`editorial-mono`
-- 相邻页面不会重复同一套配色，且不会使用 `tech-noir`
+- 稳定主题支持 `default`、`warm-paper`、`editorial-cool`、`tech-noir`、`plum-ink`、`sage-mist`、`fresh-green`
+- `deck.theme_mode: weekly` 会按本机星期从 `deck.weekly_themes` 选择固定主题；`deck.theme` 仍是兜底主题
+- `--theme` 会单次覆盖 fixed 或 weekly 的主题选择
+- 未知主题名会回落到 `default`
 
 ## 配置
 
@@ -91,7 +91,9 @@ go build -o ./mark2note ./cmd/mark2note
 
 - `output.dir`：默认输出根目录
 - `ai.command` / `ai.args`：用于生成 deck JSON 的 AI CLI 命令及参数
-- `deck.theme`：默认主题，支持 `default`、`shuffle-light`、`warm-paper`、`editorial-cool`、`lifestyle-light`、`tech-noir`、`editorial-mono`
+- `deck.theme_mode`：主题选择模式，支持 `fixed`、`weekly`；`weekly` 按本机星期读取 `deck.weekly_themes`
+- `deck.theme`：默认 / 兜底主题，支持 `default`、`warm-paper`、`editorial-cool`、`tech-noir`、`plum-ink`、`sage-mist`、`fresh-green`；未知主题名会回落到 `default`
+- `deck.weekly_themes`：weekly 模式下的星期主题映射，如 `mon`、`tue`
 - `deck.author`：封面作者默认值
 - `deck.watermark.enabled`：是否启用页内水印，默认启用
 - `deck.watermark.text`：水印文本，默认值为 `walker1211/mark2note`
@@ -141,7 +143,7 @@ go build -o ./mark2note ./cmd/mark2note
 - `<page>.live/` 是中间包，不是最终可直接导入的单文件；启用组装后，最终成品会输出到 `<out>/apple-live/` 或 `render.live.output_dir` / `--live-output-dir` 指定目录
 - 仅启用 Live 导出时，程序仍会按动画时间轴捕获帧，但不会额外生成根级 `.webp` / `.mp4` 文件
 - `capture-html` 当前仍然只负责把现有 HTML 转成 PNG，不导出 Animated WebP、MP4 或 Live package；如需复用配置里的导出尺寸，可额外传入 `--config` 读取 `render.viewport.width/height`
-- `--theme` 支持单次覆盖配置中的主题
+- `--theme` 支持单次覆盖配置中的主题，包括 weekly 模式当天选择的主题
 - `--author` 支持单次覆盖配置中的作者
 - `--config` 可显式指定其他配置文件
 - `--prompt-extra` 支持单次追加自然语言引导，用来控制 Markdown -> deck JSON 阶段的分页、标题语气和内容组织方向
@@ -185,11 +187,11 @@ ai:
 ./mark2note --input ./article.md --config ./configs/config.yaml
 ./mark2note --input ./article.md --config ./config.yaml
 ./mark2note --input ./article.md --theme warm-paper --author "Your Name"
-./mark2note --input ./article.md --theme shuffle-light
-./mark2note --input ./article.md --theme tech-noir
+./mark2note --input ./article.md --theme plum-ink
+./mark2note --input ./article.md --theme sage-mist
 ./mark2note --input ./article.md --prompt-extra "封面更抓眼，整体更像经验复盘"
-./mark2note --input ./article.md --theme shuffle-light --prompt-extra "精简输出，但不要精简掉图片" --live=false --publish-xhs
-./mark2note --input ./article.md --theme shuffle-light --publish-xhs --xhs-tags "AI代理,数据安全,工程反思"
+./mark2note --input ./article.md --theme fresh-green --prompt-extra "精简输出，但不要精简掉图片" --live=false --publish-xhs
+./mark2note --input ./article.md --theme fresh-green --publish-xhs --xhs-tags "AI代理,数据安全,工程反思"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --import-photos --import-album "mark2note"
@@ -214,7 +216,7 @@ ai:
 ```bash
 ./mark2note \
   --input ~/mark/2026/26.04.26-一个AI代理删库之后我开始关心刹车.md \
-  --theme shuffle-light \
+  --theme fresh-green \
   --prompt-extra "精简输出，但不要精简掉图片" \
   --live=false \
   --publish-xhs
@@ -231,7 +233,7 @@ ai:
 ```bash
 ./mark2note \
   --input ./article.md \
-  --theme shuffle-light \
+  --theme fresh-green \
   --publish-xhs \
   --xhs-tags "AI代理,数据安全,工程反思"
 ```

@@ -67,6 +67,145 @@ func TestLoadKeepsExplicitDeckThemeAndAuthor(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesDefaultDeckWeeklyThemes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("output:\n  dir: custom-output\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Deck.ThemeMode != "weekly" {
+		t.Fatalf("Deck.ThemeMode = %q, want weekly", cfg.Deck.ThemeMode)
+	}
+	want := map[string]string{
+		"mon": "default",
+		"tue": "warm-paper",
+		"wed": "editorial-cool",
+		"thu": "plum-ink",
+		"fri": "sage-mist",
+		"sat": "fresh-green",
+		"sun": "tech-noir",
+	}
+	if !reflect.DeepEqual(cfg.Deck.WeeklyThemes, want) {
+		t.Fatalf("Deck.WeeklyThemes = %#v, want %#v", cfg.Deck.WeeklyThemes, want)
+	}
+}
+
+func TestLoadKeepsExplicitDeckWeeklyThemes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "deck:\n  theme_mode: weekly\n  weekly_themes:\n    mon: default\n    tue: warm-paper\n    wed: editorial-cool\n    thu: plum-ink\n    fri: sage-mist\n    sat: fresh-green\n    sun: tech-noir\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := map[string]string{
+		"mon": "default",
+		"tue": "warm-paper",
+		"wed": "editorial-cool",
+		"thu": "plum-ink",
+		"fri": "sage-mist",
+		"sat": "fresh-green",
+		"sun": "tech-noir",
+	}
+	if !reflect.DeepEqual(cfg.Deck.WeeklyThemes, want) {
+		t.Fatalf("Deck.WeeklyThemes = %#v, want %#v", cfg.Deck.WeeklyThemes, want)
+	}
+}
+
+func TestLoadNormalizesDeckThemeFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "deck:\n  theme: \" plum-ink \"\n  theme_mode: \" weekly \"\n  weekly_themes:\n    mon: \" sage-mist \"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Deck.Theme != "plum-ink" {
+		t.Fatalf("Deck.Theme = %q, want plum-ink", cfg.Deck.Theme)
+	}
+	if cfg.Deck.ThemeMode != "weekly" {
+		t.Fatalf("Deck.ThemeMode = %q, want weekly", cfg.Deck.ThemeMode)
+	}
+	if cfg.Deck.WeeklyThemes["mon"] != "sage-mist" {
+		t.Fatalf("Deck.WeeklyThemes[mon] = %q, want sage-mist", cfg.Deck.WeeklyThemes["mon"])
+	}
+}
+
+func TestLoadRejectsInvalidDeckThemeMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "deck:\n  theme_mode: random\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "deck.theme_mode") {
+		t.Fatalf("Load() error = %v, want deck.theme_mode validation error", err)
+	}
+}
+
+func TestLoadRejectsInvalidDeckWeeklyThemeDay(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "deck:\n  weekly_themes:\n    monday: plum-ink\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "deck.weekly_themes.monday") {
+		t.Fatalf("Load() error = %v, want invalid weekday error", err)
+	}
+}
+
+func TestLoadAcceptsUnknownDeckWeeklyThemeValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "deck:\n  weekly_themes:\n    mon: \" neon-random \"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Deck.WeeklyThemes["mon"] != "neon-random" {
+		t.Fatalf("Deck.WeeklyThemes[mon] = %q, want neon-random", cfg.Deck.WeeklyThemes["mon"])
+	}
+}
+
+func TestLoadAcceptsUnknownDeckThemeValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "deck:\n  theme: \" neon-random \"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Deck.Theme != "neon-random" {
+		t.Fatalf("Deck.Theme = %q, want neon-random", cfg.Deck.Theme)
+	}
+}
+
 func TestLoadAppliesDefaultDeckWatermark(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
