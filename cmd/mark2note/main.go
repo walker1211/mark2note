@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,6 +21,8 @@ import (
 )
 
 type Options = app.Options
+
+const xhsPublishMetaFilename = "xhs-publish-meta.json"
 
 func defaultOptions() Options {
 	return Options{
@@ -148,10 +151,12 @@ Publish generated assets to Xiaohongshu only-self-visible or schedule queue.
 
 Usage:
   mark2note publish-xhs --account <name> [flags]
+  mark2note publish-xhs --meta <file>
   mark2note publish-xhs --help
 
 Flags:
   --config <file>          config file path (default: configs/config.yaml)
+  --meta <file>            replay publish options from xhs-publish-meta.json; cannot be combined with manual publish fields
   --account <name>         publish account/profile target (default from xhs.publish.account)
   --title <text>           inline title text (exactly one of --title / --title-file)
   --title-file <file>      title file path
@@ -170,8 +175,9 @@ Flags:
   --allow-content-copy     keep allow content copy enabled (default from xhs.publish.allow_content_copy)
 
 Rules:
-  - exactly one of --title / --title-file is required
-  - exactly one of --content / --content-file is required
+  - --meta replays persisted metadata and must be used standalone
+  - without --meta, exactly one of --title / --title-file is required
+  - without --meta, content may come from --content / --content-file or be omitted when --tags are provided
   - exactly one media source is required: --images or --live-report
   - --schedule-at is required when --mode schedule
   - --live-pages is accepted only with --live-report`
@@ -345,6 +351,7 @@ type publishXHSCLIOptions struct {
 	app.PublishOptions
 
 	ConfigPath              string
+	MetaPath                string
 	ConfigPathChanged       bool
 	AccountChanged          bool
 	HeadlessChanged         bool
@@ -353,6 +360,7 @@ type publishXHSCLIOptions struct {
 	ModeChanged             bool
 	DeclareOriginalChanged  bool
 	AllowContentCopyChanged bool
+	MetaConflictFlags       []string
 }
 
 func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
@@ -370,6 +378,7 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	fs := flag.NewFlagSet("mark2note publish-xhs", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&opts.ConfigPath, "config", opts.ConfigPath, "config file path")
+	fs.StringVar(&opts.MetaPath, "meta", opts.MetaPath, "xhs publish metadata file path")
 	fs.StringVar(&opts.Account, "account", opts.Account, "publish account/profile target")
 	fs.StringVar(&opts.Title, "title", opts.Title, "inline title text")
 	fs.StringVar(&opts.TitleFile, "title-file", opts.TitleFile, "title file path")
@@ -397,6 +406,9 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	opts.ImagePaths = splitCSV(images)
 	opts.LivePages = splitCSV(livePages)
 	fs.Visit(func(f *flag.Flag) {
+		if f.Name != "meta" {
+			opts.MetaConflictFlags = append(opts.MetaConflictFlags, "--"+f.Name)
+		}
 		switch f.Name {
 		case "config":
 			opts.ConfigPathChanged = true
@@ -699,6 +711,86 @@ func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string,
 	return topics, nil
 }
 
+type xhsPublishMeta struct {
+	Title            string   `json:"title"`
+	Content          string   `json:"content"`
+	Tags             []string `json:"tags"`
+	Images           []string `json:"images"`
+	Account          string   `json:"account"`
+	Mode             string   `json:"mode"`
+	ScheduleAt       string   `json:"schedule_at,omitempty"`
+	ChromePath       string   `json:"chrome_path"`
+	Headless         bool     `json:"headless"`
+	ProfileDir       string   `json:"profile_dir"`
+	DeclareOriginal  bool     `json:"declare_original"`
+	AllowContentCopy bool     `json:"allow_content_copy"`
+	InputPath        string   `json:"input_path"`
+	ConfigPath       string   `json:"config_path"`
+	GeneratedAt      string   `json:"generated_at"`
+	ChromeArgs       []string `json:"chrome_args,omitempty"`
+}
+
+func writeAutoPublishXHSMeta(renderOpts Options, renderResult app.Result, publishOpts app.PublishOptions) error {
+	outDir := strings.TrimSpace(renderResult.OutDir)
+	if outDir == "" {
+		return nil
+	}
+	meta := xhsPublishMeta{
+		Title:            publishOpts.Title,
+		Content:          publishOpts.Content,
+		Tags:             publishOpts.Tags,
+		Images:           publishOpts.ImagePaths,
+		Account:          publishOpts.Account,
+		Mode:             publishOpts.Mode,
+		ScheduleAt:       publishOpts.ScheduleAt,
+		ChromePath:       publishOpts.ChromePath,
+		Headless:         publishOpts.Headless,
+		ProfileDir:       publishOpts.ProfileDir,
+		DeclareOriginal:  publishOpts.DeclareOriginal,
+		AllowContentCopy: publishOpts.AllowContentCopy,
+		InputPath:        renderOpts.InputPath,
+		ConfigPath:       renderOpts.ConfigPath,
+		GeneratedAt:      nowFunc().Format(time.RFC3339),
+		ChromeArgs:       publishOpts.ChromeArgs,
+	}
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(outDir, xhsPublishMetaFilename), data, 0o644)
+}
+
+func readXHSPublishMeta(path string) (app.PublishOptions, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return app.PublishOptions{}, fmt.Errorf("--meta requires a file path")
+	}
+	data, err := os.ReadFile(trimmed)
+	if err != nil {
+		return app.PublishOptions{}, err
+	}
+	var meta xhsPublishMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return app.PublishOptions{}, err
+	}
+	return app.PublishOptions{
+		Account:          meta.Account,
+		Title:            meta.Title,
+		Content:          meta.Content,
+		Tags:             append([]string(nil), meta.Tags...),
+		Mode:             meta.Mode,
+		ScheduleAt:       meta.ScheduleAt,
+		ImagePaths:       append([]string(nil), meta.Images...),
+		ChromePath:       meta.ChromePath,
+		Headless:         meta.Headless,
+		ProfileDir:       meta.ProfileDir,
+		ChromeArgs:       append([]string(nil), meta.ChromeArgs...),
+		DeclareOriginal:  meta.DeclareOriginal,
+		AllowContentCopy: meta.AllowContentCopy,
+	}, nil
+}
+
 func runAutoPublishXHS(renderOpts Options, renderResult app.Result, stdout io.Writer, stderr io.Writer) int {
 	publishOpts, err := buildAutoPublishXHSOptions(renderOpts, renderResult)
 	if err != nil {
@@ -710,6 +802,10 @@ func runAutoPublishXHS(renderOpts Options, renderResult app.Result, stdout io.Wr
 		default:
 			fmt.Fprintf(stderr, "auto publish xhs failed: %v\n", err)
 		}
+		return 1
+	}
+	if err := writeAutoPublishXHSMeta(renderOpts, renderResult, publishOpts); err != nil {
+		fmt.Fprintf(stderr, "auto publish xhs failed: write xhs publish metadata: %v\n", err)
 		return 1
 	}
 	result, err := publishXHS(publishOpts)
@@ -883,6 +979,31 @@ func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
 		return 1
+	}
+	if strings.TrimSpace(cliOpts.MetaPath) != "" {
+		if len(cliOpts.MetaConflictFlags) > 0 {
+			fmt.Fprintf(stderr, "error parsing flags: --meta cannot be combined with manual publish fields: %s\n", strings.Join(cliOpts.MetaConflictFlags, ", "))
+			return 1
+		}
+		opts, err := readXHSPublishMeta(cliOpts.MetaPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "error reading xhs publish metadata: %v\n", err)
+			return 1
+		}
+		if strings.TrimSpace(opts.Title) == "" {
+			fmt.Fprintln(stderr, "error validating xhs publish metadata: metadata title is required")
+			return 1
+		}
+		if err := validatePublishXHSOptions(opts); err != nil {
+			fmt.Fprintf(stderr, "error validating xhs publish metadata: %v\n", err)
+			return 1
+		}
+		result, err := publishXHS(opts)
+		if err != nil {
+			printPublishXHSError(stderr, err)
+			return 1
+		}
+		return printPublishXHSResult(stdout, result)
 	}
 	cfg, err := loadPublishXHSConfig(cliOpts.ConfigPath, cliOpts.ConfigPathChanged)
 	if err != nil {
