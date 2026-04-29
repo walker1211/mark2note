@@ -115,3 +115,152 @@ func TestLoadKeepsExplicitDeckWatermark(t *testing.T) {
 		t.Fatalf("Watermark.Position = %q, want %q", cfg.Deck.Watermark.Position, "bottom-left")
 	}
 }
+
+func TestLoadAppliesDefaultRenderConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("output:\n  dir: custom-output\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Render.Viewport.Width != 1242 {
+		t.Fatalf("Viewport.Width = %d, want 1242", cfg.Render.Viewport.Width)
+	}
+	if cfg.Render.Viewport.Height != 1656 {
+		t.Fatalf("Viewport.Height = %d, want 1656", cfg.Render.Viewport.Height)
+	}
+	if cfg.Render.Animated.Enabled {
+		t.Fatalf("Animated.Enabled = true, want false")
+	}
+	if cfg.Render.Animated.Format != "webp" {
+		t.Fatalf("Animated.Format = %q, want webp", cfg.Render.Animated.Format)
+	}
+	if cfg.Render.Animated.DurationMS != 2400 {
+		t.Fatalf("Animated.DurationMS = %d, want 2400", cfg.Render.Animated.DurationMS)
+	}
+	if cfg.Render.Animated.FPS != 8 {
+		t.Fatalf("Animated.FPS = %d, want 8", cfg.Render.Animated.FPS)
+	}
+}
+
+func TestLoadAppliesDefaultRenderLiveConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("output:\n  dir: custom-output\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Render.Live.Enabled {
+		t.Fatalf("Render.Live.Enabled = true, want false")
+	}
+	if cfg.Render.Live.PhotoFormat != "jpeg" {
+		t.Fatalf("Render.Live.PhotoFormat = %q, want jpeg", cfg.Render.Live.PhotoFormat)
+	}
+	if cfg.Render.Live.CoverFrame != "middle" {
+		t.Fatalf("Render.Live.CoverFrame = %q, want middle", cfg.Render.Live.CoverFrame)
+	}
+	if cfg.Render.Live.Assemble {
+		t.Fatalf("Render.Live.Assemble = true, want false")
+	}
+	if cfg.Render.Live.OutputDir != "" {
+		t.Fatalf("Render.Live.OutputDir = %q, want empty", cfg.Render.Live.OutputDir)
+	}
+}
+
+func TestLoadAppliesDefaultRenderLiveFieldsWhenPartiallyConfigured(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "render:\n  live:\n    enabled: true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.Render.Live.Enabled {
+		t.Fatalf("Render.Live.Enabled = false, want true")
+	}
+	if cfg.Render.Live.PhotoFormat != "jpeg" {
+		t.Fatalf("Render.Live.PhotoFormat = %q, want jpeg", cfg.Render.Live.PhotoFormat)
+	}
+	if cfg.Render.Live.CoverFrame != "middle" {
+		t.Fatalf("Render.Live.CoverFrame = %q, want middle", cfg.Render.Live.CoverFrame)
+	}
+	if cfg.Render.Live.Assemble {
+		t.Fatalf("Render.Live.Assemble = true, want false")
+	}
+	if cfg.Render.Live.OutputDir != "" {
+		t.Fatalf("Render.Live.OutputDir = %q, want empty", cfg.Render.Live.OutputDir)
+	}
+}
+
+func TestLoadKeepsExplicitRenderLiveConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "render:\n  live:\n    enabled: true\n    photo_format: webp\n    cover_frame: first\n    assemble: true\n    output_dir: exported-live\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.Render.Live.Enabled {
+		t.Fatalf("Render.Live.Enabled = false, want true")
+	}
+	if cfg.Render.Live.PhotoFormat != "webp" {
+		t.Fatalf("Render.Live.PhotoFormat = %q, want webp", cfg.Render.Live.PhotoFormat)
+	}
+	if cfg.Render.Live.CoverFrame != "first" {
+		t.Fatalf("Render.Live.CoverFrame = %q, want first", cfg.Render.Live.CoverFrame)
+	}
+	if !cfg.Render.Live.Assemble {
+		t.Fatalf("Render.Live.Assemble = false, want true")
+	}
+	if cfg.Render.Live.OutputDir != "exported-live" {
+		t.Fatalf("Render.Live.OutputDir = %q, want exported-live", cfg.Render.Live.OutputDir)
+	}
+}
+
+func TestLoadKeepsExplicitRenderConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "render:\n  viewport:\n    width: 720\n    height: 960\n  animated:\n    enabled: true\n    format: webp\n    duration_ms: 3200\n    fps: 10\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Render.Viewport.Width != 720 {
+		t.Fatalf("Viewport.Width = %d, want 720", cfg.Render.Viewport.Width)
+	}
+	if cfg.Render.Viewport.Height != 960 {
+		t.Fatalf("Viewport.Height = %d, want 960", cfg.Render.Viewport.Height)
+	}
+	if !cfg.Render.Animated.Enabled {
+		t.Fatalf("Animated.Enabled = false, want true")
+	}
+	if cfg.Render.Animated.Format != "webp" {
+		t.Fatalf("Animated.Format = %q, want webp", cfg.Render.Animated.Format)
+	}
+	if cfg.Render.Animated.DurationMS != 3200 {
+		t.Fatalf("Animated.DurationMS = %d, want 3200", cfg.Render.Animated.DurationMS)
+	}
+	if cfg.Render.Animated.FPS != 10 {
+		t.Fatalf("Animated.FPS = %d, want 10", cfg.Render.Animated.FPS)
+	}
+}

@@ -20,10 +20,51 @@ type CommandRunner interface {
 }
 
 type Renderer struct {
-	OutDir     string
-	ChromePath string
-	Jobs       int
-	Runner     CommandRunner
+	OutDir             string
+	ChromePath         string
+	Jobs               int
+	ViewportWidth      int
+	ViewportHeight     int
+	Animated           animatedOptions
+	Live               liveOptions
+	Runner             CommandRunner
+	WebPEncoder        WebPEncoder
+	MP4Encoder         MP4Encoder
+	LivePackageBuilder LivePackageBuilder
+	LivePhotoAssembler LivePhotoAssembler
+}
+
+type RenderResult struct {
+	Warnings []string
+}
+
+type livePackageTask struct {
+	PageName     string
+	OutputDir    string
+	FramePaths   []string
+	FramePattern string
+	DurationMS   int
+	FPS          int
+	PhotoFormat  string
+	CoverFrame   string
+}
+
+type appleLiveTask struct {
+	PageName   string
+	PackageDir string
+	PhotoPath  string
+	VideoPath  string
+	OutputDir  string
+}
+
+type LivePackageBuilder interface {
+	CheckAvailable() error
+	Build(task livePackageTask) error
+}
+
+type LivePhotoAssembler interface {
+	CheckAvailable() error
+	Assemble(task appleLiveTask) error
 }
 
 type captureTask struct {
@@ -39,24 +80,43 @@ func (execRunner) Run(name string, args ...string) error {
 	return cmd.Run()
 }
 
-func (r Renderer) Render(d deck.Deck) error {
+func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 	if len(d.Pages) == 0 {
-		return fmt.Errorf("deck must contain at least 1 page for render")
+		return RenderResult{}, fmt.Errorf("deck must contain at least 1 page for render")
 	}
+	r = r.withDeckViewportFallback(d)
 	outDir := r.effectiveOutDir(d)
 	if outDir == "" {
-		return fmt.Errorf("out dir is required")
+		return RenderResult{}, fmt.Errorf("out dir is required")
 	}
-	if err := r.RenderHTMLPages(d); err != nil {
-		return err
+
+	mode, result := r.normalizedAnimated()
+	liveMode, liveWarnings := normalizeLiveOptions(r.Live)
+	captureMode, captureWarnings := r.normalizedCaptureTiming(mode, liveMode.Enabled)
+	if err := r.renderHTMLPages(d, captureMode); err != nil {
+		return RenderResult{}, err
 	}
 	if err := r.CapturePNGs(d.Pages, outDir); err != nil {
-		return err
+		return RenderResult{}, err
 	}
-	return nil
+	warnings := append([]string(nil), result.Warnings...)
+	warnings = append(warnings, liveWarnings...)
+	warnings = append(warnings, captureWarnings...)
+	if captureMode.Enabled && (mode.Enabled || liveMode.Enabled) {
+		warnings = append(warnings, r.runAnimatedExports(d.Pages, outDir, captureMode, mode, liveMode)...)
+	}
+	return RenderResult{Warnings: warnings}, nil
 }
 
 func (r Renderer) RenderHTMLPages(d deck.Deck) error {
+	r = r.withDeckViewportFallback(d)
+	mode, _ := r.normalizedAnimated()
+	liveMode, _ := normalizeLiveOptions(r.Live)
+	captureMode, _ := r.normalizedCaptureTiming(mode, liveMode.Enabled)
+	return r.renderHTMLPages(d, captureMode)
+}
+
+func (r Renderer) renderHTMLPages(d deck.Deck, mode normalizedAnimatedOptions) error {
 	outDir := r.effectiveOutDir(d)
 	if outDir == "" {
 		return fmt.Errorf("out dir is required")
@@ -65,8 +125,20 @@ func (r Renderer) RenderHTMLPages(d deck.Deck) error {
 		return fmt.Errorf("create out dir: %w", err)
 	}
 
-	for _, page := range d.Pages {
-		html, err := RenderPageHTML(d, page)
+	renderDeck := d
+	renderDeck.ViewportWidth = r.effectiveViewportWidth(d.ViewportWidth)
+	renderDeck.ViewportHeight = r.effectiveViewportHeight(d.ViewportHeight)
+
+	for _, page := range renderDeck.Pages {
+		var (
+			html string
+			err  error
+		)
+		if mode.Enabled {
+			html, err = RenderAnimatedPageHTML(renderDeck, page, mode.DurationMS)
+		} else {
+			html, err = RenderPageHTML(renderDeck, page)
+		}
 		if err != nil {
 			return fmt.Errorf("render html %s: %w", page.Name, err)
 		}
@@ -76,6 +148,26 @@ func (r Renderer) RenderHTMLPages(d deck.Deck) error {
 		}
 	}
 	return nil
+}
+
+func (r Renderer) normalizedAnimated() (normalizedAnimatedOptions, RenderResult) {
+	mode, warning := normalizeAnimatedOptions(r.Animated)
+	result := RenderResult{}
+	if warning != "" {
+		result.Warnings = append(result.Warnings, warning)
+	}
+	return mode, result
+}
+
+func (r Renderer) normalizedCaptureTiming(animated normalizedAnimatedOptions, liveEnabled bool) (normalizedAnimatedOptions, []string) {
+	if animated.Enabled || !liveEnabled {
+		return animated, nil
+	}
+	mode, warning := normalizeAnimatedOptions(animatedOptions{Enabled: true, Format: animatedFormatWebP, DurationMS: r.Animated.DurationMS, FPS: r.Animated.FPS})
+	if warning != "" {
+		return normalizedAnimatedOptions{}, []string{"live export skipped: " + strings.TrimPrefix(warning, "animated export skipped: ")}
+	}
+	return mode, nil
 }
 
 func (r Renderer) effectiveJobs() int {
@@ -99,11 +191,69 @@ func (r Renderer) effectiveChromePath() string {
 	return r.ChromePath
 }
 
+func (r Renderer) withDeckViewportFallback(d deck.Deck) Renderer {
+	if r.ViewportWidth <= 0 {
+		r.ViewportWidth = d.ViewportWidth
+	}
+	if r.ViewportHeight <= 0 {
+		r.ViewportHeight = d.ViewportHeight
+	}
+	return r
+}
+
+func (r Renderer) effectiveViewportWidth(deckWidth int) int {
+	if r.ViewportWidth > 0 {
+		return r.ViewportWidth
+	}
+	if deckWidth > 0 {
+		return deckWidth
+	}
+	return 1242
+}
+
+func (r Renderer) effectiveViewportHeight(deckHeight int) int {
+	if r.ViewportHeight > 0 {
+		return r.ViewportHeight
+	}
+	if deckHeight > 0 {
+		return deckHeight
+	}
+	return 1656
+}
+
 func (r Renderer) effectiveRunner() CommandRunner {
 	if r.Runner != nil {
 		return r.Runner
 	}
 	return execRunner{}
+}
+
+func (r Renderer) effectiveWebPEncoder() WebPEncoder {
+	if r.WebPEncoder != nil {
+		return r.WebPEncoder
+	}
+	return img2webpEncoder{Runner: r.effectiveRunner()}
+}
+
+func (r Renderer) effectiveMP4Encoder() MP4Encoder {
+	if r.MP4Encoder != nil {
+		return r.MP4Encoder
+	}
+	return ffmpegEncoder{Runner: r.effectiveRunner()}
+}
+
+func (r Renderer) effectiveLivePackageBuilder() LivePackageBuilder {
+	if r.LivePackageBuilder != nil {
+		return r.LivePackageBuilder
+	}
+	return livePackageBuilder{Runner: r.effectiveRunner()}
+}
+
+func (r Renderer) effectiveLivePhotoAssembler() LivePhotoAssembler {
+	if r.LivePhotoAssembler != nil {
+		return r.LivePhotoAssembler
+	}
+	return makeliveAssembler{Runner: r.effectiveRunner()}
 }
 
 func (r Renderer) CapturePNGs(pages []deck.Page, outDir string) error {
@@ -122,7 +272,7 @@ func (r Renderer) CapturePNGs(pages []deck.Page, outDir string) error {
 			pngPath:  filepath.Join(outDir, page.Name+".png"),
 		})
 	}
-	return r.runCaptureTasks(tasks)
+	return r.runCaptureTasksWithJobs(tasks, r.effectiveJobs())
 }
 
 func (r Renderer) CaptureHTMLPath(inputPath string) error {
@@ -130,7 +280,122 @@ func (r Renderer) CaptureHTMLPath(inputPath string) error {
 	if err != nil {
 		return fmt.Errorf("capture html path %s: %w", inputPath, err)
 	}
-	return r.runCaptureTasks(tasks)
+	return r.runCaptureTasksWithJobs(tasks, r.effectiveJobs())
+}
+
+func (r Renderer) runAnimatedExports(pages []deck.Page, outDir string, captureMode normalizedAnimatedOptions, animated normalizedAnimatedOptions, live normalizedLiveOptions) []string {
+	tasks := buildAnimatedCaptureTasks(pages, outDir, captureMode)
+	warningsList := make([]string, 0, 3)
+	if len(tasks) == 0 {
+		return warningsList
+	}
+
+	webpEnabled := animated.Enabled && animated.Format == animatedFormatWebP
+	mp4Enabled := animated.Enabled && animated.Format == animatedFormatMP4
+
+	var webpEncoder WebPEncoder
+	if webpEnabled {
+		webpEncoder = r.effectiveWebPEncoder()
+		if err := webpEncoder.CheckAvailable(); err != nil {
+			warningsList = append(warningsList, fmt.Sprintf("animated export skipped: %v", err))
+			webpEnabled = false
+		}
+	}
+
+	var mp4Encoder MP4Encoder
+	if mp4Enabled {
+		mp4Encoder = r.effectiveMP4Encoder()
+		if err := mp4Encoder.CheckAvailable(); err != nil {
+			warningsList = append(warningsList, fmt.Sprintf("animated export skipped: %v", err))
+			mp4Enabled = false
+		}
+	}
+
+	liveBuilder := r.effectiveLivePackageBuilder()
+	if live.Enabled {
+		if err := liveBuilder.CheckAvailable(); err != nil {
+			warningsList = append(warningsList, fmt.Sprintf("live export skipped: %v", err))
+			live = normalizedLiveOptions{}
+		}
+	}
+
+	var liveAssembler LivePhotoAssembler
+	if live.Enabled && live.Assemble {
+		liveAssembler = r.effectiveLivePhotoAssembler()
+		if err := liveAssembler.CheckAvailable(); err != nil {
+			warningsList = append(warningsList, fmt.Sprintf("live assemble skipped: %v", err))
+			live.Assemble = false
+			liveAssembler = nil
+		}
+	}
+	if !webpEnabled && !mp4Enabled && !live.Enabled {
+		sort.Strings(warningsList)
+		return warningsList
+	}
+
+	warnings := make(chan string, len(tasks))
+	work := make(chan animatedCaptureTask)
+
+	var wg sync.WaitGroup
+	for i := 0; i < r.effectiveJobs(); i++ {
+		wg.Go(func() {
+			for task := range work {
+				if warning := r.runAnimatedExportTask(task, captureMode, live, webpEnabled, webpEncoder, mp4Enabled, mp4Encoder, liveBuilder, liveAssembler); warning != "" {
+					warnings <- warning
+				}
+			}
+		})
+	}
+
+	for _, task := range tasks {
+		work <- task
+	}
+	close(work)
+	wg.Wait()
+	close(warnings)
+
+	collected := append([]string(nil), warningsList...)
+	for warning := range warnings {
+		collected = append(collected, warning)
+	}
+	sort.Strings(collected)
+	return collected
+}
+
+func (r Renderer) runAnimatedExportTask(task animatedCaptureTask, mode normalizedAnimatedOptions, live normalizedLiveOptions, webpEnabled bool, webpEncoder WebPEncoder, mp4Enabled bool, mp4Encoder MP4Encoder, liveBuilder LivePackageBuilder, liveAssembler LivePhotoAssembler) string {
+	captureTasks := make([]captureTask, 0, len(task.framePaths))
+	for i := range task.framePaths {
+		captureTasks = append(captureTasks, captureTask{name: task.pageName, htmlPath: task.frameURIs[i], pngPath: task.framePaths[i]})
+	}
+	for _, path := range task.framePaths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Sprintf("animated export skipped for %s: %v", task.pageName, err)
+		}
+	}
+	if err := r.runCaptureTasksWithJobs(captureTasks, 1); err != nil {
+		return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err)
+	}
+	if webpEnabled {
+		if err := webpEncoder.Encode(task.outputPath, frameSpecsForTask(task, mode.FrameMS)); err != nil {
+			return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err)
+		}
+	}
+	if mp4Enabled {
+		if err := mp4Encoder.Encode(task.outputPath, animatedSequenceSpec{FramePattern: task.framePattern, FPS: mode.FPS}); err != nil {
+			return fmt.Sprintf("animated export failed for %s: %v", task.pageName, err)
+		}
+	}
+	if live.Enabled && liveBuilder != nil {
+		if err := liveBuilder.Build(livePackageTask{PageName: task.pageName, OutputDir: task.liveOutputDir, FramePaths: append([]string(nil), task.framePaths...), FramePattern: task.framePattern, DurationMS: mode.DurationMS, FPS: mode.FPS, PhotoFormat: live.PhotoFormat, CoverFrame: live.CoverFrame}); err != nil {
+			return fmt.Sprintf("live export failed for %s: %v", task.pageName, err)
+		}
+		if live.Assemble && liveAssembler != nil {
+			if err := liveAssembler.Assemble(appleLiveTask{PageName: task.pageName, PackageDir: task.liveOutputDir, PhotoPath: filepath.Join(task.liveOutputDir, liveCoverFilename), VideoPath: filepath.Join(task.liveOutputDir, liveMotionFilename), OutputDir: live.OutputDir}); err != nil {
+				return fmt.Sprintf("live assemble failed for %s: %v", task.pageName, err)
+			}
+		}
+	}
+	return ""
 }
 
 func collectCaptureTasks(inputPath string) ([]captureTask, error) {
@@ -175,23 +440,25 @@ func collectCaptureTasks(inputPath string) ([]captureTask, error) {
 	}}, nil
 }
 
-func (r Renderer) runCaptureTasks(captureTasks []captureTask) error {
+func (r Renderer) runCaptureTasksWithJobs(captureTasks []captureTask, jobs int) error {
 	runner := r.effectiveRunner()
 	chrome := r.effectiveChromePath()
 	tasks := make(chan captureTask)
 	errCh := make(chan error, len(captureTasks))
 
+	if jobs <= 0 {
+		jobs = 1
+	}
+
 	var wg sync.WaitGroup
-	for i := 0; i < r.effectiveJobs(); i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := 0; i < jobs; i++ {
+		wg.Go(func() {
 			for task := range tasks {
 				if err := runner.Run(chrome, r.screenshotArgs(task)...); err != nil {
 					errCh <- fmt.Errorf("screenshot %s: %w", task.name, err)
 				}
 			}
-		}()
+		})
 	}
 
 	for _, task := range captureTasks {
@@ -217,10 +484,17 @@ func (r Renderer) screenshotArgs(task captureTask) []string {
 		"--allow-file-access-from-files",
 		"--run-all-compositor-stages-before-draw",
 		"--virtual-time-budget=2000",
-		"--window-size=1242,1656",
+		fmt.Sprintf("--window-size=%d,%d", r.effectiveViewportWidth(0), r.effectiveViewportHeight(0)),
 		"--screenshot=" + task.pngPath,
-		fileURI(task.htmlPath),
+		r.captureTargetURI(task.htmlPath),
 	}
+}
+
+func (r Renderer) captureTargetURI(path string) string {
+	if strings.HasPrefix(path, "file://") {
+		return path
+	}
+	return fileURI(path)
 }
 
 func fileURI(path string) string {

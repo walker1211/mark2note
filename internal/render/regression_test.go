@@ -141,7 +141,7 @@ func renderFixturePNGDigest(t *testing.T, fixture loadedFixture, chromePath stri
 	outDir := t.TempDir()
 	d := mustLoadFixtureDeck(t, fixture, outDir)
 	r := Renderer{OutDir: outDir, ChromePath: chromePath, Jobs: 1}
-	if err := r.Render(d); err != nil {
+	if _, err := r.Render(d); err != nil {
 		t.Fatalf("Render(%s) error = %v", fixture.Name, err)
 	}
 

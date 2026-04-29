@@ -24,6 +24,36 @@ func TestDefaultOptions(t *testing.T) {
 	if opts.Jobs != 2 {
 		t.Fatalf("Jobs = %d, want %d", opts.Jobs, 2)
 	}
+	if opts.Animated.Enabled {
+		t.Fatalf("Animated.Enabled = true, want false")
+	}
+	if opts.Animated.Format != "webp" {
+		t.Fatalf("Animated.Format = %q, want %q", opts.Animated.Format, "webp")
+	}
+	if opts.Animated.DurationMS != 2400 {
+		t.Fatalf("Animated.DurationMS = %d, want %d", opts.Animated.DurationMS, 2400)
+	}
+	if opts.Animated.FPS != 8 {
+		t.Fatalf("Animated.FPS = %d, want %d", opts.Animated.FPS, 8)
+	}
+	if opts.Live.PhotoFormat != "jpeg" {
+		t.Fatalf("Live.PhotoFormat = %q, want %q", opts.Live.PhotoFormat, "jpeg")
+	}
+	if opts.Live.CoverFrame != "middle" {
+		t.Fatalf("Live.CoverFrame = %q, want %q", opts.Live.CoverFrame, "middle")
+	}
+	if opts.Live.Assemble {
+		t.Fatalf("Live.Assemble = true, want false")
+	}
+	if opts.Live.OutputDir != "" {
+		t.Fatalf("Live.OutputDir = %q, want empty", opts.Live.OutputDir)
+	}
+	if opts.ViewportWidth != 0 {
+		t.Fatalf("ViewportWidth = %d, want 0", opts.ViewportWidth)
+	}
+	if opts.ViewportHeight != 0 {
+		t.Fatalf("ViewportHeight = %d, want 0", opts.ViewportHeight)
+	}
 }
 
 func TestUsageTextMentionsConfiguredDefaultOutputDir(t *testing.T) {
@@ -34,9 +64,9 @@ func TestUsageTextMentionsConfiguredDefaultOutputDir(t *testing.T) {
 	}
 }
 
-func TestUsageTextMentionsThemeAndAuthorFlags(t *testing.T) {
+func TestUsageTextMentionsThemeAuthorAndAnimatedFlags(t *testing.T) {
 	text := usageText()
-	for _, want := range []string{"--theme <name>", "--author <name>", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
+	for _, want := range []string{"--theme <name>", "--author <name>", "--animated", "--animated-format <name>", "--animated-duration <ms>", "--animated-fps <n>", "--live", "--live-photo-format <name>", "--live-cover-frame <name>", "supported: first, middle, last", "--live-assemble", "--live-output-dir <dir>", "page animation timeline duration; also affects Live motion timing", "animation capture fps / sampling density; affects Animated WebP/MP4 output and Live frame sampling", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("usageText() missing %q", want)
 		}
@@ -79,6 +109,21 @@ func TestParseOptionsUsesConfigsConfigYAMLByDefault(t *testing.T) {
 	if opts.ConfigPath != "configs/config.yaml" {
 		t.Fatalf("ConfigPath = %q, want %q", opts.ConfigPath, "configs/config.yaml")
 	}
+	if opts.Animated.Enabled {
+		t.Fatalf("Animated.Enabled = true, want false")
+	}
+	if opts.Animated.Format != "webp" {
+		t.Fatalf("Animated.Format = %q, want %q", opts.Animated.Format, "webp")
+	}
+	if opts.Animated.DurationMS != 2400 {
+		t.Fatalf("Animated.DurationMS = %d, want %d", opts.Animated.DurationMS, 2400)
+	}
+	if opts.Animated.FPS != 8 {
+		t.Fatalf("Animated.FPS = %d, want %d", opts.Animated.FPS, 8)
+	}
+	if opts.ViewportWidth != 0 || opts.ViewportHeight != 0 {
+		t.Fatalf("viewport = %dx%d, want 0x0", opts.ViewportWidth, opts.ViewportHeight)
+	}
 }
 
 func TestParseOptionsOverridesFlags(t *testing.T) {
@@ -110,6 +155,89 @@ func TestParseOptionsParsesThemeAndAuthor(t *testing.T) {
 	}
 	if opts.Theme != "warm-paper" || opts.Author != "搁剑听风" {
 		t.Fatalf("opts = %#v", opts)
+	}
+}
+
+func TestParseOptionsParsesAnimatedFlags(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--animated", "--animated-format", "webp", "--animated-duration", "3200", "--animated-fps", "10"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.Animated.Enabled || opts.Animated.Format != "webp" || opts.Animated.DurationMS != 3200 || opts.Animated.FPS != 10 {
+		t.Fatalf("opts.Animated = %#v", opts.Animated)
+	}
+}
+
+func TestParseOptionsParsesLiveFlags(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--live", "--live-photo-format", "jpeg", "--live-cover-frame", "first", "--live-assemble", "--live-output-dir", "apple-live"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.Live.Enabled || opts.Live.PhotoFormat != "jpeg" || opts.Live.CoverFrame != "first" || !opts.Live.Assemble || opts.Live.OutputDir != "apple-live" {
+		t.Fatalf("opts.Live = %#v", opts.Live)
+	}
+}
+
+func TestParseOptionsTracksLiveFlagPresenceIndependently(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want Options
+	}{
+		{
+			name: "explicit false still counts as live override",
+			args: []string{"--input", "article.md", "--live=false"},
+			want: Options{LiveEnabledChanged: true},
+		},
+		{
+			name: "single cover frame override does not mark others",
+			args: []string{"--input", "article.md", "--live-cover-frame", "first"},
+			want: Options{LiveCoverFrameChanged: true},
+		},
+		{
+			name: "assemble and output dir overrides are tracked independently",
+			args: []string{"--input", "article.md", "--live-assemble", "--live-output-dir", "apple-live"},
+			want: Options{LiveAssembleChanged: true, LiveOutputDirChanged: true},
+		},
+	}
+
+	for _, tt := range tests {
+		opts, err := parseOptions(tt.args)
+		if err != nil {
+			t.Fatalf("%s: parseOptions() error = %v", tt.name, err)
+		}
+		if opts.LiveEnabledChanged != tt.want.LiveEnabledChanged || opts.LivePhotoFormatChanged != tt.want.LivePhotoFormatChanged || opts.LiveCoverFrameChanged != tt.want.LiveCoverFrameChanged || opts.LiveAssembleChanged != tt.want.LiveAssembleChanged || opts.LiveOutputDirChanged != tt.want.LiveOutputDirChanged {
+			t.Fatalf("%s: live flag tracking = %#v", tt.name, opts)
+		}
+	}
+}
+
+func TestParseOptionsTracksAnimatedFlagPresenceIndependently(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want Options
+	}{
+		{
+			name: "explicit false still counts as override",
+			args: []string{"--input", "article.md", "--animated=false"},
+			want: Options{AnimatedEnabledChanged: true},
+		},
+		{
+			name: "single duration override does not mark others",
+			args: []string{"--input", "article.md", "--animated-duration", "3600"},
+			want: Options{AnimatedDurationChanged: true},
+		},
+	}
+
+	for _, tt := range tests {
+		opts, err := parseOptions(tt.args)
+		if err != nil {
+			t.Fatalf("%s: parseOptions() error = %v", tt.name, err)
+		}
+		if opts.AnimatedEnabledChanged != tt.want.AnimatedEnabledChanged || opts.AnimatedFormatChanged != tt.want.AnimatedFormatChanged || opts.AnimatedDurationChanged != tt.want.AnimatedDurationChanged || opts.AnimatedFPSChanged != tt.want.AnimatedFPSChanged {
+			t.Fatalf("%s: flag tracking = %#v", tt.name, opts)
+		}
 	}
 }
 
@@ -231,7 +359,7 @@ func TestRunCaptureHTMLPassesOptionsToRenderer(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
-	want := Options{OutDir: "output", ChromePath: "/tmp/chrome", Jobs: 3, InputPath: "preview", ConfigPath: "configs/config.yaml"}
+	want := Options{OutDir: "output", ChromePath: "/tmp/chrome", Jobs: 3, InputPath: "preview", Animated: app.AnimatedOptions{Format: "webp", DurationMS: 2400, FPS: 8}, Live: app.LiveOptions{PhotoFormat: "jpeg", CoverFrame: "middle", OutputDir: ""}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("opts = %#v, want %#v", got, want)
 	}
@@ -240,6 +368,35 @@ func TestRunCaptureHTMLPassesOptionsToRenderer(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestCaptureHTMLUsesViewportFromConfig(t *testing.T) {
+	root := t.TempDir()
+	htmlPath := filepath.Join(root, "page.html")
+	if err := os.WriteFile(htmlPath, []byte("<html></html>"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("render:\n  viewport:\n    width: 720\n    height: 960\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	argsLog := filepath.Join(root, "chrome-args.txt")
+	chromePath := filepath.Join(root, "fake-chrome.sh")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\n' \"$@\" > %q\n", argsLog)
+	if err := os.WriteFile(chromePath, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if err := captureHTML(Options{InputPath: htmlPath, ConfigPath: cfgPath, ChromePath: chromePath, Jobs: 1}); err != nil {
+		t.Fatalf("captureHTML() error = %v", err)
+	}
+	content, err := os.ReadFile(argsLog)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), "--window-size=720,960") {
+		t.Fatalf("chrome args = %q, want --window-size=720,960", string(content))
 	}
 }
 
@@ -252,8 +409,10 @@ func TestRunCaptureHTMLPrintsHelp(t *testing.T) {
 	if stdout.Len() == 0 {
 		t.Fatalf("stdout is empty")
 	}
-	if !strings.Contains(stdout.String(), "capture-html --input <path>") {
-		t.Fatalf("stdout = %q", stdout.String())
+	for _, want := range []string{"capture-html --input <path>", "--config <file>", "render.viewport.width/height"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q: %q", want, stdout.String())
+		}
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
@@ -346,9 +505,11 @@ func TestParseOptionsMarksOutDirChangedForEqualsSyntax(t *testing.T) {
 
 func TestBuildRendererUsesAbsoluteOutDir(t *testing.T) {
 	opts := Options{
-		OutDir:     "output/mark2note",
-		ChromePath: "/tmp/chrome",
-		Jobs:       2,
+		OutDir:         "output/mark2note",
+		ChromePath:     "/tmp/chrome",
+		Jobs:           2,
+		ViewportWidth:  720,
+		ViewportHeight: 960,
 	}
 
 	r := buildRenderer(opts)
@@ -361,6 +522,9 @@ func TestBuildRendererUsesAbsoluteOutDir(t *testing.T) {
 	}
 	if r.Jobs != opts.Jobs {
 		t.Fatalf("Jobs = %d, want %d", r.Jobs, opts.Jobs)
+	}
+	if r.ViewportWidth != 720 || r.ViewportHeight != 960 {
+		t.Fatalf("renderer viewport = %dx%d, want 720x960", r.ViewportWidth, r.ViewportHeight)
 	}
 }
 
@@ -448,6 +612,53 @@ func TestRunPrintsGeneratedPagesFromServiceResult(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "generated 3 preview pages") {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestRunPrintsWarningsButReturnsZeroWhenPreviewSucceeds(t *testing.T) {
+	originalGeneratePreview := generatePreview
+	defer func() { generatePreview = originalGeneratePreview }()
+
+	generatePreview = func(Options) (app.Result, error) {
+		return app.Result{PageCount: 3, OutDir: t.TempDir(), Warnings: []string{"animated export skipped: img2webp not found"}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--input", "article.md"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d", code)
+	}
+	if !strings.Contains(stderr.String(), "animated export skipped: img2webp not found") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "generated 3 preview pages") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestREADMEExplainsAnimatedOutputContract(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("Abs() error = %v", err)
+	}
+	readmePath := filepath.Join(root, "README.md")
+	content, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", readmePath, err)
+	}
+	text := string(content)
+	for _, want := range []string{
+		"Animated WebP or MP4",
+		"HTML + PNG remain the primary stable outputs",
+		"img2webp",
+		"ffmpeg",
+		"exiftool",
+		"export Animated WebP, MP4, or Live packages.",
+		"render.live.enabled",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("README.md missing %q", want)
+		}
 	}
 }
 

@@ -24,6 +24,76 @@ func TestCompiledPageTemplateCachesParsedTemplate(t *testing.T) {
 	}
 }
 
+func TestRenderPageHTMLStaticModeOmitsAnimatedMarkers(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, unwanted := range []string{"data-animated=", "animated_ms", "anim-fade-up", "anim-reveal"} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("html should omit animated marker %q: %s", unwanted, html)
+		}
+	}
+}
+
+func TestRenderAnimatedPageHTMLIncludesDeterministicTimeMarkers(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	html, err := RenderAnimatedPageHTML(d, d.Pages[0], 700)
+	if err != nil {
+		t.Fatalf("RenderAnimatedPageHTML() error = %v", err)
+	}
+	for _, want := range []string{
+		`data-animated="true"`,
+		`data-animated-ms="700"`,
+		`animated_ms`,
+		`data-animated-ready`,
+		`anim-fade-up`,
+		`anim-fade-in`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing %q", want)
+		}
+	}
+}
+
+func TestRenderAnimatedPageHTMLUsesVariantDefaultPreset(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	bulletsPage := d.Pages[3]
+	html, err := RenderAnimatedPageHTML(d, bulletsPage, 0)
+	if err != nil {
+		t.Fatalf("RenderAnimatedPageHTML() error = %v", err)
+	}
+	for _, want := range []string{`class="title-lg anim-fade-in"`, `class="bullet anim-reveal"`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing %q", want)
+		}
+	}
+}
+
+func TestRenderAnimatedPageHTMLDistributesAnimationTimingAcrossWholeDuration(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	bulletsPage := d.Pages[3]
+	html, err := RenderAnimatedPageHTML(d, bulletsPage, 2400)
+	if err != nil {
+		t.Fatalf("RenderAnimatedPageHTML() error = %v", err)
+	}
+	for _, want := range []string{
+		`var totalMS = bodyMS > 0 ? bodyMS : 1;`,
+		`var duration = nodeCount <= 1 ? totalMS : Math.max(Math.round(totalMS / nodeCount), 1);`,
+		`var stagger = nodeCount <= 1 ? 0 : Math.round(((totalMS - duration) * index) / (nodeCount - 1));`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing distributed timing token %q", want)
+		}
+	}
+	for _, unwanted := range []string{`index * 120`, `kind === "reveal" ? 280 : 360`} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("html should not contain fixed timing token %q", unwanted)
+		}
+	}
+}
+
 func TestRenderHTMLIncludesBadgeCounterAndCTA(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	html, err := RenderPageHTML(d, d.Pages[0])
@@ -763,13 +833,54 @@ func TestRenderHTMLDefaultDeckDoesNotUseLegacyPlaceholderAssets(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLUses1656Viewport(t *testing.T) {
+func TestRenderHTMLUsesDefaultViewport(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	html, err := RenderPageHTML(d, d.Pages[0])
 	if err != nil {
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
-	if !strings.Contains(html, `width=1242,height=1656,initial-scale=1`) {
-		t.Fatalf("html missing 1656 viewport: %s", html)
+	for _, want := range []string{
+		`width=1242,height=1656,initial-scale=1`,
+		`html, body { width: 1242px; height: 1656px; }`,
+		`.page { transform-origin: top left; transform: translate(0px, 0px) scale(1.000000); }`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing default viewport token %q: %s", want, html)
+		}
+	}
+}
+
+func TestRenderHTMLUsesConfiguredViewport(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ViewportWidth = 720
+	d.ViewportHeight = 960
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{
+		`width=720,height=960,initial-scale=1`,
+		`html, body { width: 720px; height: 960px; }`,
+		`.page { transform-origin: top left; transform: translate(0px, 0px) scale(0.579710); }`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing configured viewport token %q: %s", want, html)
+		}
+	}
+}
+
+func TestResolveViewportLayoutCentersWhenAspectRatioChanges(t *testing.T) {
+	layout := resolveViewportLayout(800, 800)
+	if layout.Width != 800 || layout.Height != 800 {
+		t.Fatalf("layout size = %dx%d, want 800x800", layout.Width, layout.Height)
+	}
+	if layout.Scale <= 0 {
+		t.Fatalf("layout scale = %f, want > 0", layout.Scale)
+	}
+	if layout.OffsetX <= 0 {
+		t.Fatalf("layout OffsetX = %d, want > 0", layout.OffsetX)
+	}
+	if layout.OffsetY != 0 {
+		t.Fatalf("layout OffsetY = %d, want 0", layout.OffsetY)
 	}
 }

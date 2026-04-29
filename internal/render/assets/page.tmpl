@@ -2,14 +2,14 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=1242,height=1656,initial-scale=1" />
+  <meta name="viewport" content="width={{.ViewportWidth}},height={{.ViewportHeight}},initial-scale=1" />
   <style>{{.ThemeCSS}}
 {{.CSS}}</style>
 </head>
-<body>
+<body{{if .RenderMode.Animated}} data-animated="true" data-animated-ms="{{.RenderMode.AnimatedMS}}"{{end}}>
   <div class="page">
     <div class="header-row">
-      <span class="pill page-badge">{{.Page.Meta.Badge}}</span>
+      <span class="pill page-badge{{animClass .RenderMode.Animated .RenderMode.Preset.Badge}}">{{.Page.Meta.Badge}}</span>
       <div class="page-no page-counter">{{.Page.Meta.Counter}}</div>
     </div>
     {{if .ShowWatermark}}
@@ -20,84 +20,84 @@
       <div class="accent-bar"></div>
       <div class="cover-main">
         <div class="cover-copy">
-          <div class="title-xl cover-title">{{renderRichText .Rich.Title}}</div>
+          <div class="title-xl cover-title{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
           {{if .Page.Content.Subtitle}}
-          <div class="subtitle cover-subtitle">{{renderRichText .Rich.Subtitle}}</div>
+          <div class="subtitle cover-subtitle{{animClass .RenderMode.Animated .RenderMode.Preset.Subtitle}}">{{renderRichText .Rich.Subtitle}}</div>
           {{end}}
         </div>
       </div>
       <div class="cover-bottom-stack{{if .ShowAuthor}} has-author{{end}}">
         <div class="divider cover-divider"></div>
-        <div class="cta-bar cover-cta"><span class="pill inverse">{{renderRichText .Rich.CTA}}</span></div>
+        <div class="cta-bar cover-cta"><span class="pill inverse{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
         {{if .ShowAuthor}}
-        <div class="cover-author" style="font-size: {{.ResolvedAuthorFontSize}}px;">{{.ResolvedAuthorDisplayText}}</div>
+        <div class="cover-author{{animClass .RenderMode.Animated .RenderMode.Preset.Author}}" style="font-size: {{.ResolvedAuthorFontSize}}px;">{{.ResolvedAuthorDisplayText}}</div>
         {{end}}
       </div>
     {{else if eq .Page.Variant "quote"}}
-      <div class="title-lg">{{renderRichText .Rich.Title}}</div>
+      <div class="title-lg{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
       <div class="card quote-card" style="margin-top:56px;">
         <div class="quote-wrap">
           <div class="quote-bar"></div>
           <div>
-            <div class="quote-main">“{{renderRichText .Rich.Quote}}”</div>
+            <div class="quote-main{{animClass .RenderMode.Animated .RenderMode.Preset.Quote}}">“{{renderRichText .Rich.Quote}}”</div>
             {{if .Page.Content.Note}}
-            <div class="note" style="margin-top:48px;">{{renderRichText .Rich.Note}}</div>
+            <div class="note{{animClass .RenderMode.Animated .RenderMode.Preset.Note}}" style="margin-top:48px;">{{renderRichText .Rich.Note}}</div>
             {{end}}
           </div>
         </div>
       </div>
       {{if .Page.Content.Tip}}
-      <div class="tip-box" style="margin-top:54px;">{{renderRichText .Rich.Tip}}</div>
+      <div class="tip-box{{animClass .RenderMode.Animated .RenderMode.Preset.Tip}}" style="margin-top:54px;">{{renderRichText .Rich.Tip}}</div>
       {{end}}
-      <div class="cta-bar cta-strong"><span class="pill">{{renderRichText .Rich.CTA}}</span></div>
+      <div class="cta-bar cta-strong"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{else if eq .Page.Variant "image-caption"}}
-      <div class="title-lg">{{renderRichText .Rich.Title}}</div>
+      <div class="title-lg{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
       {{if .Page.Content.Images}}
-      <div class="image-frame" style="margin-top:42px; height:760px;"><img src="{{imageSrc (index .Page.Content.Images 0).Src}}" alt="{{(index .Page.Content.Images 0).Alt}}" /></div>
+      <div class="image-frame{{animClass .RenderMode.Animated .RenderMode.Preset.Image}}" style="margin-top:42px; height:760px;"><img src="{{imageSrc (index .Page.Content.Images 0).Src}}" alt="{{(index .Page.Content.Images 0).Alt}}" /></div>
       {{end}}
       {{if .Page.Content.Body}}
-      <div class="caption">{{renderRichText .Rich.Body}}</div>
+      <div class="caption{{animClass .RenderMode.Animated .RenderMode.Preset.Body}}">{{renderRichText .Rich.Body}}</div>
       {{end}}
-      <div class="cta-bar"><span class="pill">{{renderRichText .Rich.CTA}}</span></div>
+      <div class="cta-bar"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{else if eq .Page.Variant "bullets"}}
-      <div class="title-lg">{{renderRichText .Rich.Title}}</div>
+      <div class="title-lg{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
       <div class="bullets">
         {{range $index, $item := .Rich.Items}}
-        <div class="bullet"><div class="bullet-index metric-value">{{add1 $index}}</div><div class="bullet-main">{{renderRichText $item}}</div></div>
+        <div class="bullet{{animClass $.RenderMode.Animated $.RenderMode.Preset.Items}}"><div class="bullet-index metric-value">{{add1 $index}}</div><div class="bullet-main">{{renderRichText $item}}</div></div>
         {{end}}
       </div>
-      <div class="cta-bar"><span class="pill inverse">{{renderRichText .Rich.CTA}}</span></div>
+      <div class="cta-bar"><span class="pill inverse{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{else if eq .Page.Variant "compare"}}
-      <div class="title-lg">{{renderRichText .Rich.Title}}</div>
-      <div class="compare-head"><div>{{renderRichText .Rich.Compare.LeftLabel}}</div><div class="right">{{renderRichText .Rich.Compare.RightLabel}}</div></div>
+      <div class="title-lg{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
+      <div class="compare-head{{animClass .RenderMode.Animated .RenderMode.Preset.CompareLabels}}"><div>{{renderRichText .Rich.Compare.LeftLabel}}</div><div class="right">{{renderRichText .Rich.Compare.RightLabel}}</div></div>
       <div class="compare-rows">
         {{range .Rich.Compare.Rows}}
-        <div class="compare-row"><div class="compare-cell left">{{renderRichText .Left}}</div><div class="compare-cell right metric-value">{{renderRichText .Right}}</div></div>
+        <div class="compare-row{{animClass $.RenderMode.Animated $.RenderMode.Preset.CompareRows}}"><div class="compare-cell left">{{renderRichText .Left}}</div><div class="compare-cell right metric-value">{{renderRichText .Right}}</div></div>
         {{end}}
       </div>
-      <div class="cta-bar"><span class="pill">{{renderRichText .Rich.CTA}}</span></div>
+      <div class="cta-bar"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{else if eq .Page.Variant "gallery-steps"}}
-      <div class="title-lg">{{renderRichText .Rich.Title}}</div>
+      <div class="title-lg{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
       <div class="steps {{if not .Page.Content.Images}}steps-only{{end}}">
         {{range $index, $step := .Rich.Steps}}
-        <div class="step"><div class="step-no metric-value">{{add1 $index}}</div><div class="step-text">{{renderRichText $step}}</div></div>
+        <div class="step{{animClass $.RenderMode.Animated $.RenderMode.Preset.Steps}}"><div class="step-no metric-value">{{add1 $index}}</div><div class="step-text">{{renderRichText $step}}</div></div>
         {{end}}
       </div>
       {{if .Page.Content.Images}}
       <div class="gallery">
         {{range $index, $img := .Page.Content.Images}}
-          <div class="gallery-card"><img src="{{imageSrc $img.Src}}" alt="{{$img.Alt}}" /><div class="gallery-cap">{{galleryCaption $img $.Rich.Steps $index}}</div></div>
+          <div class="gallery-card{{animClass $.RenderMode.Animated $.RenderMode.Preset.Images}}"><img src="{{imageSrc $img.Src}}" alt="{{$img.Alt}}" /><div class="gallery-cap">{{galleryCaption $img $.Rich.Steps $index}}</div></div>
         {{end}}
       </div>
       {{end}}
-      <div class="cta-bar"><span class="pill">{{renderRichText .Rich.CTA}}</span></div>
+      <div class="cta-bar"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{else if eq .Page.Variant "ending"}}
-      <div class="title-md">{{renderRichText .Rich.Title}}</div>
-      <div class="ending-box">
+      <div class="title-md{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
+      <div class="ending-box{{animClass .RenderMode.Animated .RenderMode.Preset.Body}}">
         <div class="ending-text">{{renderRichText .Rich.Body}}</div>
       </div>
-      <div class="cta-bar"><span class="pill inverse">{{renderRichText .Rich.CTA}}</span></div>
+      <div class="cta-bar"><span class="pill inverse{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{end}}
   </div>
-</body>
+{{.AnimatedScriptTag}}</body>
 </html>

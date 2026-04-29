@@ -12,18 +12,20 @@ import (
 	"github.com/walker1211/mark2note/internal/ai"
 	"github.com/walker1211/mark2note/internal/config"
 	"github.com/walker1211/mark2note/internal/deck"
+	"github.com/walker1211/mark2note/internal/render"
 )
 
 type fakeRenderer struct {
 	rendered deck.Deck
+	result   render.RenderResult
 	err      error
 	called   int
 }
 
-func (r *fakeRenderer) Render(d deck.Deck) error {
+func (r *fakeRenderer) Render(d deck.Deck) (render.RenderResult, error) {
 	r.called++
 	r.rendered = d
-	return r.err
+	return r.result, r.err
 }
 
 func TestServiceGeneratePreviewSuccess(t *testing.T) {
@@ -109,6 +111,259 @@ func TestServiceGeneratePreviewSuccess(t *testing.T) {
 	}
 	if result.OutDir != wantOutDir {
 		t.Fatalf("result.OutDir = %q, want %q", result.OutDir, wantOutDir)
+	}
+}
+
+func TestServiceGeneratePreviewReturnsRenderWarnings(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		AI:     config.AICfg{Command: "ccs", Args: []string{"codex"}},
+	}
+	r := &fakeRenderer{result: render.RenderResult{Warnings: []string{"animated export skipped: img2webp not found"}}}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:   func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			return `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`, nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	result, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	wantWarnings := []string{"animated export skipped: img2webp not found"}
+	if !reflect.DeepEqual(result.Warnings, wantWarnings) {
+		t.Fatalf("Warnings = %#v, want %#v", result.Warnings, wantWarnings)
+	}
+}
+
+func TestServiceGeneratePreviewUsesLiveConfigWhenOptionsUntouched(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Live: config.LiveCfg{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first", Assemble: true, OutputDir: "apple-live"}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	want := LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first", Assemble: true, OutputDir: filepath.Join(gotOpts.OutDir, "apple-live")}
+	if gotOpts.Live != want {
+		t.Fatalf("Live = %#v, want %#v", gotOpts.Live, want)
+	}
+}
+
+func TestServiceGeneratePreviewKeepsLiveOverrideFlagsOverConfig(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Live: config.LiveCfg{Enabled: false, PhotoFormat: "jpeg", CoverFrame: "middle"}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Live: LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first"}, LiveEnabledChanged: true, LiveCoverFrameChanged: true})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	want := LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first"}
+	if gotOpts.Live != want {
+		t.Fatalf("Live = %#v, want %#v", gotOpts.Live, want)
+	}
+}
+
+func TestServiceDefaultRendererReceivesLiveOptions(t *testing.T) {
+	renderer := Service{}.effectiveNewRenderer()(Options{Live: LiveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "first"}})
+	r, ok := renderer.(render.Renderer)
+	if !ok {
+		t.Fatalf("renderer type = %T, want render.Renderer", renderer)
+	}
+	if !r.Live.Enabled || r.Live.PhotoFormat != "jpeg" || r.Live.CoverFrame != "first" || r.Live.Assemble || r.Live.OutputDir != "" {
+		t.Fatalf("renderer.Live = %#v", r.Live)
+	}
+}
+
+func TestServiceGeneratePreviewUsesAnimatedConfigWhenCLILeavesDefaultsUntouched(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Animated: config.AnimatedCfg{Enabled: true, Format: "webp", DurationMS: 3200, FPS: 10}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if !gotOpts.Animated.Enabled || gotOpts.Animated.Format != "webp" || gotOpts.Animated.DurationMS != 3200 || gotOpts.Animated.FPS != 10 {
+		t.Fatalf("Animated = %#v", gotOpts.Animated)
+	}
+}
+
+func TestServiceGeneratePreviewKeepsCLIAnimatedOverridesOverConfig(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Animated: config.AnimatedCfg{Enabled: false, Format: "webp", DurationMS: 2400, FPS: 8}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Animated: AnimatedOptions{Enabled: true, Format: "webp", DurationMS: 3600, FPS: 12}, AnimatedEnabledChanged: true, AnimatedFormatChanged: true, AnimatedDurationChanged: true, AnimatedFPSChanged: true})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if !gotOpts.Animated.Enabled || gotOpts.Animated.DurationMS != 3600 || gotOpts.Animated.FPS != 12 {
+		t.Fatalf("Animated = %#v", gotOpts.Animated)
+	}
+}
+
+func TestServiceGeneratePreviewMixesAnimatedConfigAndPartialCLIOverrides(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Animated: config.AnimatedCfg{Enabled: true, Format: "webp", DurationMS: 2400, FPS: 8}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Animated: AnimatedOptions{Enabled: false, Format: "gif", DurationMS: 3600, FPS: 0}, AnimatedEnabledChanged: true, AnimatedDurationChanged: true})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	want := AnimatedOptions{Enabled: false, Format: "webp", DurationMS: 3600, FPS: 8}
+	if gotOpts.Animated != want {
+		t.Fatalf("Animated = %#v, want %#v", gotOpts.Animated, want)
+	}
+}
+
+func TestServiceGeneratePreviewKeepsCLIAnimatedFormatOverrideOnly(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Animated: config.AnimatedCfg{Enabled: true, Format: "webp", DurationMS: 2400, FPS: 8}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Animated: AnimatedOptions{Format: "gif"}, AnimatedFormatChanged: true})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	want := AnimatedOptions{Enabled: true, Format: "gif", DurationMS: 2400, FPS: 8}
+	if gotOpts.Animated != want {
+		t.Fatalf("Animated = %#v, want %#v", gotOpts.Animated, want)
+	}
+}
+
+func TestServiceGeneratePreviewKeepsCLIAnimatedFPSOverrideOnly(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Animated: config.AnimatedCfg{Enabled: true, Format: "webp", DurationMS: 2400, FPS: 8}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return &fakeRenderer{}
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Animated: AnimatedOptions{FPS: 12}, AnimatedFPSChanged: true})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	want := AnimatedOptions{Enabled: true, Format: "webp", DurationMS: 2400, FPS: 12}
+	if gotOpts.Animated != want {
+		t.Fatalf("Animated = %#v, want %#v", gotOpts.Animated, want)
+	}
+}
+
+func TestServiceGeneratePreviewUsesViewportFromConfigWhenOptionsUnset(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Render: config.RenderCfg{Viewport: config.ViewportCfg{Width: 720, Height: 960}},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	var gotOpts Options
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer: func(opts Options) DeckRenderer {
+			gotOpts = opts
+			return r
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if gotOpts.ViewportWidth != 720 || gotOpts.ViewportHeight != 960 {
+		t.Fatalf("viewport opts = %dx%d, want 720x960", gotOpts.ViewportWidth, gotOpts.ViewportHeight)
+	}
+	if r.rendered.ViewportWidth != 720 || r.rendered.ViewportHeight != 960 {
+		t.Fatalf("rendered viewport = %dx%d, want 720x960", r.rendered.ViewportWidth, r.rendered.ViewportHeight)
 	}
 }
 

@@ -75,6 +75,8 @@ type Deck struct {
 	ShowWatermark     bool             `json:"-"`
 	WatermarkText     string           `json:"-"`
 	WatermarkPosition string           `json:"-"`
+	ViewportWidth     int              `json:"-"`
+	ViewportHeight    int              `json:"-"`
 	Pages             []Page           `json:"pages"`
 	Themes            map[string]Theme `json:"-"`
 }
