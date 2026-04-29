@@ -75,12 +75,14 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 	originalReadFile := readFile
 	originalLoadConfig := loadConfig
 	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
 	defer func() {
 		generatePreview = originalGeneratePreview
 		publishXHS = originalPublishXHS
 		readFile = originalReadFile
 		loadConfig = originalLoadConfig
 		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
 	}()
 
 	outDir := t.TempDir()
@@ -121,6 +123,10 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 	}
 	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
 		return []string{"AI代理", "数据安全", "工程反思"}, nil
+	}
+	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+		t.Fatal("buildPublishTitle called for title within limit")
+		return "", nil
 	}
 
 	var got app.PublishOptions
@@ -163,6 +169,200 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, missing %q", stdout.String(), want)
 		}
+	}
+}
+
+func TestRunAutoPublishXHSRewritesLongTitleWithAI(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		topicGenerationEnabled := true
+		titleGenerationEnabled := true
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:         "walker",
+			TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+			TitleGeneration: config.XHSTitleGenerationCfg{Enabled: &titleGenerationEnabled, MaxRunes: 20},
+		}}}, nil
+	}
+	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+		if maxRunes != 20 {
+			t.Fatalf("maxRunes = %d, want 20", maxRunes)
+		}
+		if title != "别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始" {
+			t.Fatalf("title passed to AI = %q", title)
+		}
+		return "别只用AI写Demo，要进真实开源", nil
+	}
+	var topicTitle string
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		topicTitle = title
+		return []string{"AI编程", "开源项目", "工程实践"}, nil
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if got.Title != "别只用AI写Demo，要进真实开源" {
+		t.Fatalf("Title = %q", got.Title)
+	}
+	if topicTitle != got.Title {
+		t.Fatalf("topic title = %q, want final title %q", topicTitle, got.Title)
+	}
+}
+
+func TestRunAutoPublishXHSRejectsLongTitleWhenTitleGenerationDisabled(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		topicGenerationEnabled := true
+		titleGenerationEnabled := false
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:         "walker",
+			TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+			TitleGeneration: config.XHSTitleGenerationCfg{Enabled: &titleGenerationEnabled, MaxRunes: 20},
+		}}}, nil
+	}
+	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+		t.Fatal("buildPublishTitle called while title generation disabled")
+		return "", nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		t.Fatal("buildPublishTopics called after long title rejection")
+		return nil, nil
+	}
+
+	_, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err == nil || !strings.Contains(err.Error(), "title exceeds 20 characters") {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v, want long title error", err)
+	}
+}
+
+func TestRunAutoPublishXHSRejectsAITitleGenerationFailure(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		topicGenerationEnabled := true
+		titleGenerationEnabled := true
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:         "walker",
+			TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+			TitleGeneration: config.XHSTitleGenerationCfg{Enabled: &titleGenerationEnabled, MaxRunes: 20},
+		}}}, nil
+	}
+	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+		return "", fmt.Errorf("ai failed")
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		t.Fatal("buildPublishTopics called after title generation failure")
+		return nil, nil
+	}
+
+	_, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err == nil || !strings.Contains(err.Error(), "generate xhs publish title") {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v, want AI title generation error", err)
+	}
+}
+
+func TestRunAutoPublishXHSRejectsInvalidAITitle(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		topicGenerationEnabled := true
+		titleGenerationEnabled := true
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:         "walker",
+			TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+			TitleGeneration: config.XHSTitleGenerationCfg{Enabled: &titleGenerationEnabled, MaxRunes: 20},
+		}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		t.Fatal("buildPublishTopics called after invalid title")
+		return nil, nil
+	}
+
+	cases := []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{name: "empty", title: " ", want: "empty title returned"},
+		{name: "too long", title: "别只用 AI 写 Demo：把代码合进真实开源项目", want: "title still exceeds 20 characters"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+				return tc.title, nil
+			}
+			_, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("buildAutoPublishXHSOptions() error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

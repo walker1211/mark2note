@@ -231,6 +231,80 @@ func TestBuildPublishTopicsRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestBuildPublishTitleUsesConfiguredCommand(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"title":"把代码合进真实开源"}`}
+	b := TitleBuilder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	got, err := b.BuildPublishTitle("# 别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始", "别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始", 20)
+	if err != nil {
+		t.Fatalf("BuildPublishTitle() error = %v", err)
+	}
+	if got != "把代码合进真实开源" {
+		t.Fatalf("BuildPublishTitle() = %q", got)
+	}
+	if runner.name != "ccs" {
+		t.Fatalf("command = %q, want ccs", runner.name)
+	}
+	if len(runner.args) < 4 || runner.args[0] != "codex" || runner.args[1] != "--bare" || runner.args[2] != "-p" {
+		t.Fatalf("args = %#v, want codex --bare -p prompt", runner.args)
+	}
+	prompt := runner.args[3]
+	for _, want := range []string{"只能输出 JSON", `{"title":"改写后的标题"}`, "不超过 20 个字符", "保留原始标题的核心意思", "不要把标题压缩成电报式短语", "保持自然中文语序", "原始标题：别只用 AI 写 Demo", "Markdown 如下：\n# 别只用 AI 写 Demo"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("title prompt missing %q: %q", want, prompt)
+		}
+	}
+}
+
+func TestBuildPublishTitleRejectsInvalidJSON(t *testing.T) {
+	runner := &fakeRunner{stdout: `not json`}
+	b := TitleBuilder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	_, err := b.BuildPublishTitle("# 标题", "标题", 20)
+	if !errors.Is(err, ErrAINoJSONFound) {
+		t.Fatalf("BuildPublishTitle() error = %v, want ErrAINoJSONFound", err)
+	}
+}
+
+func TestBuildPublishTitleReturnsStderrOnRunnerError(t *testing.T) {
+	runner := &fakeRunner{stderr: "boom", err: errors.New("exit status 1")}
+	b := TitleBuilder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	_, err := b.BuildPublishTitle("# 标题", "标题", 20)
+	if err == nil {
+		t.Fatalf("BuildPublishTitle() error = nil, want non-nil")
+	}
+	if !errors.Is(err, ErrAICommandFailed) {
+		t.Fatalf("error = %v, want ErrAICommandFailed", err)
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("error = %v, want stderr included", err)
+	}
+}
+
+func TestBuildPublishTitleDoesNotDuplicateBareForCCSCodex(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"title":"短标题"}`}
+	b := TitleBuilder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex", "--bare"})
+
+	_, err := b.BuildPublishTitle("# 标题", "标题", 20)
+	if err != nil {
+		t.Fatalf("BuildPublishTitle() error = %v", err)
+	}
+	bareCount := 0
+	for _, arg := range runner.args {
+		if arg == "--bare" {
+			bareCount++
+		}
+	}
+	if bareCount != 1 {
+		t.Fatalf("--bare count = %d, want 1; args = %v", bareCount, runner.args)
+	}
+}
+
 func TestBuildDeckJSONReturnsStderrOnRunnerError(t *testing.T) {
 	runner := &fakeRunner{stderr: "boom", err: errors.New("exit status 1")}
 	b := Builder{Runner: runner}

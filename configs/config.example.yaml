@@ -51,6 +51,11 @@ xhs:
     allow_content_copy: false
     topic_generation:
       enabled: true
+    # Only auto --publish-xhs uses this. If the Markdown title exceeds max_runes,
+    # the configured AI CLI rewrites it; the code validates length but does not truncate.
+    title_generation:
+      enabled: true
+      max_runes: 20
     # Extra Chrome launch args for Xiaohongshu publishing; entries may omit leading "--".
     chrome_args:
       - no-first-run

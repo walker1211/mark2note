@@ -112,11 +112,19 @@ type XHSPublishCfg struct {
 	AllowContentCopy *bool                 `yaml:"allow_content_copy"`
 	ChromeArgs       []string              `yaml:"chrome_args"`
 	TopicGeneration  XHSTopicGenerationCfg `yaml:"topic_generation"`
+	TitleGeneration  XHSTitleGenerationCfg `yaml:"title_generation"`
 }
 
 type XHSTopicGenerationCfg struct {
 	Enabled *bool `yaml:"enabled"`
 }
+
+type XHSTitleGenerationCfg struct {
+	Enabled  *bool `yaml:"enabled"`
+	MaxRunes int   `yaml:"max_runes"`
+}
+
+const DefaultXHSPublishTitleMaxRunes = 20
 
 var DefaultXHSPublishChromeArgs = []string{
 	"disable-background-networking",
@@ -266,6 +274,16 @@ func Load(configPath string) (*Config, error) {
 	if cfg.XHS.Publish.TopicGeneration.Enabled == nil {
 		enabled := true
 		cfg.XHS.Publish.TopicGeneration.Enabled = &enabled
+	}
+	if cfg.XHS.Publish.TitleGeneration.Enabled == nil {
+		enabled := true
+		cfg.XHS.Publish.TitleGeneration.Enabled = &enabled
+	}
+	if cfg.XHS.Publish.TitleGeneration.MaxRunes < 0 {
+		return nil, fmt.Errorf("validate xhs.publish.title_generation.max_runes: must be > 0")
+	}
+	if cfg.XHS.Publish.TitleGeneration.MaxRunes == 0 {
+		cfg.XHS.Publish.TitleGeneration.MaxRunes = DefaultXHSPublishTitleMaxRunes
 	}
 	return &cfg, nil
 }
