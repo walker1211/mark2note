@@ -64,7 +64,7 @@ func (s PublishService) Publish(opts PublishOptions) (PublishResult, error) {
 	if err != nil {
 		return PublishResult{}, err
 	}
-	content, err := s.resolveTextInput(opts.Content, opts.ContentFile, "content")
+	content, err := s.resolveOptionalTextInput(opts.Content, opts.ContentFile, "content")
 	if err != nil {
 		return PublishResult{}, err
 	}
@@ -95,7 +95,7 @@ func (s PublishService) Publish(opts PublishOptions) (PublishResult, error) {
 func buildPublishRequest(opts PublishOptions, title string, content string, mode xhs.PublishMode, scheduleTime *time.Time) (xhs.PublishRequest, error) {
 	request := xhs.PublishRequest{
 		Account:          strings.TrimSpace(opts.Account),
-		Title:            title,
+		Title:            xhs.NormalizePublishTitle(title),
 		Content:          content,
 		Tags:             trimSlice(opts.Tags),
 		Mode:             mode,
@@ -129,15 +129,29 @@ func buildPublishRequest(opts PublishOptions, title string, content string, mode
 }
 
 func (s PublishService) resolveTextInput(inline string, filePath string, fieldName string) (string, error) {
+	resolved, err := s.resolveOptionalTextInput(inline, filePath, fieldName)
+	if err != nil {
+		return "", err
+	}
+	if resolved == "" {
+		return "", fmt.Errorf("%w: exactly one of --%s / --%s-file is required", ErrPublishRequestInvalid, fieldName, fieldName)
+	}
+	return resolved, nil
+}
+
+func (s PublishService) resolveOptionalTextInput(inline string, filePath string, fieldName string) (string, error) {
 	trimmedInline := strings.TrimSpace(inline)
 	trimmedFile := strings.TrimSpace(filePath)
 	hasInline := trimmedInline != ""
 	hasFile := trimmedFile != ""
-	if hasInline == hasFile {
+	if hasInline && hasFile {
 		return "", fmt.Errorf("%w: exactly one of --%s / --%s-file is required", ErrPublishRequestInvalid, fieldName, fieldName)
 	}
 	if hasInline {
 		return trimmedInline, nil
+	}
+	if !hasFile {
+		return "", nil
 	}
 	content, err := s.effectiveReadFile()(trimmedFile)
 	if err != nil {

@@ -77,6 +77,39 @@ func TestPublishServiceBuildsStandardRequestFromInlineFields(t *testing.T) {
 	}
 }
 
+func TestPublishServiceBuildsStandardRequestWithTagsOnly(t *testing.T) {
+	orchestrator := &fakePublishOrchestrator{result: xhs.PublishResult{TargetAccount: "creator-a", Mode: xhs.PublishModeOnlySelf}}
+	service := PublishService{
+		Now:             func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) },
+		NewOrchestrator: func(PublishRuntimeOptions) PublishOrchestrator { return orchestrator },
+	}
+
+	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", Tags: []string{"AI编程", "工程实践"}, Mode: string(xhs.PublishModeOnlySelf), ImagePaths: []string{"cover.jpg"}})
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if orchestrator.request.Content != "" || !reflect.DeepEqual(orchestrator.request.Tags, []string{"AI编程", "工程实践"}) {
+		t.Fatalf("request = %#v", orchestrator.request)
+	}
+}
+
+func TestPublishServicePreservesLongTitle(t *testing.T) {
+	orchestrator := &fakePublishOrchestrator{result: xhs.PublishResult{TargetAccount: "creator-a", Mode: xhs.PublishModeOnlySelf}}
+	service := PublishService{
+		Now:             func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) },
+		NewOrchestrator: func(PublishRuntimeOptions) PublishOrchestrator { return orchestrator },
+	}
+
+	want := "一二三四五六七八九十一二三四五六七八九十超长"
+	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: want, Tags: []string{"AI编程"}, Mode: string(xhs.PublishModeOnlySelf), ImagePaths: []string{"cover.jpg"}})
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if orchestrator.request.Title != want {
+		t.Fatalf("Title = %q, want %q", orchestrator.request.Title, want)
+	}
+}
+
 func TestPublishServiceBuildsLiveRequestFromFilesAndSchedule(t *testing.T) {
 	now := shanghaiNow(2026, 4, 10, 12, 0, 0)
 	liveRoot := t.TempDir()

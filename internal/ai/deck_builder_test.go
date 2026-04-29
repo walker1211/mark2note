@@ -2,6 +2,7 @@ package ai
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -189,6 +190,44 @@ func TestBuildDeckJSONPromptLocksMarkdownSemanticPreservation(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q: %q", want, prompt)
 		}
+	}
+}
+
+func TestBuildPublishTopicsUsesConfiguredCommand(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"topics":["AI编程","开源项目","工程实践"]}`}
+	b := TopicBuilder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	got, err := b.BuildPublishTopics("# 标题\n\n正文", "标题")
+	if err != nil {
+		t.Fatalf("BuildPublishTopics() error = %v", err)
+	}
+	want := []string{"AI编程", "开源项目", "工程实践"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildPublishTopics() = %#v, want %#v", got, want)
+	}
+	if runner.name != "ccs" {
+		t.Fatalf("command = %q, want ccs", runner.name)
+	}
+	if len(runner.args) < 4 || runner.args[0] != "codex" || runner.args[1] != "--bare" || runner.args[2] != "-p" {
+		t.Fatalf("args = %#v, want codex --bare -p prompt", runner.args)
+	}
+	prompt := runner.args[3]
+	for _, want := range []string{"只能输出 JSON", `{"topics":["话题1","话题2"]}`, "优先生成 3 个", "最多 4 个", "更可能已经存在的泛话题", "不要使用纯数字", "标题：标题", "Markdown 如下：\n# 标题"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("topic prompt missing %q: %q", want, prompt)
+		}
+	}
+}
+
+func TestBuildPublishTopicsRejectsInvalidJSON(t *testing.T) {
+	runner := &fakeRunner{stdout: `not json`}
+	b := TopicBuilder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	_, err := b.BuildPublishTopics("# 标题", "标题")
+	if !errors.Is(err, ErrAINoJSONFound) {
+		t.Fatalf("BuildPublishTopics() error = %v, want ErrAINoJSONFound", err)
 	}
 }
 

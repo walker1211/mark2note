@@ -469,7 +469,11 @@ func validatePublishXHSOptions(opts app.PublishOptions) error {
 	if !exactlyOne(strings.TrimSpace(opts.Title) != "", strings.TrimSpace(opts.TitleFile) != "") {
 		return fmt.Errorf("exactly one of --title / --title-file is required\n\n%s", publishXHSUsageText())
 	}
-	if !exactlyOne(strings.TrimSpace(opts.Content) != "", strings.TrimSpace(opts.ContentFile) != "") {
+	hasContent := strings.TrimSpace(opts.Content) != "" || strings.TrimSpace(opts.ContentFile) != ""
+	if len(opts.Tags) == 0 && !hasContent {
+		return fmt.Errorf("exactly one of --content / --content-file is required\n\n%s", publishXHSUsageText())
+	}
+	if strings.TrimSpace(opts.Content) != "" && strings.TrimSpace(opts.ContentFile) != "" {
 		return fmt.Errorf("exactly one of --content / --content-file is required\n\n%s", publishXHSUsageText())
 	}
 	if !exactlyOne(len(opts.ImagePaths) > 0, strings.TrimSpace(opts.LiveReportPath) != "") {
@@ -488,6 +492,12 @@ var buildDeckJSON = func(cfg *config.Config, markdown string) (string, error) {
 	b := ai.Builder{}
 	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
 	return b.BuildDeckJSON(markdown)
+}
+
+var buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+	b := ai.TopicBuilder{}
+	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
+	return b.BuildPublishTopics(markdown, title)
 }
 
 func newPreviewService(opts Options) app.Service {
@@ -600,12 +610,9 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 	}
 	markdown := string(markdownBytes)
 	title := xhs.MarkdownPublishTitle(markdown, renderOpts.InputPath)
-	topics := xhs.MarkdownPublishTopics(markdown, title, renderOpts.XHSTags)
 	cliOpts := publishXHSCLIOptions{
 		PublishOptions: app.PublishOptions{
 			Title:      title,
-			Content:    xhs.MarkdownTopicBody(topics),
-			Tags:       topics,
 			Mode:       string(xhs.PublishModeOnlySelf),
 			ImagePaths: imagePaths,
 			ChromePath: renderOpts.ChromePath,
@@ -618,11 +625,34 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 	if err != nil {
 		return app.PublishOptions{}, err
 	}
+	topics, err := buildAutoPublishXHSTopics(*cfg, markdown, title, renderOpts.XHSTags)
+	if err != nil {
+		return app.PublishOptions{}, err
+	}
+	cliOpts.Tags = topics
 	publishOpts := mergePublishXHSDefaults(cliOpts, cfg)
 	if err := validatePublishXHSOptions(publishOpts); err != nil {
 		return app.PublishOptions{}, err
 	}
 	return publishOpts, nil
+}
+
+func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string, overrideTags []string) ([]string, error) {
+	if len(overrideTags) > 0 {
+		return xhs.NormalizePublishTopics(overrideTags), nil
+	}
+	if cfg.XHS.Publish.TopicGeneration.Enabled == nil || !*cfg.XHS.Publish.TopicGeneration.Enabled {
+		return nil, fmt.Errorf("xhs publish topic generation is disabled; pass --xhs-tags or enable xhs.publish.topic_generation.enabled")
+	}
+	topics, err := buildPublishTopics(&cfg, markdown, title)
+	if err != nil {
+		return nil, fmt.Errorf("generate xhs publish topics: %w", err)
+	}
+	topics = xhs.NormalizePublishTopics(topics)
+	if len(topics) == 0 {
+		return nil, fmt.Errorf("generate xhs publish topics: no valid topics returned")
+	}
+	return topics, nil
 }
 
 func runAutoPublishXHS(renderOpts Options, renderResult app.Result, stdout io.Writer, stderr io.Writer) int {
