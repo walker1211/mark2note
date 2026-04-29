@@ -141,10 +141,7 @@ func renderPageHTML(d deck.Deck, page deck.Page, mode pageRenderMode) (string, e
 		return "", err
 	}
 
-	resolvedThemeKey := deck.ResolveConcretePageTheme(d.ThemeName, page.Meta.Theme, "")
-	if resolvedThemeKey == "" {
-		return "", fmt.Errorf("unknown theme %q", page.Meta.Theme)
-	}
+	resolvedThemeKey := deck.ResolveDeckTheme(d.ThemeName)
 	theme, ok := d.Themes[resolvedThemeKey]
 	if !ok {
 		return "", fmt.Errorf("unknown concrete theme %q for page %q", resolvedThemeKey, page.Name)

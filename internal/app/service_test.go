@@ -183,7 +183,7 @@ func TestServiceGeneratePreviewConfigViewportOverridesDeckJSONViewport(t *testin
 func TestServiceGenerateFromDeckReadsDeckAndSkipsMarkdownBuilder(t *testing.T) {
 	deckDir := t.TempDir()
 	deckPath := filepath.Join(deckDir, "deck.json")
-	deckJSON := `{"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	deckJSON := legacyShuffleDeckJSON(720, 960)
 	if err := os.WriteFile(deckPath, []byte(deckJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(deck.json) error = %v", err)
 	}
@@ -241,9 +241,6 @@ func TestServiceGenerateFromDeckReadsDeckAndSkipsMarkdownBuilder(t *testing.T) {
 	if r.rendered.ViewportWidth != 720 || r.rendered.ViewportHeight != 960 {
 		t.Fatalf("rendered viewport = %dx%d, want 720x960", r.rendered.ViewportWidth, r.rendered.ViewportHeight)
 	}
-	if len(r.rendered.PageThemeKeys) != 0 {
-		t.Fatalf("PageThemeKeys = %#v, want empty", r.rendered.PageThemeKeys)
-	}
 	if result.PageCount != 3 {
 		t.Fatalf("PageCount = %d, want 3", result.PageCount)
 	}
@@ -252,8 +249,8 @@ func TestServiceGenerateFromDeckReadsDeckAndSkipsMarkdownBuilder(t *testing.T) {
 func TestServiceGenerateFromDeckUsesRenderMetaBeforeConfigDefaults(t *testing.T) {
 	deckDir := t.TempDir()
 	deckPath := filepath.Join(deckDir, "deck.json")
-	deckJSON := `{"theme":"shuffle-light","viewport":{"width":1242,"height":1656},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
-	metaJSON := `{"schema_version":1,"input_path":"article.md","config_path":"old-config.yaml","theme":"shuffle-light","viewport":{"width":720,"height":960},"author_text":"@旧作者","show_watermark":true,"watermark_text":"旧水印","watermark_position":"bottom-left","page_theme_keys":["default-green","lifestyle-light","default-orange"]}`
+	deckJSON := legacyShuffleDeckJSON(1242, 1656)
+	metaJSON := legacyRenderMetaWithProvenanceJSON()
 	if err := os.WriteFile(deckPath, []byte(deckJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(deck.json) error = %v", err)
 	}
@@ -309,8 +306,8 @@ func TestServiceGenerateFromDeckUsesRenderMetaBeforeConfigDefaults(t *testing.T)
 func TestServiceGenerateFromDeckPreservesDisabledAuthorFromRenderMeta(t *testing.T) {
 	deckDir := t.TempDir()
 	deckPath := filepath.Join(deckDir, "deck.json")
-	deckJSON := `{"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
-	metaJSON := `{"schema_version":1,"theme":"shuffle-light","viewport":{"width":720,"height":960},"show_author":false,"show_watermark":true,"watermark_text":"旧水印","watermark_position":"bottom-right","page_theme_keys":["default-green","lifestyle-light","default-orange"]}`
+	deckJSON := legacyShuffleDeckJSON(720, 960)
+	metaJSON := legacyRenderMetaDisabledAuthorJSON()
 	if err := os.WriteFile(deckPath, []byte(deckJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(deck.json) error = %v", err)
 	}
@@ -346,8 +343,8 @@ func TestServiceGenerateFromDeckPreservesDisabledAuthorFromRenderMeta(t *testing
 func TestServiceGenerateFromDeckCLIThemeOverridesRenderMeta(t *testing.T) {
 	deckDir := t.TempDir()
 	deckPath := filepath.Join(deckDir, "deck.json")
-	deckJSON := `{"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
-	metaJSON := `{"schema_version":1,"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"]}`
+	deckJSON := legacyShuffleDeckJSON(720, 960)
+	metaJSON := legacyRenderMetaThemeOnlyJSON()
 	if err := os.WriteFile(deckPath, []byte(deckJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(deck.json) error = %v", err)
 	}
@@ -378,16 +375,13 @@ func TestServiceGenerateFromDeckCLIThemeOverridesRenderMeta(t *testing.T) {
 	if r.rendered.ThemeName != deck.ThemeTechNoir {
 		t.Fatalf("ThemeName = %q, want tech-noir", r.rendered.ThemeName)
 	}
-	if len(r.rendered.PageThemeKeys) != 0 {
-		t.Fatalf("PageThemeKeys = %#v, want empty for fixed theme", r.rendered.PageThemeKeys)
-	}
 }
 
-func TestServiceGenerateFromDeckIgnoresMalformedRenderMetaPageThemeKeys(t *testing.T) {
+func TestServiceGenerateFromDeckIgnoresLegacyRenderMetaPageThemeKeys(t *testing.T) {
 	deckDir := t.TempDir()
 	deckPath := filepath.Join(deckDir, "deck.json")
-	deckJSON := `{"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
-	metaJSON := `{"schema_version":1,"theme":"shuffle-light","viewport":{"width":720,"height":960},"show_author":false,"show_watermark":true,"page_theme_keys":["default-green"]}`
+	deckJSON := legacyShuffleDeckJSON(720, 960)
+	metaJSON := legacyRenderMetaShortPageThemeKeysJSON()
 	if err := os.WriteFile(deckPath, []byte(deckJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(deck.json) error = %v", err)
 	}
@@ -417,9 +411,6 @@ func TestServiceGenerateFromDeckIgnoresMalformedRenderMetaPageThemeKeys(t *testi
 	}
 	if r.called != 1 {
 		t.Fatalf("renderer called %d times, want 1", r.called)
-	}
-	if len(r.rendered.PageThemeKeys) != 0 {
-		t.Fatalf("PageThemeKeys = %#v, want empty", r.rendered.PageThemeKeys)
 	}
 }
 
@@ -512,8 +503,8 @@ func TestServiceGenerateFromDeckPassesImportAndLiveOptionsToRenderer(t *testing.
 func TestServiceGenerateFromDeckWritesFreshLayoutArtifacts(t *testing.T) {
 	deckDir := t.TempDir()
 	deckPath := filepath.Join(deckDir, "deck.json")
-	deckJSON := `{"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
-	metaJSON := `{"schema_version":1,"input_path":"article.md","config_path":"old-config.yaml","theme":"shuffle-light","viewport":{"width":720,"height":960},"author_text":"@旧作者","show_watermark":true,"watermark_text":"旧水印","watermark_position":"bottom-left","page_theme_keys":["default-green","lifestyle-light","default-orange"]}`
+	deckJSON := legacyShuffleDeckJSON(720, 960)
+	metaJSON := legacyRenderMetaWithProvenanceJSON()
 	if err := os.WriteFile(deckPath, []byte(deckJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(deck.json) error = %v", err)
 	}
@@ -571,7 +562,7 @@ func TestServiceGenerateFromDeckWritesFreshLayoutArtifacts(t *testing.T) {
 func TestServiceGenerateFromDeckAllowsMissingRenderMeta(t *testing.T) {
 	deckDir := t.TempDir()
 	deckPath := filepath.Join(deckDir, "deck.json")
-	deckJSON := `{"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	deckJSON := legacyShuffleDeckJSON(720, 960)
 	if err := os.WriteFile(deckPath, []byte(deckJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(deck.json) error = %v", err)
 	}
@@ -631,9 +622,8 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 		t.Fatalf("ReadFile(deck.json) error = %v", err)
 	}
 	var savedDeck struct {
-		Theme         string   `json:"theme"`
-		PageThemeKeys []string `json:"page_theme_keys"`
-		Viewport      struct {
+		Theme    string `json:"theme"`
+		Viewport struct {
 			Width  int `json:"width"`
 			Height int `json:"height"`
 		} `json:"viewport"`
@@ -651,9 +641,7 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 	if savedDeck.Viewport.Width != 720 || savedDeck.Viewport.Height != 960 {
 		t.Fatalf("saved deck viewport = %#v", savedDeck.Viewport)
 	}
-	if len(savedDeck.PageThemeKeys) != 0 {
-		t.Fatalf("saved deck page_theme_keys = %#v, want empty", savedDeck.PageThemeKeys)
-	}
+	assertJSONMissingKey(t, deckBytes, "page_theme_keys")
 	gotPageNames := []string{savedDeck.Pages[0].Name, savedDeck.Pages[1].Name, savedDeck.Pages[2].Name}
 	wantPageNames := []string{"p01-cover", "p02-bullets", "p03-ending"}
 	if !reflect.DeepEqual(gotPageNames, wantPageNames) {
@@ -665,9 +653,6 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 	}
 	if reloadedDeck.ThemeName != deck.ThemeDefault || reloadedDeck.ViewportWidth != 720 || reloadedDeck.ViewportHeight != 960 {
 		t.Fatalf("reloaded deck theme/viewport = %#v", reloadedDeck)
-	}
-	if !reflect.DeepEqual(reloadedDeck.PageThemeKeys, savedDeck.PageThemeKeys) {
-		t.Fatalf("reloaded deck page_theme_keys = %#v, want %#v", reloadedDeck.PageThemeKeys, savedDeck.PageThemeKeys)
 	}
 
 	metaBytes, err := os.ReadFile(filepath.Join(outDir, "render-meta.json"))
@@ -683,11 +668,10 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 			Width  int `json:"width"`
 			Height int `json:"height"`
 		} `json:"viewport"`
-		AuthorText        string   `json:"author_text"`
-		ShowWatermark     bool     `json:"show_watermark"`
-		WatermarkText     string   `json:"watermark_text"`
-		WatermarkPosition string   `json:"watermark_position"`
-		PageThemeKeys     []string `json:"page_theme_keys"`
+		AuthorText        string `json:"author_text"`
+		ShowWatermark     bool   `json:"show_watermark"`
+		WatermarkText     string `json:"watermark_text"`
+		WatermarkPosition string `json:"watermark_position"`
 	}
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
 		t.Fatalf("json.Unmarshal(render-meta.json) error = %v", err)
@@ -701,9 +685,7 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 	if meta.AuthorText != "@全局作者" || !meta.ShowWatermark || meta.WatermarkText != "水印" || meta.WatermarkPosition != "bottom-left" {
 		t.Fatalf("render meta author/watermark = %#v", meta)
 	}
-	if !reflect.DeepEqual(meta.PageThemeKeys, savedDeck.PageThemeKeys) {
-		t.Fatalf("render meta page_theme_keys = %#v, want %#v", meta.PageThemeKeys, savedDeck.PageThemeKeys)
-	}
+	assertJSONMissingKey(t, metaBytes, "page_theme_keys")
 }
 
 func TestServiceGeneratePreviewRemovesStaleLayoutArtifactsWhenRendererFails(t *testing.T) {
@@ -816,10 +798,41 @@ func TestWriteLayoutArtifactsRemovesStaleMetaWhenMetaWriteFails(t *testing.T) {
 	assertLayoutArtifactsAbsent(t, outDir)
 }
 
+func legacyShuffleDeckJSON(width int, height int) string {
+	return fmt.Sprintf(`{"theme":"shuffle-light","viewport":{"width":%d,"height":%d},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`, width, height)
+}
+
+func legacyRenderMetaWithProvenanceJSON() string {
+	return `{"schema_version":1,"input_path":"article.md","config_path":"old-config.yaml","theme":"shuffle-light","viewport":{"width":720,"height":960},"author_text":"@旧作者","show_watermark":true,"watermark_text":"旧水印","watermark_position":"bottom-left","page_theme_keys":["default-green","lifestyle-light","default-orange"]}`
+}
+
+func legacyRenderMetaDisabledAuthorJSON() string {
+	return `{"schema_version":1,"theme":"shuffle-light","viewport":{"width":720,"height":960},"show_author":false,"show_watermark":true,"watermark_text":"旧水印","watermark_position":"bottom-right","page_theme_keys":["default-green","lifestyle-light","default-orange"]}`
+}
+
+func legacyRenderMetaThemeOnlyJSON() string {
+	return `{"schema_version":1,"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"]}`
+}
+
+func legacyRenderMetaShortPageThemeKeysJSON() string {
+	return `{"schema_version":1,"theme":"shuffle-light","viewport":{"width":720,"height":960},"show_author":false,"show_watermark":true,"page_theme_keys":["default-green"]}`
+}
+
 func writeTestArtifact(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	}
+}
+
+func assertJSONMissingKey(t *testing.T, raw []byte, key string) {
+	t.Helper()
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if _, ok := values[key]; ok {
+		t.Fatalf("JSON contains legacy key %q", key)
 	}
 }
 
@@ -1481,32 +1494,6 @@ func TestServiceGenerateFromDeckRetiredMetaThemeFallsBackToDefaultBeforeConfig(t
 	}
 	if r.rendered.ThemeName != deck.ThemeDefault {
 		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeDefault)
-	}
-}
-
-func TestServiceGeneratePreviewClearsPageThemeKeysForDefault(t *testing.T) {
-	cfg := &config.Config{
-		Output: config.OutputCfg{Dir: t.TempDir()},
-		Deck:   config.DeckCfg{Theme: deck.ThemeDefault},
-	}
-	deckJSON := `{"theme":"default","pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
-	r := &fakeRenderer{}
-	svc := Service{
-		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
-		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
-		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
-		NewRenderer:   func(Options) DeckRenderer { return r },
-	}
-
-	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
-	if err != nil {
-		t.Fatalf("GeneratePreview() error = %v", err)
-	}
-	if r.rendered.ThemeName != deck.ThemeDefault {
-		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeDefault)
-	}
-	if len(r.rendered.PageThemeKeys) != 0 {
-		t.Fatalf("PageThemeKeys = %#v, want empty", r.rendered.PageThemeKeys)
 	}
 }
 

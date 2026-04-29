@@ -266,7 +266,7 @@ func TestDeckFromJSONFallsBackWhenTopLevelThemeIsInvalid(t *testing.T) {
 	}
 }
 
-func TestDeckFromJSONFallsBackFromRetiredShuffleLightAndClearsPageThemeKeys(t *testing.T) {
+func TestDeckFromJSONFallsBackFromRetiredShuffleLightAndIgnoresLegacyPageThemeKeys(t *testing.T) {
 	raw := `{
   "theme": "shuffle-light",
   "viewport": {"width": 720, "height": 960},
@@ -286,16 +286,6 @@ func TestDeckFromJSONFallsBackFromRetiredShuffleLightAndClearsPageThemeKeys(t *t
 	}
 	if d.ViewportWidth != 720 || d.ViewportHeight != 960 {
 		t.Fatalf("viewport = %dx%d, want 720x960", d.ViewportWidth, d.ViewportHeight)
-	}
-	if len(d.PageThemeKeys) != 0 {
-		t.Fatalf("PageThemeKeys = %#v, want empty", d.PageThemeKeys)
-	}
-}
-
-func TestDefaultDeckDoesNotAssignPageThemeKeysForFixedThemes(t *testing.T) {
-	d := DefaultDeck("/tmp/out")
-	if len(d.PageThemeKeys) != 0 {
-		t.Fatalf("len(PageThemeKeys) = %d, want 0", len(d.PageThemeKeys))
 	}
 }
 

@@ -62,26 +62,6 @@ func TestRegisteredThemesExposeSemanticTokens(t *testing.T) {
 	}
 }
 
-func TestResolvePageThemeIgnoresLegacyPageMeta(t *testing.T) {
-	cases := []struct {
-		name string
-		got  string
-		want string
-	}{
-		{name: "default ignores green legacy meta", got: ResolvePageTheme(ThemeDefault, "green"), want: ThemeDefault},
-		{name: "fresh green ignores orange legacy meta", got: ResolvePageTheme(ThemeFreshGreen, "orange"), want: ThemeFreshGreen},
-		{name: "concrete page ignores legacy and assigned themes", got: ResolveConcretePageTheme("shuffle-light", "green", "fresh-green"), want: ThemeDefault},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.got != tc.want {
-				t.Fatalf("got = %q, want %q", tc.got, tc.want)
-			}
-		})
-	}
-}
-
 func TestRegisteredThemesPreserveRenamedTokenValues(t *testing.T) {
 	themes := RegisteredThemes()
 
@@ -97,13 +77,5 @@ func TestRegisteredThemesPreserveRenamedTokenValues(t *testing.T) {
 }
 
 func stableThemeKeys() []string {
-	return []string{
-		ThemeDefault,
-		ThemeWarmPaper,
-		ThemeEditorialCool,
-		ThemeTechNoir,
-		ThemePlumInk,
-		ThemeSageMist,
-		ThemeFreshGreen,
-	}
+	return RegisteredThemeKeys()
 }

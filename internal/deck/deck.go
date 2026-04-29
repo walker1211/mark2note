@@ -116,7 +116,6 @@ type Page struct {
 type Deck struct {
 	OutDir            string
 	ThemeName         string           `json:"theme,omitempty"`
-	PageThemeKeys     []string         `json:"-"`
 	ShowAuthor        bool             `json:"-"`
 	AuthorText        string           `json:"-"`
 	ShowWatermark     bool             `json:"-"`
@@ -136,10 +135,9 @@ type rawPage struct {
 }
 
 type rawDeck struct {
-	Theme         string      `json:"theme"`
-	PageThemeKeys *[]string   `json:"page_theme_keys"`
-	Viewport      rawViewport `json:"viewport"`
-	Pages         []rawPage   `json:"pages"`
+	Theme    string      `json:"theme"`
+	Viewport rawViewport `json:"viewport"`
+	Pages    []rawPage   `json:"pages"`
 }
 
 type rawViewport struct {
@@ -205,11 +203,6 @@ var allowedCompareFields = map[string]struct{}{
 
 func defaultThemes() map[string]Theme {
 	return RegisteredThemes()
-}
-
-func AssignPageThemesForDeck(d *Deck) error {
-	d.PageThemeKeys = nil
-	return nil
 }
 
 func normalizePageNames(pages []Page) []Page {
@@ -356,16 +349,12 @@ func DefaultDeck(outDir string) Deck {
 
 	pages = normalizePageNames(pages)
 
-	d := Deck{
+	return Deck{
 		OutDir:    outDir,
 		ThemeName: ThemeDefault,
 		Pages:     pages,
 		Themes:    defaultThemes(),
 	}
-	if err := AssignPageThemesForDeck(&d); err != nil {
-		panic(err)
-	}
-	return d
 }
 
 func FromJSON(raw string, outDir string) (Deck, error) {
@@ -395,9 +384,6 @@ func FromJSON(raw string, outDir string) (Deck, error) {
 		ViewportHeight: rd.Viewport.Height,
 		Pages:          pages,
 		Themes:         defaultThemes(),
-	}
-	if err := AssignPageThemesForDeck(&d); err != nil {
-		return Deck{}, err
 	}
 	if err := d.Validate(); err != nil {
 		return Deck{}, err

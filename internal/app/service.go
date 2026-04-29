@@ -229,9 +229,6 @@ func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, sourc
 		return Result{}, fmt.Errorf("%w: invalid parameter: live import timeout must be > 0", ErrRenderPreview)
 	}
 	if meta != nil {
-		if len(meta.PageThemeKeys) > 0 {
-			d.PageThemeKeys = append([]string(nil), meta.PageThemeKeys...)
-		}
 		if meta.Viewport.Width > 0 && opts.ViewportWidth == 0 {
 			opts.ViewportWidth = meta.Viewport.Width
 		}
@@ -258,7 +255,7 @@ func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, sourc
 	}
 	configTheme := resolveConfigDeckTheme(cfg.Deck, s.effectiveNow()())
 	d.ThemeName = resolveThemeWithPrecedence(opts.Theme, metaTheme, configTheme, d.ThemeName)
-	if err := assignPageThemesForRender(&d); err != nil {
+	if err := d.Validate(); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
 	d.ViewportWidth = opts.ViewportWidth
@@ -323,11 +320,6 @@ func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, sourc
 	return result, nil
 }
 
-func assignPageThemesForRender(d *deck.Deck) error {
-	d.PageThemeKeys = nil
-	return d.Validate()
-}
-
 func (s Service) effectiveLoadConfig() func(string) (*config.Config, error) {
 	if s.LoadConfig != nil {
 		return s.LoadConfig
@@ -354,10 +346,9 @@ func (s Service) effectiveBuildDeckJSON() func(*config.Config, string) (string, 
 }
 
 type persistedDeck struct {
-	Theme         string      `json:"theme"`
-	PageThemeKeys []string    `json:"page_theme_keys,omitempty"`
-	Viewport      viewportRef `json:"viewport"`
-	Pages         []deck.Page `json:"pages"`
+	Theme    string      `json:"theme"`
+	Viewport viewportRef `json:"viewport"`
+	Pages    []deck.Page `json:"pages"`
 }
 
 type renderMeta struct {
@@ -371,7 +362,6 @@ type renderMeta struct {
 	ShowWatermark     bool        `json:"show_watermark"`
 	WatermarkText     string      `json:"watermark_text,omitempty"`
 	WatermarkPosition string      `json:"watermark_position,omitempty"`
-	PageThemeKeys     []string    `json:"page_theme_keys,omitempty"`
 }
 
 type sourceRenderMeta struct {
@@ -400,10 +390,9 @@ func writeLayoutArtifacts(outDir string, inputPath string, configPath string, d 
 	}
 	viewport := viewportRef{Width: d.ViewportWidth, Height: d.ViewportHeight}
 	deckArtifact := persistedDeck{
-		Theme:         d.ThemeName,
-		PageThemeKeys: append([]string(nil), d.PageThemeKeys...),
-		Viewport:      viewport,
-		Pages:         append([]deck.Page(nil), d.Pages...),
+		Theme:    d.ThemeName,
+		Viewport: viewport,
+		Pages:    append([]deck.Page(nil), d.Pages...),
 	}
 	deckPath := filepath.Join(outDir, "deck.json")
 	if err := writeJSONFile(deckPath, deckArtifact); err != nil {
@@ -424,7 +413,6 @@ func writeLayoutArtifacts(outDir string, inputPath string, configPath string, d 
 		ShowWatermark:     d.ShowWatermark,
 		WatermarkText:     d.WatermarkText,
 		WatermarkPosition: d.WatermarkPosition,
-		PageThemeKeys:     append([]string(nil), d.PageThemeKeys...),
 	}
 	if err := writeJSONFile(filepath.Join(outDir, "render-meta.json"), meta); err != nil {
 		if cleanupErr := removeLayoutArtifacts(outDir); cleanupErr != nil {
@@ -522,7 +510,7 @@ func defaultDeckOutputDirName(fromDeckPath string, now time.Time) string {
 }
 
 func resolveConfigDeckTheme(cfg config.DeckCfg, now time.Time) string {
-	if strings.TrimSpace(cfg.ThemeMode) != "weekly" {
+	if strings.TrimSpace(cfg.ThemeMode) != config.ThemeModeWeekly {
 		return strings.TrimSpace(cfg.Theme)
 	}
 	weekday := strings.ToLower(now.Weekday().String()[:3])
