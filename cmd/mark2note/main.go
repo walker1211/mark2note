@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,8 +17,10 @@ import (
 	"github.com/walker1211/mark2note/internal/app"
 	"github.com/walker1211/mark2note/internal/config"
 	"github.com/walker1211/mark2note/internal/deck"
+	"github.com/walker1211/mark2note/internal/poster"
 	"github.com/walker1211/mark2note/internal/render"
 	"github.com/walker1211/mark2note/internal/xhs"
+	"gopkg.in/yaml.v3"
 )
 
 type Options = app.Options
@@ -54,12 +57,14 @@ Usage:
   mark2note --input <file.md> [flags]
   mark2note --from-deck <deck.json> [flags]
   mark2note capture-html --input <path> [flags]
+  mark2note enrich-posters --input <file.md> --out <posters.yaml> [flags]
   mark2note publish-xhs --account <name> [flags]
   mark2note --help
 
 Commands:
-  capture-html   capture existing html file(s) to sibling png files
-  publish-xhs    publish assets to Xiaohongshu only-self-visible or schedule queue
+  capture-html    capture existing html file(s) to sibling png files
+  enrich-posters  search poster candidates and write a posters.yaml manifest
+  publish-xhs     publish assets to Xiaohongshu only-self-visible or schedule queue
 
 Flags:
   --input <file.md>          markdown input path
@@ -71,6 +76,9 @@ Flags:
   --theme <name>             one-off deck theme override (default from deck.theme)
   --author <name>            one-off cover author input (blank falls back to deck.author) (default from deck.author)
   --prompt-extra <text>      extra natural-language guidance for deck generation
+  --asset-manifest <file>    poster asset manifest for list/article cover cards
+  --auto-posters             automatically search poster candidates and hydrate cover cards
+  --poster-sources <csv>     poster providers for --auto-posters (default: anilist,mydramalist)
   --publish-xhs              publish generated PNG files to Xiaohongshu after render
   --xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs
   --import-photos            import generated PNG files into Apple Photos after export
@@ -96,6 +104,9 @@ Examples:
   mark2note --input ./example.md --config ./configs/config.yaml
   mark2note --input ./example.md --config ./config.yaml
   mark2note --input ./example.md --prompt-extra "封面更抓眼，少一点教程感"
+  mark2note enrich-posters --input ./example.md --out ./posters.yaml
+  mark2note --input ./example.md --asset-manifest ./posters.yaml
+  mark2note --input ./example.md --auto-posters
   mark2note --input ./example.md --theme fresh-green --publish-xhs
   mark2note --input ./example.md --import-photos --import-album "mark2note"
   mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
@@ -144,6 +155,25 @@ Examples:
   mark2note capture-html --input ./output/preview --config ./configs/config.yaml`
 }
 
+func enrichPostersUsageText() string {
+	return `mark2note enrich-posters
+
+Search poster candidates and write a posters.yaml manifest for deck hydration.
+
+Usage:
+  mark2note enrich-posters --input <file.md> --out <posters.yaml> [flags]
+  mark2note enrich-posters --help
+
+Flags:
+  --input <file.md>       markdown input path (required)
+  --out <posters.yaml>    manifest output path (default: posters.yaml)
+  --poster-sources <csv>  poster providers (default: anilist,mydramalist)
+
+Examples:
+  mark2note enrich-posters --input ./example.md --out ./posters.yaml
+  mark2note enrich-posters --input ./example.md --out ./posters.yaml --poster-sources anilist,mydramalist`
+}
+
 func publishXHSUsageText() string {
 	return `mark2note publish-xhs
 
@@ -190,6 +220,7 @@ func isHelpRequest(args []string) bool {
 func parseOptions(args []string) (Options, error) {
 	opts := defaultOptions()
 	var xhsTags string
+	var posterSources string
 	fs := flag.NewFlagSet("mark2note", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&opts.OutDir, "out", opts.OutDir, "output directory")
@@ -201,6 +232,9 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.Theme, "theme", opts.Theme, "one-off deck theme override")
 	fs.StringVar(&opts.Author, "author", opts.Author, "one-off cover author input (blank falls back to deck.author)")
 	fs.StringVar(&opts.PromptExtra, "prompt-extra", opts.PromptExtra, "extra natural-language guidance for deck generation")
+	fs.StringVar(&opts.AssetManifestPath, "asset-manifest", opts.AssetManifestPath, "poster asset manifest for list/article cover cards")
+	fs.BoolVar(&opts.AutoPosters, "auto-posters", opts.AutoPosters, "automatically search poster candidates and hydrate cover cards")
+	fs.StringVar(&posterSources, "poster-sources", posterSources, "comma-separated poster providers for --auto-posters")
 	fs.BoolVar(&opts.PublishXHS, "publish-xhs", opts.PublishXHS, "publish generated PNG files to Xiaohongshu after render")
 	fs.StringVar(&xhsTags, "xhs-tags", xhsTags, "comma-separated Xiaohongshu topics for auto publish")
 	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
@@ -229,6 +263,7 @@ func parseOptions(args []string) (Options, error) {
 		return Options{}, fmt.Errorf("jobs must be >= 1")
 	}
 	opts.XHSTags = splitCSV(xhsTags)
+	opts.PosterSources = splitCSV(posterSources)
 	hasInput := strings.TrimSpace(opts.InputPath) != ""
 	hasFromDeck := strings.TrimSpace(opts.FromDeckPath) != ""
 	if hasInput == hasFromDeck {
@@ -239,6 +274,12 @@ func parseOptions(args []string) (Options, error) {
 	}
 	if hasFromDeck && opts.PublishXHS {
 		return Options{}, fmt.Errorf("--publish-xhs can only be used with --input\n\n%s", usageText())
+	}
+	if hasFromDeck && opts.AutoPosters {
+		return Options{}, fmt.Errorf("--auto-posters can only be used with --input\n\n%s", usageText())
+	}
+	if len(opts.PosterSources) > 0 && !opts.AutoPosters {
+		return Options{}, fmt.Errorf("--poster-sources requires --auto-posters\n\n%s", usageText())
 	}
 	outChanged := false
 	animatedEnabledChanged := false
@@ -319,6 +360,36 @@ func parseOptions(args []string) (Options, error) {
 	if opts.XHSTagsChanged && !opts.PublishXHS {
 		return Options{}, fmt.Errorf("--xhs-tags requires --publish-xhs\n\n%s", usageText())
 	}
+	return opts, nil
+}
+
+type enrichPostersOptions struct {
+	InputPath string
+	OutPath   string
+	Sources   []string
+}
+
+func parseEnrichPostersOptions(args []string) (enrichPostersOptions, error) {
+	opts := enrichPostersOptions{OutPath: "posters.yaml"}
+	var sources string
+	fs := flag.NewFlagSet("mark2note enrich-posters", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&opts.InputPath, "input", opts.InputPath, "markdown input path")
+	fs.StringVar(&opts.OutPath, "out", opts.OutPath, "manifest output path")
+	fs.StringVar(&sources, "poster-sources", sources, "comma-separated poster providers")
+	if err := fs.Parse(args); err != nil {
+		return enrichPostersOptions{}, err
+	}
+	if fs.NArg() > 0 {
+		return enrichPostersOptions{}, fmt.Errorf("unexpected positional args: %s", strings.Join(fs.Args(), " "))
+	}
+	if strings.TrimSpace(opts.InputPath) == "" {
+		return enrichPostersOptions{}, fmt.Errorf("--input is required\n\n%s", enrichPostersUsageText())
+	}
+	if strings.TrimSpace(opts.OutPath) == "" {
+		return enrichPostersOptions{}, fmt.Errorf("--out is required\n\n%s", enrichPostersUsageText())
+	}
+	opts.Sources = splitCSV(sources)
 	return opts, nil
 }
 
@@ -520,6 +591,16 @@ var buildPublishTitle = func(cfg *config.Config, markdown string, title string, 
 	b := ai.TitleBuilder{}
 	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
 	return b.BuildPublishTitle(markdown, title, maxRunes)
+}
+
+var enrichPosterManifest = func(markdown string, sources []string) (poster.Manifest, poster.EnrichReport, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	providers, err := poster.ProvidersForSources(sources, nil)
+	if err != nil {
+		return poster.Manifest{}, poster.EnrichReport{}, err
+	}
+	return poster.EnrichMarkdown(ctx, markdown, poster.EnrichOptions{Providers: providers})
 }
 
 func newPreviewService(opts Options) app.Service {
@@ -832,6 +913,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		switch args[0] {
 		case "capture-html":
 			return runCaptureHTML(args[1:], stdout, stderr)
+		case "enrich-posters":
+			return runEnrichPosters(args[1:], stdout, stderr)
 		case "publish-xhs":
 			return runPublishXHS(args[1:], stdout, stderr)
 		}
@@ -866,6 +949,10 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error reading deck: %s\n", stripErrorPrefixes(err, app.ErrReadDeck))
 		case errors.Is(err, app.ErrReadRenderMeta):
 			fmt.Fprintf(stderr, "error reading render meta: %s\n", stripErrorPrefixes(err, app.ErrReadRenderMeta))
+		case errors.Is(err, app.ErrReadPosterManifest):
+			fmt.Fprintf(stderr, "error reading poster manifest: %s\n", stripErrorPrefixes(err, app.ErrReadPosterManifest))
+		case errors.Is(err, app.ErrEnrichPosters):
+			fmt.Fprintf(stderr, "error enriching posters: %s\n", stripErrorPrefixes(err, app.ErrEnrichPosters))
 		case errors.Is(err, app.ErrBuildDeckJSON):
 			fmt.Fprintf(stderr, "error building deck json: %s\n", stripErrorPrefixes(err, app.ErrBuildDeckJSON))
 		default:
@@ -898,6 +985,54 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if opts.PublishXHS {
 		return runAutoPublishXHS(opts, result, stdout, stderr)
+	}
+	return 0
+}
+
+func runEnrichPosters(args []string, stdout io.Writer, stderr io.Writer) int {
+	opts, err := parseEnrichPostersOptions(args)
+	if err != nil {
+		if err == flag.ErrHelp {
+			fmt.Fprintln(stdout, enrichPostersUsageText())
+			return 0
+		}
+		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
+		return 1
+	}
+	content, err := readFile(opts.InputPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "error reading markdown: %v\n", err)
+		return 1
+	}
+	manifest, report, err := enrichPosterManifest(string(content), opts.Sources)
+	if err != nil {
+		fmt.Fprintf(stderr, "enrich posters failed: %v\n", err)
+		return 1
+	}
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		fmt.Fprintf(stderr, "write poster manifest failed: marshal manifest: %v\n", err)
+		return 1
+	}
+	outPath := strings.TrimSpace(opts.OutPath)
+	outDir := filepath.Dir(outPath)
+	if outDir != "" && outDir != "." {
+		if err := os.MkdirAll(outDir, 0o755); err != nil {
+			fmt.Fprintf(stderr, "write poster manifest failed: create output dir: %v\n", err)
+			return 1
+		}
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		fmt.Fprintf(stderr, "write poster manifest failed: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "wrote poster manifest: %s\n", outPath)
+	fmt.Fprintf(stdout, "poster titles: %d, candidates: %d\n", len(report.Titles), len(manifest.Posters))
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(stderr, "poster warning: %s\n", warning)
+	}
+	for _, missing := range report.Missing {
+		fmt.Fprintf(stderr, "poster missing: %s\n", missing)
 	}
 	return 0
 }

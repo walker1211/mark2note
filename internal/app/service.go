@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/walker1211/mark2note/internal/ai"
 	"github.com/walker1211/mark2note/internal/config"
 	"github.com/walker1211/mark2note/internal/deck"
+	"github.com/walker1211/mark2note/internal/poster"
 	"github.com/walker1211/mark2note/internal/render"
 )
 
@@ -45,6 +47,9 @@ type Options struct {
 	Theme                    string
 	Author                   string
 	PromptExtra              string
+	AssetManifestPath        string
+	AutoPosters              bool
+	PosterSources            []string
 	PublishXHS               bool
 	XHSTags                  []string
 	XHSTagsChanged           bool
@@ -95,16 +100,19 @@ type Service struct {
 	Now             func() time.Time
 	PromptExtra     string
 	AICommandRunner ai.CommandRunner
+	EnrichPosters   func(context.Context, string, []string) (poster.Manifest, poster.EnrichReport, error)
 }
 
 var (
-	ErrLoadConfig     = errors.New("load config failed")
-	ErrReadMarkdown   = errors.New("read markdown failed")
-	ErrReadDeck       = errors.New("read deck failed")
-	ErrReadRenderMeta = errors.New("read render meta failed")
-	ErrBuildDeckJSON  = errors.New("build deck json failed")
-	ErrParseDeck      = errors.New("parse deck failed")
-	ErrRenderPreview  = errors.New("render preview failed")
+	ErrLoadConfig         = errors.New("load config failed")
+	ErrReadMarkdown       = errors.New("read markdown failed")
+	ErrReadDeck           = errors.New("read deck failed")
+	ErrReadRenderMeta     = errors.New("read render meta failed")
+	ErrReadPosterManifest = errors.New("read poster manifest failed")
+	ErrEnrichPosters      = errors.New("enrich posters failed")
+	ErrBuildDeckJSON      = errors.New("build deck json failed")
+	ErrParseDeck          = errors.New("parse deck failed")
+	ErrRenderPreview      = errors.New("render preview failed")
 )
 
 func (s Service) GeneratePreview(opts Options) (Result, error) {
@@ -137,8 +145,14 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
+	var posterWarnings []string
+	if d, posterWarnings, err = s.hydratePosters(opts, d, string(markdownBytes)); err != nil {
+		return Result{}, err
+	}
 
-	return s.renderDeck(opts, cfg, d, sourceRenderMeta{})
+	result, err := s.renderDeck(opts, cfg, d, sourceRenderMeta{})
+	result.Warnings = append(posterWarnings, result.Warnings...)
+	return result, err
 }
 
 func (s Service) GenerateFromDeck(opts Options) (Result, error) {
@@ -162,11 +176,103 @@ func (s Service) GenerateFromDeck(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
+	var posterWarnings []string
+	if d, posterWarnings, err = s.hydratePosters(opts, d, ""); err != nil {
+		return Result{}, err
+	}
 	meta, err := s.readRenderMetaForDeck(opts.FromDeckPath)
 	if err != nil {
 		return Result{}, err
 	}
-	return s.renderDeck(opts, cfg, d, sourceRenderMeta{FromDeck: true, Meta: meta})
+	result, err := s.renderDeck(opts, cfg, d, sourceRenderMeta{FromDeck: true, Meta: meta})
+	result.Warnings = append(posterWarnings, result.Warnings...)
+	return result, err
+}
+
+func (s Service) hydratePosters(opts Options, d deck.Deck, markdown string) (deck.Deck, []string, error) {
+	manifestPath := strings.TrimSpace(opts.AssetManifestPath)
+	manifest := poster.Manifest{Posters: map[string]poster.PosterAsset{}}
+	baseDir := ""
+	hasManifest := false
+	if manifestPath != "" {
+		loaded, err := poster.LoadManifest(manifestPath)
+		if err != nil {
+			return deck.Deck{}, nil, fmt.Errorf("%w: %v", ErrReadPosterManifest, err)
+		}
+		manifest = loaded
+		baseDir = filepath.Dir(manifestPath)
+		if !filepath.IsAbs(baseDir) {
+			if abs, absErr := filepath.Abs(baseDir); absErr == nil {
+				baseDir = abs
+			}
+		}
+		hasManifest = true
+	}
+	var warnings []string
+	if opts.AutoPosters {
+		autoManifest, report, err := s.enrichPosterManifest(markdown, opts.PosterSources)
+		if err != nil {
+			return deck.Deck{}, nil, fmt.Errorf("%w: %v", ErrEnrichPosters, err)
+		}
+		warnings = appendPosterWarnings(warnings, report)
+		if hasManifest {
+			manifest = autoManifest.Merge(manifest)
+		} else {
+			manifest = autoManifest
+			hasManifest = true
+		}
+	}
+	if !hasManifest {
+		return d, warnings, nil
+	}
+	hydrated, hydrateReport, err := poster.HydrateDeck(d, manifest, poster.HydrateOptions{BaseDir: baseDir})
+	if err != nil {
+		return deck.Deck{}, nil, fmt.Errorf("%w: %v", ErrReadPosterManifest, err)
+	}
+	warnings = appendHydrateWarnings(warnings, hydrateReport)
+	return hydrated, warnings, nil
+}
+
+func (s Service) enrichPosterManifest(markdown string, sources []string) (poster.Manifest, poster.EnrichReport, error) {
+	if s.EnrichPosters != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		return s.EnrichPosters(ctx, markdown, sources)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	providers, err := poster.ProvidersForSources(sources, nil)
+	if err != nil {
+		return poster.Manifest{}, poster.EnrichReport{}, err
+	}
+	return poster.EnrichMarkdown(ctx, markdown, poster.EnrichOptions{Providers: providers})
+}
+
+func appendPosterWarnings(warnings []string, report poster.EnrichReport) []string {
+	for _, warning := range report.Warnings {
+		warnings = append(warnings, "poster warning: "+warning)
+	}
+	for _, missing := range report.Missing {
+		warnings = appendMissingPosterWarning(warnings, missing)
+	}
+	return warnings
+}
+
+func appendHydrateWarnings(warnings []string, report poster.HydrateReport) []string {
+	for _, missing := range report.Missing {
+		warnings = appendMissingPosterWarning(warnings, missing)
+	}
+	return warnings
+}
+
+func appendMissingPosterWarning(warnings []string, title string) []string {
+	warning := "poster missing: " + title
+	for _, existing := range warnings {
+		if existing == warning {
+			return warnings
+		}
+	}
+	return append(warnings, warning)
 }
 
 func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, source sourceRenderMeta) (Result, error) {

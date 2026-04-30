@@ -16,6 +16,7 @@
 - 支持把已有 HTML 直接截图为 PNG
 - 支持 `publish-xhs` 发布普通图片内容或 Live Photo 产物到小红书
 - 支持主渲染命令 `--publish-xhs` 在生成 PNG 后自动发布到小红书
+- 支持通过 `posters.yaml` 或 `--auto-posters` 给片单类内容自动补作品封面
 
 ## 环境要求
 
@@ -75,6 +76,44 @@ go build -o ./mark2note ./cmd/mark2note
 ```
 
 不传 `--out` 时，会按原 deck 所在目录名加时间戳生成新的输出目录。如果同目录存在 `render-meta.json`，会恢复旧运行的主题、视口、作者和水印。`--prompt-extra` 只适用于 `--input`，不能和 `--from-deck` 一起使用。
+
+## 作品封面图
+
+片单、书单、剧集推荐这类文章可以给正文页补作品封面。稳定做法是先准备一个 `posters.yaml`，再在渲染时传入 `--asset-manifest`：
+
+```yaml
+posters:
+  噬谎者:
+    src: https://example.com/usogui.jpg
+    source: manual
+  死亡笔记: ./assets/death-note.jpg
+```
+
+```bash
+./mark2note --input ./article.md --asset-manifest ./posters.yaml
+```
+
+`src` 支持 `http://`、`https://`、`data:image/...`，也支持相对 `posters.yaml` 所在目录的本地图片路径。本地图片会在渲染前转成 data URI，方便 HTML 截图稳定读取。只使用可信来源的 manifest，避免把不该公开的本地图片路径误嵌入输出。
+
+如果想先自动搜候选，可以运行：
+
+```bash
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml
+```
+
+当前内置 provider 是 `anilist` 和 `mydramalist`，也可以限制来源：
+
+```bash
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml --poster-sources anilist,mydramalist
+```
+
+想一条命令完成「搜候选 + 渲染」，可以用：
+
+```bash
+./mark2note --input ./article.md --auto-posters
+```
+
+如果同时传 `--asset-manifest` 和 `--auto-posters`，手动 manifest 会覆盖自动候选，适合把关键作品封面固定下来，只让自动搜索补缺口。`--auto-posters` 只支持 `--input` 流程，不支持 `--from-deck`。
 
 ## 主题说明
 
@@ -148,6 +187,10 @@ go build -o ./mark2note ./cmd/mark2note
 - `--config` 可显式指定其他配置文件
 - `--prompt-extra` 支持单次追加自然语言引导，用来控制 Markdown -> deck JSON 阶段的分页、标题语气和内容组织方向
 - `--prompt-extra` 只影响 deck 生成，不直接改变 HTML 渲染、PNG 截图、Animated / Live 导出或 `publish-xhs` 发布逻辑
+- `--asset-manifest` 会在渲染前读取 `posters.yaml` / JSON，把命中的作品封面补进适合的页面；本地图片路径相对 manifest 文件所在目录解析
+- `enrich-posters` 会从 Markdown 中抽取 `《作品名》` 和加粗列表项，调用 provider 搜索封面候选并写出 manifest，建议人工快速检查后再用于正式渲染
+- `--auto-posters` 会在单次 `--input` 渲染中自动搜索封面并补进 deck；如同时传 `--asset-manifest`，手动 manifest 优先
+- `--poster-sources` 可限制 `enrich-posters` / `--auto-posters` 使用的来源，目前支持 `anilist`、`mydramalist`
 - `--publish-xhs` 会在主渲染流程成功生成普通 PNG 后发布到小红书；标题来自 Markdown 一级标题，小红书正文只包含 3-6 个话题
 - 自动发布标题超过 `xhs.publish.title_generation.max_runes` 时，会按 `xhs.publish.title_generation.enabled` 调用同一套 `ai.command` / `ai.args` 改写标题；代码只校验长度，不再本地截断
 - 未传 `--xhs-tags` 时，`--publish-xhs` 会按 `xhs.publish.topic_generation.enabled` 调用同一套 `ai.command` / `ai.args` 生成话题；AI 调用失败、JSON 不合法或没有有效话题时会跳过发布并报错，不再回退到本地规则推理
@@ -190,6 +233,9 @@ ai:
 ./mark2note --input ./article.md --theme plum-ink
 ./mark2note --input ./article.md --theme sage-mist
 ./mark2note --input ./article.md --prompt-extra "封面更抓眼，整体更像经验复盘"
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml
+./mark2note --input ./article.md --asset-manifest ./posters.yaml
+./mark2note --input ./article.md --auto-posters
 ./mark2note --input ./article.md --theme fresh-green --prompt-extra "精简输出，但不要精简掉图片" --live=false --publish-xhs
 ./mark2note --input ./article.md --theme fresh-green --publish-xhs --xhs-tags "AI代理,数据安全,工程反思"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8

@@ -16,6 +16,7 @@ The `capture-html` command is also a public CLI subcommand that converts existin
 - Convert existing HTML files into sibling PNG files
 - Publish standard image posts or Live-photo assets to Xiaohongshu through `publish-xhs`
 - Publish to Xiaohongshu automatically after the main PNG render with `--publish-xhs`
+- Add work poster covers to list-style decks with `posters.yaml` or `--auto-posters`
 
 ## Requirements
 
@@ -75,6 +76,44 @@ The rerender path reuses the same post-render flows:
 ```
 
 Without `--out`, mark2note creates a new timestamped directory from the original deck directory name. If a sibling `render-meta.json` exists, it restores theme, viewport, author, and watermark. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
+
+## Work poster covers
+
+List-style articles, book lists, manga lists, and drama recommendations can render work covers on content pages. The most stable workflow is to prepare a `posters.yaml` manifest and pass it with `--asset-manifest`:
+
+```yaml
+posters:
+  Usogui:
+    src: https://example.com/usogui.jpg
+    source: manual
+  Death Note: ./assets/death-note.jpg
+```
+
+```bash
+./mark2note --input ./article.md --asset-manifest ./posters.yaml
+```
+
+`src` accepts `http://`, `https://`, `data:image/...`, and local image paths relative to the manifest file. Local files are converted to data URIs before rendering so screenshots can read them consistently. Use manifests only from trusted sources to avoid embedding unintended local images into the output.
+
+To generate a manifest from automatic candidates first, run:
+
+```bash
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml
+```
+
+The built-in providers are currently `anilist` and `mydramalist`; you can restrict them explicitly:
+
+```bash
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml --poster-sources anilist,mydramalist
+```
+
+For a one-command workflow that searches candidates and renders immediately, use:
+
+```bash
+./mark2note --input ./article.md --auto-posters
+```
+
+When `--asset-manifest` and `--auto-posters` are used together, the manual manifest overrides automatic candidates. This is useful when you want to pin important covers and let automatic search fill gaps. `--auto-posters` is supported only with `--input`, not `--from-deck`.
 
 ## Theme Notes
 
@@ -148,6 +187,10 @@ Additional notes:
 - `--config` can explicitly select another config file
 - `--prompt-extra` appends one-off natural-language guidance for the Markdown -> deck JSON stage, such as pacing, tone, or structure
 - `--prompt-extra` only affects deck generation; it does not directly change HTML rendering, PNG capture, Animated / Live export, or `publish-xhs` behavior
+- `--asset-manifest` reads a YAML / JSON poster manifest before rendering and hydrates matching work covers into suitable pages; local image paths are resolved relative to the manifest file
+- `enrich-posters` extracts titles from `《work title》` text and bold list leads, searches providers, and writes a manifest; review it before final renders when accuracy matters
+- `--auto-posters` searches poster candidates during a single `--input` render and hydrates the deck immediately; when combined with `--asset-manifest`, the manual manifest wins
+- `--poster-sources` restricts providers for `enrich-posters` / `--auto-posters`; currently supported values are `anilist` and `mydramalist`
 - `--publish-xhs` publishes to Xiaohongshu after the main render flow successfully generates standard PNG files; the title comes from the Markdown H1 and the body contains only 3-6 topic hashtags
 - When the auto-publish title exceeds `xhs.publish.title_generation.max_runes`, `--publish-xhs` uses the same `ai.command` / `ai.args` to rewrite it according to `xhs.publish.title_generation.enabled`; code validates the length but does not truncate it locally
 - When `--xhs-tags` is omitted, `--publish-xhs` uses the same `ai.command` / `ai.args` to generate topics according to `xhs.publish.topic_generation.enabled`; AI command failures, invalid JSON, or no valid topics skip publishing and return an error instead of falling back to local rule-based inference
@@ -190,6 +233,9 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ./mark2note --input ./article.md --theme plum-ink
 ./mark2note --input ./article.md --theme sage-mist
 ./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml
+./mark2note --input ./article.md --asset-manifest ./posters.yaml
+./mark2note --input ./article.md --auto-posters
 ./mark2note --input ./article.md --theme fresh-green --prompt-extra "make the output concise but keep image pages" --live=false --publish-xhs
 ./mark2note --input ./article.md --theme fresh-green --publish-xhs --xhs-tags "AI agent,data safety,engineering reflection"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
