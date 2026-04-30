@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/walker1211/mark2note/internal/deck"
 )
@@ -32,10 +33,15 @@ type Renderer struct {
 	MP4Encoder         MP4Encoder
 	LivePackageBuilder LivePackageBuilder
 	LivePhotoAssembler LivePhotoAssembler
+	PhotosImporter     PhotosImporter
+	ImportResultWriter ImportResultWriter
+	Now                func() time.Time
 }
 
 type RenderResult struct {
-	Warnings []string
+	Warnings           []string
+	DeliveryReport     *DeliveryReport
+	DeliveryReportPath string
 }
 
 type livePackageTask struct {
@@ -90,7 +96,7 @@ func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 		return RenderResult{}, fmt.Errorf("out dir is required")
 	}
 
-	mode, result := r.normalizedAnimated()
+	mode, animatedResult := r.normalizedAnimated()
 	liveMode, liveWarnings := normalizeLiveOptions(r.Live)
 	captureMode, captureWarnings := r.normalizedCaptureTiming(mode, liveMode.Enabled)
 	if err := r.renderHTMLPages(d, captureMode); err != nil {
@@ -99,13 +105,34 @@ func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 	if err := r.CapturePNGs(d.Pages, outDir); err != nil {
 		return RenderResult{}, err
 	}
-	warnings := append([]string(nil), result.Warnings...)
+	warnings := append([]string(nil), animatedResult.Warnings...)
 	warnings = append(warnings, liveWarnings...)
 	warnings = append(warnings, captureWarnings...)
 	if captureMode.Enabled && (mode.Enabled || liveMode.Enabled) {
 		warnings = append(warnings, r.runAnimatedExports(d.Pages, outDir, captureMode, mode, liveMode)...)
 	}
-	return RenderResult{Warnings: warnings}, nil
+	result := RenderResult{Warnings: warnings}
+	if liveMode.Enabled && liveMode.Assemble && liveMode.ImportPhotos {
+		sourceDir := r.liveDeliverySourceDir(outDir, liveMode)
+		if !filepath.IsAbs(sourceDir) {
+			absSourceDir, err := filepath.Abs(sourceDir)
+			if err != nil {
+				return result, fmt.Errorf("resolve live delivery source dir: %w", err)
+			}
+			sourceDir = absSourceDir
+		}
+		delivery, err := r.liveDeliveryOrchestrator().Deliver(liveDeliveryRequest{
+			SourceDir:     sourceDir,
+			AlbumName:     liveMode.ImportAlbum,
+			ImportTimeout: liveMode.ImportTimeout,
+		})
+		result.DeliveryReport = &delivery.Report
+		result.DeliveryReportPath = delivery.ReportPath
+		if err != nil {
+			return result, err
+		}
+	}
+	return result, nil
 }
 
 func (r Renderer) RenderHTMLPages(d deck.Deck) error {
@@ -254,6 +281,27 @@ func (r Renderer) effectiveLivePhotoAssembler() LivePhotoAssembler {
 		return r.LivePhotoAssembler
 	}
 	return makeliveAssembler{Runner: r.effectiveRunner()}
+}
+
+func (r Renderer) effectivePhotosImporter() PhotosImporter {
+	if r.PhotosImporter != nil {
+		return r.PhotosImporter
+	}
+	return osascriptPhotosImporter{}
+}
+
+func (r Renderer) effectiveImportResultWriter() ImportResultWriter {
+	if r.ImportResultWriter != nil {
+		return r.ImportResultWriter
+	}
+	return importResultWriter{}
+}
+
+func (r Renderer) effectiveNow() func() time.Time {
+	if r.Now != nil {
+		return r.Now
+	}
+	return time.Now
 }
 
 func (r Renderer) CapturePNGs(pages []deck.Page, outDir string) error {
@@ -499,4 +547,20 @@ func (r Renderer) captureTargetURI(path string) string {
 
 func fileURI(path string) string {
 	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
+}
+
+func (r Renderer) liveDeliverySourceDir(outDir string, live normalizedLiveOptions) string {
+	if stringsTrim(live.OutputDir) != "" {
+		return live.OutputDir
+	}
+	return filepath.Join(outDir, defaultAppleLiveDirName)
+}
+
+func (r Renderer) liveDeliveryOrchestrator() LiveDeliveryOrchestrator {
+	return LiveDeliveryOrchestrator{
+		Scanner:  livePairScanner{},
+		Importer: r.effectivePhotosImporter(),
+		Writer:   r.effectiveImportResultWriter(),
+		Now:      r.effectiveNow(),
+	}
 }

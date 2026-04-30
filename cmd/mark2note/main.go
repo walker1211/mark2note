@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/walker1211/mark2note/internal/ai"
 	"github.com/walker1211/mark2note/internal/app"
@@ -29,9 +30,10 @@ func defaultOptions() Options {
 			FPS:        8,
 		},
 		Live: app.LiveOptions{
-			PhotoFormat: "jpeg",
-			CoverFrame:  "middle",
-			OutputDir:   "",
+			PhotoFormat:   "jpeg",
+			CoverFrame:    "middle",
+			OutputDir:     "",
+			ImportTimeout: 120 * time.Second,
 		},
 	}
 }
@@ -66,6 +68,9 @@ Flags:
   --live-cover-frame <name>  live cover frame strategy (default: middle; supported: first, middle, last)
   --live-assemble            assemble final Apple Live Photo artifacts with makelive
   --live-output-dir <dir>    final Apple Live Photo output directory (default: <out>/apple-live)
+  --live-import-photos       import assembled Live Photos into Apple Photos after export
+  --live-import-album <name> Apple Photos album name for imported Live Photos
+  --live-import-timeout <d>  Apple Photos import timeout (default: 2m0s)
 
 Examples:
   mark2note --help
@@ -138,6 +143,9 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.Live.CoverFrame, "live-cover-frame", opts.Live.CoverFrame, "live cover frame strategy")
 	fs.BoolVar(&opts.Live.Assemble, "live-assemble", opts.Live.Assemble, "assemble final Apple Live Photo artifacts with makelive")
 	fs.StringVar(&opts.Live.OutputDir, "live-output-dir", opts.Live.OutputDir, "final Apple Live Photo output directory")
+	fs.BoolVar(&opts.Live.ImportPhotos, "live-import-photos", opts.Live.ImportPhotos, "import assembled Live Photos into Apple Photos after export")
+	fs.StringVar(&opts.Live.ImportAlbum, "live-import-album", opts.Live.ImportAlbum, "Apple Photos album name for imported Live Photos")
+	fs.DurationVar(&opts.Live.ImportTimeout, "live-import-timeout", opts.Live.ImportTimeout, "Apple Photos import timeout")
 
 	if err := fs.Parse(args); err != nil {
 		return Options{}, err
@@ -285,11 +293,14 @@ func renderLiveOptions(opts app.LiveOptions) render.LiveOptions {
 		outputDir = absolutePath(outputDir)
 	}
 	return render.LiveOptions{
-		Enabled:     opts.Enabled,
-		PhotoFormat: opts.PhotoFormat,
-		CoverFrame:  opts.CoverFrame,
-		Assemble:    opts.Assemble,
-		OutputDir:   outputDir,
+		Enabled:       opts.Enabled,
+		PhotoFormat:   opts.PhotoFormat,
+		CoverFrame:    opts.CoverFrame,
+		Assemble:      opts.Assemble,
+		OutputDir:     outputDir,
+		ImportPhotos:  opts.ImportPhotos,
+		ImportAlbum:   opts.ImportAlbum,
+		ImportTimeout: opts.ImportTimeout,
 	}
 }
 
@@ -333,10 +344,19 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		default:
 			fmt.Fprintf(stderr, "render preview failed: %s\n", stripErrorPrefixes(err, app.ErrParseDeck, app.ErrRenderPreview))
 		}
+		if result.DeliveryReportPath != "" {
+			fmt.Fprintf(stderr, "live delivery report: %s\n", result.DeliveryReportPath)
+		}
 		return 1
 	}
 
 	fmt.Fprintf(stdout, "generated %d preview pages\n", result.PageCount)
+	if result.DeliveryReport != nil {
+		fmt.Fprintf(stdout, "live delivery: %s (%s)\n", result.DeliveryReport.Status, result.DeliveryReport.Message)
+		if result.DeliveryReportPath != "" {
+			fmt.Fprintf(stdout, "live delivery report: %s\n", result.DeliveryReportPath)
+		}
+	}
 	for _, warning := range result.Warnings {
 		fmt.Fprintln(stderr, warning)
 	}

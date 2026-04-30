@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/walker1211/mark2note/internal/app"
 	"github.com/walker1211/mark2note/internal/config"
@@ -66,7 +67,7 @@ func TestUsageTextMentionsConfiguredDefaultOutputDir(t *testing.T) {
 
 func TestUsageTextMentionsThemeAuthorAndAnimatedFlags(t *testing.T) {
 	text := usageText()
-	for _, want := range []string{"--theme <name>", "--author <name>", "--animated", "--animated-format <name>", "--animated-duration <ms>", "--animated-fps <n>", "--live", "--live-photo-format <name>", "--live-cover-frame <name>", "supported: first, middle, last", "--live-assemble", "--live-output-dir <dir>", "page animation timeline duration; also affects Live motion timing", "animation capture fps / sampling density; affects Animated WebP/MP4 output and Live frame sampling", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
+	for _, want := range []string{"--theme <name>", "--author <name>", "--animated", "--animated-format <name>", "--animated-duration <ms>", "--animated-fps <n>", "--live", "--live-photo-format <name>", "--live-cover-frame <name>", "supported: first, middle, last", "--live-assemble", "--live-output-dir <dir>", "--live-import-photos", "--live-import-album", "--live-import-timeout", "page animation timeline duration; also affects Live motion timing", "animation capture fps / sampling density; affects Animated WebP/MP4 output and Live frame sampling", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("usageText() missing %q", want)
 		}
@@ -174,6 +175,23 @@ func TestParseOptionsParsesLiveFlags(t *testing.T) {
 		t.Fatalf("parseOptions() error = %v", err)
 	}
 	if !opts.Live.Enabled || opts.Live.PhotoFormat != "jpeg" || opts.Live.CoverFrame != "first" || !opts.Live.Assemble || opts.Live.OutputDir != "apple-live" {
+		t.Fatalf("opts.Live = %#v", opts.Live)
+	}
+}
+
+func TestDefaultOptionsSetsLiveImportTimeout(t *testing.T) {
+	opts := defaultOptions()
+	if opts.Live.ImportTimeout != 120*time.Second {
+		t.Fatalf("Live.ImportTimeout = %v, want %v", opts.Live.ImportTimeout, 120*time.Second)
+	}
+}
+
+func TestParseOptionsParsesLiveImportFlags(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--live-import-photos", "--live-import-album", "  Camera Roll  ", "--live-import-timeout", "45s"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.Live.ImportPhotos || opts.Live.ImportAlbum != "  Camera Roll  " || opts.Live.ImportTimeout != 45*time.Second {
 		t.Fatalf("opts.Live = %#v", opts.Live)
 	}
 }
@@ -359,7 +377,7 @@ func TestRunCaptureHTMLPassesOptionsToRenderer(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
-	want := Options{OutDir: "output", ChromePath: "/tmp/chrome", Jobs: 3, InputPath: "preview", Animated: app.AnimatedOptions{Format: "webp", DurationMS: 2400, FPS: 8}, Live: app.LiveOptions{PhotoFormat: "jpeg", CoverFrame: "middle", OutputDir: ""}}
+	want := Options{OutDir: "output", ChromePath: "/tmp/chrome", Jobs: 3, InputPath: "preview", Animated: app.AnimatedOptions{Format: "webp", DurationMS: 2400, FPS: 8}, Live: app.LiveOptions{PhotoFormat: "jpeg", CoverFrame: "middle", OutputDir: "", ImportTimeout: 120 * time.Second}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("opts = %#v, want %#v", got, want)
 	}

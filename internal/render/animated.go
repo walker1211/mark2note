@@ -1,6 +1,9 @@
 package render
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 const (
 	animatedFormatWebP   = "webp"
@@ -26,11 +29,14 @@ type animatedOptions struct {
 type AnimatedOptions = animatedOptions
 
 type liveOptions struct {
-	Enabled     bool
-	PhotoFormat string
-	CoverFrame  string
-	Assemble    bool
-	OutputDir   string
+	Enabled       bool
+	PhotoFormat   string
+	CoverFrame    string
+	Assemble      bool
+	OutputDir     string
+	ImportPhotos  bool
+	ImportAlbum   string
+	ImportTimeout time.Duration
 }
 
 type LiveOptions = liveOptions
@@ -44,11 +50,14 @@ type normalizedAnimatedOptions struct {
 }
 
 type normalizedLiveOptions struct {
-	Enabled     bool
-	PhotoFormat string
-	CoverFrame  string
-	Assemble    bool
-	OutputDir   string
+	Enabled       bool
+	PhotoFormat   string
+	CoverFrame    string
+	Assemble      bool
+	OutputDir     string
+	ImportPhotos  bool
+	ImportAlbum   string
+	ImportTimeout time.Duration
 }
 
 type animatedPreset struct {
@@ -126,11 +135,14 @@ func normalizeLiveOptions(in liveOptions) (normalizedLiveOptions, []string) {
 	}
 
 	return normalizedLiveOptions{
-		Enabled:     true,
-		PhotoFormat: photoFormat,
-		CoverFrame:  coverFrame,
-		Assemble:    in.Assemble,
-		OutputDir:   strings.TrimSpace(in.OutputDir),
+		Enabled:       true,
+		PhotoFormat:   photoFormat,
+		CoverFrame:    coverFrame,
+		Assemble:      in.Assemble,
+		OutputDir:     strings.TrimSpace(in.OutputDir),
+		ImportPhotos:  in.ImportPhotos,
+		ImportAlbum:   in.ImportAlbum,
+		ImportTimeout: in.ImportTimeout,
 	}, warnings
 }
 
