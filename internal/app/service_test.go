@@ -834,6 +834,34 @@ func assertLayoutArtifactsAbsent(t *testing.T, outDir string) {
 	}
 }
 
+func TestServiceGeneratePreviewReturnsImagePaths(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: t.TempDir()},
+		AI:     config.AICfg{Command: "ccs", Args: []string{"codex"}},
+	}
+	imagePaths := []string{
+		filepath.Join(t.TempDir(), "p01-cover.png"),
+		filepath.Join(t.TempDir(), "p02-bullets.png"),
+	}
+	r := &fakeRenderer{result: render.RenderResult{ImagePaths: imagePaths}}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:   func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			return `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`, nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	result, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if !reflect.DeepEqual(result.ImagePaths, imagePaths) {
+		t.Fatalf("ImagePaths = %#v, want %#v", result.ImagePaths, imagePaths)
+	}
+}
+
 func TestServiceGeneratePreviewReturnsRenderWarnings(t *testing.T) {
 	cfg := &config.Config{
 		Output: config.OutputCfg{Dir: t.TempDir()},

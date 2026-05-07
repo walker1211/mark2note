@@ -66,6 +66,8 @@ Flags:
   --theme <name>             one-off deck theme override (default from deck.theme)
   --author <name>            one-off cover author input (blank falls back to deck.author) (default from deck.author)
   --prompt-extra <text>      extra natural-language guidance for deck generation
+  --publish-xhs              publish generated PNG files to Xiaohongshu after render
+  --xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs
   --import-photos            import generated PNG files into Apple Photos after export
   --import-album <name>      Apple Photos album name for imported PNG files
   --import-timeout <d>       Apple Photos PNG import timeout (default: 2m0s)
@@ -89,6 +91,7 @@ Examples:
   mark2note --input ./example.md --config ./configs/config.yaml
   mark2note --input ./example.md --config ./config.yaml
   mark2note --input ./example.md --prompt-extra "封面更抓眼，少一点教程感"
+  mark2note --input ./example.md --theme shuffle-light --publish-xhs
   mark2note --input ./example.md --import-photos --import-album "mark2note"
   mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
   mark2note capture-html --input ./output/preview/p02-quote.html
@@ -156,7 +159,7 @@ Flags:
   --images <csv>           comma-separated image paths
   --live-report <file>     live delivery report path
   --live-pages <csv>       ordered live page subset; requires --live-report
-  --chrome <path>          chrome binary path
+  --chrome <path>          chrome binary path (default from xhs.publish.browser_path)
   --headless               run browser automation headless (default: true; xhs.publish.headless can override)
   --profile-dir <dir>      browser profile directory (default from xhs.publish.profile_dir)
   --declare-original       declare original content before submit (default from xhs.publish.declare_original)
@@ -176,6 +179,7 @@ func isHelpRequest(args []string) bool {
 
 func parseOptions(args []string) (Options, error) {
 	opts := defaultOptions()
+	var xhsTags string
 	fs := flag.NewFlagSet("mark2note", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&opts.OutDir, "out", opts.OutDir, "output directory")
@@ -187,6 +191,8 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.Theme, "theme", opts.Theme, "one-off deck theme override")
 	fs.StringVar(&opts.Author, "author", opts.Author, "one-off cover author input (blank falls back to deck.author)")
 	fs.StringVar(&opts.PromptExtra, "prompt-extra", opts.PromptExtra, "extra natural-language guidance for deck generation")
+	fs.BoolVar(&opts.PublishXHS, "publish-xhs", opts.PublishXHS, "publish generated PNG files to Xiaohongshu after render")
+	fs.StringVar(&xhsTags, "xhs-tags", xhsTags, "comma-separated Xiaohongshu topics for auto publish")
 	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
 	fs.StringVar(&opts.ImportAlbum, "import-album", opts.ImportAlbum, "Apple Photos album name for imported PNG files")
 	fs.DurationVar(&opts.ImportTimeout, "import-timeout", opts.ImportTimeout, "Apple Photos PNG import timeout")
@@ -212,6 +218,7 @@ func parseOptions(args []string) (Options, error) {
 	if opts.Jobs <= 0 {
 		return Options{}, fmt.Errorf("jobs must be >= 1")
 	}
+	opts.XHSTags = splitCSV(xhsTags)
 	hasInput := strings.TrimSpace(opts.InputPath) != ""
 	hasFromDeck := strings.TrimSpace(opts.FromDeckPath) != ""
 	if hasInput == hasFromDeck {
@@ -219,6 +226,9 @@ func parseOptions(args []string) (Options, error) {
 	}
 	if hasFromDeck && strings.TrimSpace(opts.PromptExtra) != "" {
 		return Options{}, fmt.Errorf("--prompt-extra can only be used with --input\n\n%s", usageText())
+	}
+	if hasFromDeck && opts.PublishXHS {
+		return Options{}, fmt.Errorf("--publish-xhs can only be used with --input\n\n%s", usageText())
 	}
 	outChanged := false
 	animatedEnabledChanged := false
@@ -236,10 +246,14 @@ func parseOptions(args []string) (Options, error) {
 	liveImportPhotosChanged := false
 	liveImportAlbumChanged := false
 	liveImportTimeoutChanged := false
+	chromePathChanged := false
+	xhsTagsChanged := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "out":
 			outChanged = true
+		case "chrome":
+			chromePathChanged = true
 		case "animated":
 			animatedEnabledChanged = true
 		case "animated-format":
@@ -270,9 +284,12 @@ func parseOptions(args []string) (Options, error) {
 			liveImportAlbumChanged = true
 		case "live-import-timeout":
 			liveImportTimeoutChanged = true
+		case "xhs-tags":
+			xhsTagsChanged = true
 		}
 	})
 	opts.OutDirChanged = outChanged
+	opts.ChromePathChanged = chromePathChanged
 	opts.AnimatedEnabledChanged = animatedEnabledChanged
 	opts.AnimatedFormatChanged = animatedFormatChanged
 	opts.AnimatedDurationChanged = animatedDurationChanged
@@ -288,6 +305,10 @@ func parseOptions(args []string) (Options, error) {
 	opts.LiveImportPhotosChanged = liveImportPhotosChanged
 	opts.LiveImportAlbumChanged = liveImportAlbumChanged
 	opts.LiveImportTimeoutChanged = liveImportTimeoutChanged
+	opts.XHSTagsChanged = xhsTagsChanged
+	if opts.XHSTagsChanged && !opts.PublishXHS {
+		return Options{}, fmt.Errorf("--xhs-tags requires --publish-xhs\n\n%s", usageText())
+	}
 	return opts, nil
 }
 
@@ -323,6 +344,7 @@ type publishXHSCLIOptions struct {
 	ConfigPathChanged       bool
 	AccountChanged          bool
 	HeadlessChanged         bool
+	ChromePathChanged       bool
 	ProfileDirChanged       bool
 	ModeChanged             bool
 	DeclareOriginalChanged  bool
@@ -378,6 +400,8 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 			opts.AccountChanged = true
 		case "headless":
 			opts.HeadlessChanged = true
+		case "chrome":
+			opts.ChromePathChanged = true
 		case "profile-dir":
 			opts.ProfileDirChanged = true
 		case "mode":
@@ -411,6 +435,9 @@ func mergePublishXHSDefaults(cli publishXHSCLIOptions, cfg *config.Config) app.P
 	if !cli.HeadlessChanged && defaults.Headless != nil {
 		opts.Headless = *defaults.Headless
 	}
+	if !cli.ChromePathChanged && strings.TrimSpace(defaults.BrowserPath) != "" {
+		opts.ChromePath = strings.TrimSpace(defaults.BrowserPath)
+	}
 	if !cli.ProfileDirChanged && strings.TrimSpace(opts.ProfileDir) == "" {
 		opts.ProfileDir = strings.TrimSpace(defaults.ProfileDir)
 	}
@@ -422,6 +449,9 @@ func mergePublishXHSDefaults(cli publishXHSCLIOptions, cfg *config.Config) app.P
 	}
 	if !cli.AllowContentCopyChanged && defaults.AllowContentCopy != nil {
 		opts.AllowContentCopy = *defaults.AllowContentCopy
+	}
+	if defaults.ChromeArgs != nil {
+		opts.ChromeArgs = append([]string(nil), defaults.ChromeArgs...)
 	}
 	return opts
 }
@@ -551,6 +581,82 @@ func absolutePath(path string) string {
 	return path
 }
 
+func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (app.PublishOptions, error) {
+	imagePaths := nonEmptyStrings(renderResult.ImagePaths)
+	if len(imagePaths) == 0 {
+		return app.PublishOptions{}, fmt.Errorf("no generated PNG files found")
+	}
+	for _, imagePath := range imagePaths {
+		if _, err := os.Stat(imagePath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return app.PublishOptions{}, fmt.Errorf("generated PNG file not found: %s", imagePath)
+			}
+			return app.PublishOptions{}, fmt.Errorf("generated PNG file unavailable: %s: %v", imagePath, err)
+		}
+	}
+	markdownBytes, err := readFile(renderOpts.InputPath)
+	if err != nil {
+		return app.PublishOptions{}, fmt.Errorf("%w: %v", app.ErrReadMarkdown, err)
+	}
+	markdown := string(markdownBytes)
+	title := xhs.MarkdownPublishTitle(markdown, renderOpts.InputPath)
+	topics := xhs.MarkdownPublishTopics(markdown, title, renderOpts.XHSTags)
+	cliOpts := publishXHSCLIOptions{
+		PublishOptions: app.PublishOptions{
+			Title:      title,
+			Content:    xhs.MarkdownTopicBody(topics),
+			Tags:       topics,
+			Mode:       string(xhs.PublishModeOnlySelf),
+			ImagePaths: imagePaths,
+			ChromePath: renderOpts.ChromePath,
+			Headless:   true,
+		},
+		ConfigPath:        renderOpts.ConfigPath,
+		ChromePathChanged: renderOpts.ChromePathChanged,
+	}
+	cfg, err := loadPublishXHSConfig(cliOpts.ConfigPath, true)
+	if err != nil {
+		return app.PublishOptions{}, err
+	}
+	publishOpts := mergePublishXHSDefaults(cliOpts, cfg)
+	if err := validatePublishXHSOptions(publishOpts); err != nil {
+		return app.PublishOptions{}, err
+	}
+	return publishOpts, nil
+}
+
+func runAutoPublishXHS(renderOpts Options, renderResult app.Result, stdout io.Writer, stderr io.Writer) int {
+	publishOpts, err := buildAutoPublishXHSOptions(renderOpts, renderResult)
+	if err != nil {
+		switch {
+		case errors.Is(err, app.ErrLoadConfig):
+			fmt.Fprintf(stderr, "error loading config: %s\n", stripErrorPrefixes(err, app.ErrLoadConfig))
+		case errors.Is(err, app.ErrReadMarkdown):
+			fmt.Fprintf(stderr, "error reading markdown for xhs publish: %s\n", stripErrorPrefixes(err, app.ErrReadMarkdown))
+		default:
+			fmt.Fprintf(stderr, "auto publish xhs failed: %v\n", err)
+		}
+		return 1
+	}
+	result, err := publishXHS(publishOpts)
+	if err != nil {
+		printPublishXHSError(stderr, err)
+		return 1
+	}
+	return printPublishXHSResult(stdout, result)
+}
+
+func nonEmptyStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
@@ -620,6 +726,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	for _, warning := range result.Warnings {
 		fmt.Fprintln(stderr, warning)
 	}
+	if opts.PublishXHS {
+		return runAutoPublishXHS(opts, result, stdout, stderr)
+	}
 	return 0
 }
 
@@ -641,42 +750,24 @@ func runCaptureHTML(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
-	cliOpts, err := parsePublishXHSOptions(args)
-	if err != nil {
-		if err == flag.ErrHelp {
-			fmt.Fprintln(stdout, publishXHSUsageText())
-			return 0
-		}
-		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
-		return 1
+func printPublishXHSError(stderr io.Writer, err error) {
+	switch {
+	case errors.Is(err, xhs.ErrNotLoggedIn):
+		fmt.Fprintln(stderr, "not logged in to Xiaohongshu creator center; open the Chrome profile and complete QR login")
+	case errors.Is(err, xhs.ErrUploadInputMissing):
+		fmt.Fprintf(stderr, "publish xhs failed: upload input not found; the Xiaohongshu session may be expired, blocked by login/verification, or not on the image publish page. Open the configured Chrome profile, complete login or verification, then retry. detail: %s\n", stripErrorPrefixes(err, app.ErrPublishExecute, xhs.ErrUploadFailed, xhs.ErrUploadInputMissing))
+	case errors.Is(err, xhs.ErrLiveBridgeFailed), errors.Is(err, xhs.ErrLiveBridgePermissionDenied), errors.Is(err, xhs.ErrPhotosLookupFailed), errors.Is(err, xhs.ErrLivePublishUnsupported):
+		fmt.Fprintf(stderr, "live attach failed: %s\n", stripErrorPrefixes(err, app.ErrPublishExecute))
+	case errors.Is(err, app.ErrPublishRequestInvalid):
+		fmt.Fprintf(stderr, "invalid publish request: %s\n", stripErrorPrefixes(err, app.ErrPublishRequestInvalid))
+	case errors.Is(err, app.ErrPublishReadInput):
+		fmt.Fprintf(stderr, "error reading publish input: %s\n", stripErrorPrefixes(err, app.ErrPublishReadInput))
+	default:
+		fmt.Fprintf(stderr, "publish xhs failed: %s\n", stripErrorPrefixes(err, app.ErrPublishExecute))
 	}
-	cfg, err := loadPublishXHSConfig(cliOpts.ConfigPath, cliOpts.ConfigPathChanged)
-	if err != nil {
-		fmt.Fprintf(stderr, "error loading config: %s\n", stripErrorPrefixes(err, app.ErrLoadConfig))
-		return 1
-	}
-	opts := mergePublishXHSDefaults(cliOpts, cfg)
-	if err := validatePublishXHSOptions(opts); err != nil {
-		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
-		return 1
-	}
-	result, err := publishXHS(opts)
-	if err != nil {
-		switch {
-		case errors.Is(err, xhs.ErrNotLoggedIn):
-			fmt.Fprintln(stderr, "not logged in to Xiaohongshu creator center; open the Chrome profile and complete QR login")
-		case errors.Is(err, xhs.ErrLiveBridgeFailed), errors.Is(err, xhs.ErrLiveBridgePermissionDenied), errors.Is(err, xhs.ErrPhotosLookupFailed), errors.Is(err, xhs.ErrLivePublishUnsupported):
-			fmt.Fprintf(stderr, "live attach failed: %s\n", stripErrorPrefixes(err, app.ErrPublishExecute))
-		case errors.Is(err, app.ErrPublishRequestInvalid):
-			fmt.Fprintf(stderr, "invalid publish request: %s\n", stripErrorPrefixes(err, app.ErrPublishRequestInvalid))
-		case errors.Is(err, app.ErrPublishReadInput):
-			fmt.Fprintf(stderr, "error reading publish input: %s\n", stripErrorPrefixes(err, app.ErrPublishReadInput))
-		default:
-			fmt.Fprintf(stderr, "publish xhs failed: %s\n", stripErrorPrefixes(err, app.ErrPublishExecute))
-		}
-		return 1
-	}
+}
+
+func printPublishXHSResult(stdout io.Writer, result app.PublishResult) int {
 	if result.Result.OnlySelfPublished {
 		fmt.Fprintln(stdout, "xiaohongshu only-self-visible published")
 		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)
@@ -707,6 +798,34 @@ func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "schedule at: %s\n", result.Request.ScheduleTime.In(xhsShanghaiLocation()).Format("2006-01-02 15:04:05"))
 	}
 	return 0
+}
+
+func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
+	cliOpts, err := parsePublishXHSOptions(args)
+	if err != nil {
+		if err == flag.ErrHelp {
+			fmt.Fprintln(stdout, publishXHSUsageText())
+			return 0
+		}
+		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
+		return 1
+	}
+	cfg, err := loadPublishXHSConfig(cliOpts.ConfigPath, cliOpts.ConfigPathChanged)
+	if err != nil {
+		fmt.Fprintf(stderr, "error loading config: %s\n", stripErrorPrefixes(err, app.ErrLoadConfig))
+		return 1
+	}
+	opts := mergePublishXHSDefaults(cliOpts, cfg)
+	if err := validatePublishXHSOptions(opts); err != nil {
+		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
+		return 1
+	}
+	result, err := publishXHS(opts)
+	if err != nil {
+		printPublishXHSError(stderr, err)
+		return 1
+	}
+	return printPublishXHSResult(stdout, result)
 }
 
 func splitCSV(input string) []string {

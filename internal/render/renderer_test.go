@@ -516,6 +516,27 @@ func TestCapturePNGsUsesConfiguredWindowSize(t *testing.T) {
 	}
 }
 
+func TestRenderResultIncludesGeneratedPNGPaths(t *testing.T) {
+	runner := &fakeRunner{}
+	outDir := t.TempDir()
+	r := Renderer{OutDir: outDir, ChromePath: "chrome", Jobs: 1, Runner: runner}
+	d := sampleDeck(outDir)
+
+	result, err := r.Render(d)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+
+	want := []string{
+		filepath.Join(outDir, "p01-cover.png"),
+		filepath.Join(outDir, "p02-bullets.png"),
+		filepath.Join(outDir, "p03-ending.png"),
+	}
+	if !reflect.DeepEqual(result.ImagePaths, want) {
+		t.Fatalf("ImagePaths = %#v, want %#v", result.ImagePaths, want)
+	}
+}
+
 func TestRenderUsesFinalAnimatedStateForPrimaryHTMLAndPNG(t *testing.T) {
 	runner := &fakeRunner{}
 	outDir := t.TempDir()
@@ -714,9 +735,7 @@ func TestRendererBuildsChromeCommandsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !reflect.DeepEqual(result, RenderResult{}) {
-		t.Fatalf("Render() result = %#v, want empty", result)
-	}
+	assertRenderResultHasOnlyImagePaths(t, result)
 
 	calls := runner.snapshotCalls()
 	if len(calls) != 3 {
@@ -771,9 +790,7 @@ func TestRendererUsesBoundedConcurrency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !reflect.DeepEqual(result, RenderResult{}) {
-		t.Fatalf("Render() result = %#v, want empty", result)
-	}
+	assertRenderResultHasOnlyImagePaths(t, result)
 
 	if got := runner.max(); got != 2 {
 		t.Fatalf("max concurrent chrome jobs = %d, want 2", got)
@@ -797,9 +814,7 @@ func TestCaptureAnimatedWebPProcessesPagesConcurrently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !reflect.DeepEqual(result, RenderResult{}) {
-		t.Fatalf("Render() result = %#v, want empty", result)
-	}
+	assertRenderResultHasOnlyImagePaths(t, result)
 	if got := runner.max(); got != 2 {
 		t.Fatalf("max concurrent tasks = %d, want 2", got)
 	}
@@ -826,9 +841,7 @@ func TestRenderEmitsRootLevelMP4WhenAnimatedFormatIsMP4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !reflect.DeepEqual(result, RenderResult{}) {
-		t.Fatalf("Render() result = %#v, want empty", result)
-	}
+	assertRenderResultHasOnlyImagePaths(t, result)
 	if got := mp4Encoder.snapshotOutputs(); len(got) != len(d.Pages) {
 		t.Fatalf("mp4 outputs = %#v, want %d outputs", got, len(d.Pages))
 	}
@@ -860,9 +873,7 @@ func TestRenderReusesOneFrameCaptureSetForAnimatedAndLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !reflect.DeepEqual(result, RenderResult{}) {
-		t.Fatalf("Render() result = %#v, want empty", result)
-	}
+	assertRenderResultHasOnlyImagePaths(t, result)
 
 	calls := runner.snapshotCalls()
 	chromeCalls := 0
@@ -902,9 +913,7 @@ func TestRenderRunsLiveExportWhenAnimatedOutputDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !reflect.DeepEqual(result, RenderResult{}) {
-		t.Fatalf("Render() result = %#v, want empty", result)
-	}
+	assertRenderResultHasOnlyImagePaths(t, result)
 	if got := len(liveBuilder.snapshotTasks()); got != len(d.Pages) {
 		t.Fatalf("live tasks = %d, want %d", got, len(d.Pages))
 	}
@@ -1016,9 +1025,7 @@ func TestRenderAssemblesLiveArtifactsAfterPackageBuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !reflect.DeepEqual(result, RenderResult{}) {
-		t.Fatalf("Render() result = %#v, want empty", result)
-	}
+	assertRenderResultHasOnlyImagePaths(t, result)
 	if got := len(liveAssembler.snapshotTasks()); got != len(d.Pages) {
 		t.Fatalf("assembler tasks = %d, want %d", got, len(d.Pages))
 	}
@@ -1088,9 +1095,7 @@ func TestRenderAssemblesLiveArtifactsSeriallyInPageOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !reflect.DeepEqual(result, RenderResult{}) {
-		t.Fatalf("Render() result = %#v, want empty", result)
-	}
+	assertRenderResultHasOnlyImagePaths(t, result)
 	if got := liveAssembler.max(); got != 1 {
 		t.Fatalf("max concurrent live assemble = %d, want 1", got)
 	}
@@ -1269,6 +1274,18 @@ func TestCaptureHTMLPathReturnsFailureAndKeepsSuccessfulOutputs(t *testing.T) {
 	}
 	if got := len(runner.snapshotCalls()); got != 2 {
 		t.Fatalf("len(calls) = %d, want 2", got)
+	}
+}
+
+func assertRenderResultHasOnlyImagePaths(t *testing.T, result RenderResult) {
+	t.Helper()
+	if len(result.ImagePaths) == 0 {
+		t.Fatalf("Render() ImagePaths is empty")
+	}
+	withoutImagePaths := result
+	withoutImagePaths.ImagePaths = nil
+	if !reflect.DeepEqual(withoutImagePaths, RenderResult{}) {
+		t.Fatalf("Render() result without ImagePaths = %#v, want empty", withoutImagePaths)
 	}
 }
 

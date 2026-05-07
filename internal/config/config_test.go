@@ -403,18 +403,24 @@ func TestLoadAppliesDefaultXHSPublishConfig(t *testing.T) {
 	if cfg.XHS.Publish.Headless != nil {
 		t.Fatalf("Headless = %v, want nil", cfg.XHS.Publish.Headless)
 	}
+	if cfg.XHS.Publish.BrowserPath != "" {
+		t.Fatalf("BrowserPath = %q, want empty", cfg.XHS.Publish.BrowserPath)
+	}
 	if cfg.XHS.Publish.ProfileDir != "" {
 		t.Fatalf("ProfileDir = %q, want empty", cfg.XHS.Publish.ProfileDir)
 	}
 	if cfg.XHS.Publish.Mode != "only-self" {
 		t.Fatalf("Mode = %q, want only-self", cfg.XHS.Publish.Mode)
 	}
+	if !reflect.DeepEqual(cfg.XHS.Publish.ChromeArgs, DefaultXHSPublishChromeArgs) {
+		t.Fatalf("ChromeArgs = %#v, want %#v", cfg.XHS.Publish.ChromeArgs, DefaultXHSPublishChromeArgs)
+	}
 }
 
 func TestLoadKeepsExplicitXHSPublishConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	content := "xhs:\n  publish:\n    account: walker\n    headless: false\n    profile_dir: ~/.config/mark2note/xhs/profiles/walker\n    mode: schedule\n"
+	content := "xhs:\n  publish:\n    account: walker\n    headless: false\n    browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n    profile_dir: ~/.config/mark2note/xhs/profiles/walker\n    mode: schedule\n    chrome_args:\n      - --no-first-run\n      - proxy-server=http://127.0.0.1:8080\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -429,11 +435,35 @@ func TestLoadKeepsExplicitXHSPublishConfig(t *testing.T) {
 	if cfg.XHS.Publish.Headless == nil || *cfg.XHS.Publish.Headless {
 		t.Fatalf("Headless = %#v, want false", cfg.XHS.Publish.Headless)
 	}
+	if cfg.XHS.Publish.BrowserPath != "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" {
+		t.Fatalf("BrowserPath = %q", cfg.XHS.Publish.BrowserPath)
+	}
 	if cfg.XHS.Publish.ProfileDir != "~/.config/mark2note/xhs/profiles/walker" {
 		t.Fatalf("ProfileDir = %q", cfg.XHS.Publish.ProfileDir)
 	}
 	if cfg.XHS.Publish.Mode != "schedule" {
 		t.Fatalf("Mode = %q, want schedule", cfg.XHS.Publish.Mode)
+	}
+	wantChromeArgs := []string{"--no-first-run", "proxy-server=http://127.0.0.1:8080"}
+	if !reflect.DeepEqual(cfg.XHS.Publish.ChromeArgs, wantChromeArgs) {
+		t.Fatalf("ChromeArgs = %#v, want %#v", cfg.XHS.Publish.ChromeArgs, wantChromeArgs)
+	}
+}
+
+func TestLoadKeepsExplicitEmptyXHSPublishChromeArgs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "xhs:\n  publish:\n    chrome_args: []\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.ChromeArgs == nil || len(cfg.XHS.Publish.ChromeArgs) != 0 {
+		t.Fatalf("ChromeArgs = %#v, want explicit empty slice", cfg.XHS.Publish.ChromeArgs)
 	}
 }
 

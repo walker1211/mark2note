@@ -43,6 +43,7 @@ type Renderer struct {
 
 type RenderResult struct {
 	Warnings           []string
+	ImagePaths         []string
 	ImportReport       *DeliveryReport
 	ImportReportPath   string
 	DeliveryReport     *DeliveryReport
@@ -110,13 +111,14 @@ func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 	if err := r.CapturePNGs(d.Pages, outDir); err != nil {
 		return RenderResult{}, err
 	}
+	imagePaths := generatedPNGPaths(d.Pages, outDir)
 	warnings := append([]string(nil), animatedResult.Warnings...)
 	warnings = append(warnings, liveWarnings...)
 	warnings = append(warnings, captureWarnings...)
 	if captureMode.Enabled && (mode.Enabled || liveMode.Enabled) {
 		warnings = append(warnings, r.runAnimatedExports(d.Pages, outDir, captureMode, mode, liveMode)...)
 	}
-	result := RenderResult{Warnings: warnings}
+	result := RenderResult{Warnings: warnings, ImagePaths: imagePaths}
 	if r.ImportPhotos {
 		delivery, err := r.deliverPNGImport(outDir, d.Pages)
 		result.ImportReport = &delivery.Report
@@ -312,6 +314,14 @@ func (r Renderer) effectiveNow() func() time.Time {
 		return r.Now
 	}
 	return time.Now
+}
+
+func generatedPNGPaths(pages []deck.Page, outDir string) []string {
+	paths := make([]string, 0, len(pages))
+	for _, page := range pages {
+		paths = append(paths, filepath.Join(outDir, page.Name+".png"))
+	}
+	return paths
 }
 
 func (r Renderer) CapturePNGs(pages []deck.Page, outDir string) error {

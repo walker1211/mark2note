@@ -15,6 +15,7 @@ The `capture-html` command is also a public CLI subcommand that converts existin
 - Optional experimental Live package export and Apple Live Photo assembly
 - Convert existing HTML files into sibling PNG files
 - Publish standard image posts or Live-photo assets to Xiaohongshu through `publish-xhs`
+- Publish to Xiaohongshu automatically after the main PNG render with `--publish-xhs`
 
 ## Requirements
 
@@ -112,10 +113,12 @@ Key fields:
 - `render.live.import_photos`: whether to import assembled Live Photos into Apple Photos, off by default; requires `render.live.assemble`
 - `render.live.import_album`: Apple Photos album name for Live import; when empty, `mark2note-live-<timestamp>` is generated
 - `render.live.import_timeout`: Live import timeout, default `2m`; supports Go duration strings such as `45s` and `2m`
-- `xhs.publish.account`: default account for `publish-xhs`
-- `xhs.publish.headless`: default browser headless mode for `publish-xhs`
-- `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs`
-- `xhs.publish.mode`: default publish mode for `publish-xhs`, supporting `only-self` and `schedule`
+- `xhs.publish.account`: default account for `publish-xhs` and `--publish-xhs`
+- `xhs.publish.headless`: default browser headless mode for `publish-xhs` and `--publish-xhs`
+- `xhs.publish.browser_path`: default browser executable path for `publish-xhs` and `--publish-xhs`; CLI `--chrome` can override it for one run
+- `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs` and `--publish-xhs`
+- `xhs.publish.mode`: default publish mode for `publish-xhs` and `--publish-xhs`, supporting `only-self` and `schedule`
+- `xhs.publish.chrome_args`: extra Chrome launch arguments used only by Xiaohongshu publishing
 
 Additional notes:
 
@@ -140,6 +143,10 @@ Additional notes:
 - `--config` can explicitly select another config file
 - `--prompt-extra` appends one-off natural-language guidance for the Markdown -> deck JSON stage, such as pacing, tone, or structure
 - `--prompt-extra` only affects deck generation; it does not directly change HTML rendering, PNG capture, Animated / Live export, or `publish-xhs` behavior
+- `--publish-xhs` publishes to Xiaohongshu after the main render flow successfully generates standard PNG files; the title comes from the Markdown H1 and the body contains only 3-6 parsed topic hashtags
+- `--xhs-tags` manually overrides parsed topics, for example `--xhs-tags "AI agent,data safety,engineering reflection"`; it is valid only with `--publish-xhs`
+- When `xhs.publish.chrome_args` is omitted, Xiaohongshu publishing uses `disable-background-networking`, `disable-component-update`, `no-first-run`, and `no-default-browser-check`; set `chrome_args: []` to launch without extra args for debugging
+- `xhs.publish.chrome_args` entries may include or omit the leading `--`, and `name=value` arguments are supported
 
 ## AI CLI examples
 
@@ -176,6 +183,8 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ./mark2note --input ./article.md --theme shuffle-light
 ./mark2note --input ./article.md --theme tech-noir
 ./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
+./mark2note --input ./article.md --theme shuffle-light --prompt-extra "make the output concise but keep image pages" --live=false --publish-xhs
+./mark2note --input ./article.md --theme shuffle-light --publish-xhs --xhs-tags "AI agent,data safety,engineering reflection"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --import-photos --import-album "mark2note"
@@ -191,7 +200,44 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 
 Note: in directory mode, `capture-html` only scans the current directory, does not recurse into subdirectories, only processes lowercase `.html`, and writes PNG output next to the source HTML files.
 
-## Xiaohongshu publishing with `publish-xhs`
+## Xiaohongshu publishing
+
+### Auto-publish after render with `--publish-xhs`
+
+The main render command can automatically invoke the Xiaohongshu publish flow after standard PNG files are generated successfully. This flow reuses `xhs.publish` defaults for account, browser path, browser profile, headless mode, publish mode, originality declaration, and content-copy preference. It publishes the standard PNG pages from the current render, not Live Photo artifacts.
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --theme shuffle-light \
+  --prompt-extra "make the output concise but keep image pages" \
+  --live=false \
+  --publish-xhs
+```
+
+Auto-publish behavior:
+
+- the title comes from the first Markdown H1; when absent, it falls back to the cleaned input filename
+- the body contains only topic hashtags, for example `#AI代理 #数据安全 #工程反思`
+- topics are parsed locally from frontmatter `tags`, Markdown hashtags, title terms, level-two/three headings, and frequent body terms; automatic results target 3-6 topics
+- use `--xhs-tags` to manually override parsed topics; manual values skip automatic extraction and are still rendered as body hashtags:
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --theme shuffle-light \
+  --publish-xhs \
+  --xhs-tags "AI agent,data safety,engineering reflection"
+```
+
+Rules:
+
+- `--publish-xhs` is supported only with `--input`, not `--from-deck`
+- `--xhs-tags` is accepted only with `--publish-xhs`
+- render failures skip publishing
+- if no generated standard PNG is found, or a listed PNG path is missing, the command prints the render summary first and then returns an error
+
+### Standalone publish subcommand `publish-xhs`
 
 `publish-xhs` publishes generated image assets or Live Photo outputs to Xiaohongshu Creator Center.
 
@@ -222,7 +268,7 @@ mark2note publish-xhs --help
 - `--images <csv>`: comma-separated image paths for standard image posts
 - `--live-report <file>`: Live delivery report path used to resolve publishable Live assets
 - `--live-pages <csv>`: ordered Live page subset; valid only with `--live-report`
-- `--chrome <path>`: Chrome binary path
+- `--chrome <path>`: Chrome binary path; when omitted it first falls back to `xhs.publish.browser_path`
 - `--headless`: run browser automation headless; the built-in default is `true`, but `xhs.publish.headless` can override it
 - `--profile-dir <dir>`: browser profile directory; when omitted it first falls back to `xhs.publish.profile_dir`
 
@@ -255,6 +301,7 @@ xhs:
   publish:
     account: walker
     headless: false
+    browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
     mode: only-self
 ```

@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/launcher/flags"
 )
 
 const (
@@ -99,6 +100,7 @@ var (
 	ErrNotLoggedIn               = errors.New("not logged in to Xiaohongshu creator center")
 	ErrAccountMismatch           = errors.New("xiaohongshu account mismatch")
 	ErrStaleBrowserReuseMetadata = errors.New("stale browser reuse metadata")
+	xhsBrowserDefaultArgs        = []string{"disable-background-networking", "disable-component-update", "no-first-run", "no-default-browser-check"}
 )
 
 type SessionOptions struct {
@@ -106,6 +108,7 @@ type SessionOptions struct {
 	ChromePath string
 	Headless   bool
 	ProfileDir string
+	ChromeArgs []string
 }
 
 type BrowserSession interface {
@@ -742,12 +745,48 @@ func isConnectionRefusedError(err error) bool {
 	return strings.Contains(message, "connection refused")
 }
 
+type chromeArg struct {
+	name  string
+	value string
+}
+
 func defaultSessionLauncher(opts SessionOptions, profileDir string) sessionLauncher {
 	instance := launcher.New().UserDataDir(profileDir).Headless(opts.Headless)
+	for _, arg := range normalizeChromeArgs(opts.ChromeArgs) {
+		if arg.value == "" {
+			instance = instance.Set(flags.Flag(arg.name))
+		} else {
+			instance = instance.Set(flags.Flag(arg.name), arg.value)
+		}
+	}
 	if trimmed := strings.TrimSpace(opts.ChromePath); trimmed != "" {
 		instance = instance.Bin(trimmed)
 	}
 	return &rodLauncher{launcher: instance}
+}
+
+func normalizeChromeArgs(values []string) []chromeArg {
+	if values == nil {
+		values = xhsBrowserDefaultArgs
+	}
+	args := make([]chromeArg, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		trimmed = strings.TrimLeft(trimmed, "-")
+		if trimmed == "" {
+			continue
+		}
+		name, argValue, _ := strings.Cut(trimmed, "=")
+		name = strings.TrimSpace(name)
+		argValue = strings.TrimSpace(argValue)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		args = append(args, chromeArg{name: name, value: argValue})
+	}
+	return args
 }
 
 func defaultSessionBrowser(controlURL string) (sessionBrowser, error) {
