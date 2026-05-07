@@ -143,8 +143,6 @@ def allowed_secret_value(value: str) -> bool:
         return True
     if "${{ github.token }}" in normalized or lowered == "github.token":
         return True
-    if set(normalized) <= {"x", "X", "*", "_", "-"}:
-        return True
     return False
 
 

@@ -61,9 +61,9 @@ jobs:
           artifact_dir="dist/${ARTIFACT_NAME}"
           mkdir -p "${artifact_dir}/configs"
           GOOS="${GOOS}" GOARCH="${GOARCH}" CGO_ENABLED=0 go build -o "${artifact_dir}/mark2note" ./cmd/mark2note
-          cp README.md LICENSE "${artifact_dir}/"
+          cp README.md README.zh-CN.md README.en.md LICENSE "${artifact_dir}/"
           cp configs/config.example.yaml "${artifact_dir}/configs/config.example.yaml"
-          tar -C "${artifact_dir}" -czf "dist/${ARTIFACT_NAME}.tar.gz" mark2note README.md LICENSE configs
+          tar -C "${artifact_dir}" -czf "dist/${ARTIFACT_NAME}.tar.gz" mark2note README.md README.zh-CN.md README.en.md LICENSE configs
 
       - name: Upload packaged archive
         uses: actions/upload-artifact@v4
