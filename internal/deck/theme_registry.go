@@ -1,9 +1,14 @@
 package deck
 
-import "strings"
+import (
+	"fmt"
+	"math/rand"
+	"strings"
+)
 
 const (
 	ThemeDefault       = "default"
+	ThemeShuffleLight  = "shuffle-light"
 	ThemeWarmPaper     = "warm-paper"
 	ThemeEditorialCool = "editorial-cool"
 	ThemeLifestyle     = "lifestyle-light"
@@ -13,6 +18,21 @@ const (
 	paletteDefaultOrange = "default-orange"
 	paletteDefaultGreen  = "default-green"
 )
+
+var shuffleLightPaletteKeys = []string{
+	paletteDefaultOrange,
+	paletteDefaultGreen,
+	ThemeWarmPaper,
+	ThemeEditorialCool,
+	ThemeLifestyle,
+	ThemeEditorialMono,
+}
+
+func ShuffleLightPaletteKeys() []string {
+	out := make([]string, len(shuffleLightPaletteKeys))
+	copy(out, shuffleLightPaletteKeys)
+	return out
+}
 
 type CoverAuthor struct {
 	Show bool
@@ -218,8 +238,8 @@ func ResolveDeckTheme(input string) string {
 	if candidate == "" {
 		return ThemeDefault
 	}
-	if candidate == ThemeDefault {
-		return ThemeDefault
+	if candidate == ThemeDefault || candidate == ThemeShuffleLight {
+		return candidate
 	}
 	if _, ok := RegisteredThemes()[candidate]; ok {
 		return candidate
@@ -240,6 +260,40 @@ func ResolvePageTheme(deckTheme string, legacyPageTheme string) string {
 	default:
 		return ""
 	}
+}
+
+func ResolveConcretePageTheme(deckTheme string, legacyPageTheme string, assignedPageTheme string) string {
+	if ResolveDeckTheme(deckTheme) == ThemeShuffleLight {
+		return strings.TrimSpace(assignedPageTheme)
+	}
+	return ResolvePageTheme(deckTheme, legacyPageTheme)
+}
+
+func AssignShuffleLightPageThemes(pageCount int, r *rand.Rand) ([]string, error) {
+	if pageCount < 1 {
+		return nil, fmt.Errorf("shuffle-light requires at least 1 page")
+	}
+	if r == nil {
+		return nil, fmt.Errorf("shuffle-light requires random source")
+	}
+	result := make([]string, 0, pageCount)
+	prev := ""
+	for i := 0; i < pageCount; i++ {
+		candidates := make([]string, 0, len(shuffleLightPaletteKeys))
+		for _, key := range shuffleLightPaletteKeys {
+			if key == prev {
+				continue
+			}
+			candidates = append(candidates, key)
+		}
+		if len(candidates) == 0 {
+			return nil, fmt.Errorf("shuffle-light has no candidate palette for page %d", i)
+		}
+		current := candidates[r.Intn(len(candidates))]
+		result = append(result, current)
+		prev = current
+	}
+	return result, nil
 }
 
 func ResolveCoverAuthor(explicit string, fallback string) CoverAuthor {

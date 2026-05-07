@@ -493,6 +493,46 @@ func TestServiceGeneratePreviewFallsBackToConfigThemeAndAuthor(t *testing.T) {
 	}
 }
 
+func TestResolveThemeWithPrecedenceAcceptsShuffleLight(t *testing.T) {
+	if got := resolveThemeWithPrecedence("", deck.ThemeShuffleLight, deck.ThemeDefault); got != deck.ThemeShuffleLight {
+		t.Fatalf("resolveThemeWithPrecedence() = %q, want %q", got, deck.ThemeShuffleLight)
+	}
+}
+
+func TestServiceGeneratePreviewAssignsShuffleLightPageThemesAfterThemeOverride(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: "configured-output"},
+		Deck:   config.DeckCfg{Theme: deck.ThemeShuffleLight},
+	}
+	deckJSON := `{"theme":"default","pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if r.rendered.ThemeName != deck.ThemeShuffleLight {
+		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeShuffleLight)
+	}
+	if len(r.rendered.PageThemeKeys) != len(r.rendered.Pages) {
+		t.Fatalf("len(PageThemeKeys) = %d, want %d", len(r.rendered.PageThemeKeys), len(r.rendered.Pages))
+	}
+	for i, key := range r.rendered.PageThemeKeys {
+		if key == "" {
+			t.Fatalf("PageThemeKeys[%d] is empty", i)
+		}
+		if i > 0 && r.rendered.PageThemeKeys[i-1] == key {
+			t.Fatalf("adjacent shuffle-light keys repeated %q", key)
+		}
+	}
+}
+
 func TestServiceGeneratePreviewHydratesDefaultWatermarkRuntimeFields(t *testing.T) {
 	enabled := true
 	cfg := &config.Config{

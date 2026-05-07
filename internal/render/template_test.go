@@ -214,6 +214,71 @@ func TestRenderHTMLDefaultStillUsesOrangeGreenPerPageTokens(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLShuffleLightUsesAssignedConcretePalette(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeShuffleLight
+	d.Themes = deck.RegisteredThemes()
+	d.PageThemeKeys = []string{
+		deck.ThemeEditorialCool,
+		deck.ThemeWarmPaper,
+		deck.ThemeEditorialMono,
+		deck.ThemeLifestyle,
+		"default-orange",
+		"default-green",
+		deck.ThemeWarmPaper,
+		deck.ThemeEditorialCool,
+	}
+
+	html, err := RenderPageHTML(d, d.Pages[0])
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	if !strings.Contains(html, "--bg: #EEF3F7;") {
+		t.Fatalf("html missing editorial-cool vars: %s", html)
+	}
+}
+
+func TestRenderHTMLShuffleLightRejectsMissingAssignment(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeShuffleLight
+	d.Themes = deck.RegisteredThemes()
+	d.PageThemeKeys = []string{"", deck.ThemeWarmPaper, deck.ThemeEditorialMono, deck.ThemeLifestyle, "default-orange", "default-green", deck.ThemeWarmPaper, deck.ThemeEditorialCool}
+
+	_, err := RenderPageHTML(d, d.Pages[0])
+	if err == nil {
+		t.Fatalf("RenderPageHTML() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "missing shuffle-light palette assignment") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRenderHTMLShuffleLightAssignmentsNeverUseTechNoir(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	d.ThemeName = deck.ThemeShuffleLight
+	d.Themes = deck.RegisteredThemes()
+	d.PageThemeKeys = []string{
+		"default-orange",
+		deck.ThemeWarmPaper,
+		deck.ThemeEditorialCool,
+		deck.ThemeLifestyle,
+		deck.ThemeEditorialMono,
+		"default-green",
+		deck.ThemeWarmPaper,
+		deck.ThemeEditorialCool,
+	}
+
+	for _, page := range d.Pages {
+		html, err := RenderPageHTML(d, page)
+		if err != nil {
+			t.Fatalf("RenderPageHTML(%s) error = %v", page.Name, err)
+		}
+		if strings.Contains(html, "--bg: #111315;") {
+			t.Fatalf("shuffle-light should not render tech-noir background for page %s", page.Name)
+		}
+	}
+}
+
 func TestRenderHTMLQuoteUsesDynamicQuoteNoteAndTip(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
@@ -403,7 +468,7 @@ func mustExtractContainerHTML(t *testing.T, html string, marker string) string {
 		}
 	}
 
-		t.Fatalf("html missing matching closing div for marker %q", marker)
+	t.Fatalf("html missing matching closing div for marker %q", marker)
 	return ""
 }
 
@@ -419,8 +484,8 @@ func TestRenderHTMLImageCaptionWrapsBodyAndCTAInContentColumn(t *testing.T) {
 			CTA:     "把风险拆开，工作流就更稳",
 		},
 		Content: deck.PageContent{
-			Title: "为啥行",
-			Body:  "这套方式最重要的，不是“换模型”，而是把风险拆开。\n\n哪天真碰上验证、限制、地区、账号状态这些问题，至少你不会把 **工作流底座** 和模型能力一起丢掉。\n\n最近我还给 `ccs` 补了 browser MCP 支持，把浏览器启动、导航、点击、输入、截图这一套最小闭环先接起来了。对前端开发来说，这很重要，因为它开始补上“边看页面边改页面”的能力，而不只是停在终端里写静态代码。\n\n至少对我来说，现阶段 `ccs + codex` 是一条比较顺手的路：既保留 Claude Code 的底座体验，又能吃到 `gpt-5.4` 的模型能力。",
+			Title:  "为啥行",
+			Body:   "这套方式最重要的，不是“换模型”，而是把风险拆开。\n\n哪天真碰上验证、限制、地区、账号状态这些问题，至少你不会把 **工作流底座** 和模型能力一起丢掉。\n\n最近我还给 `ccs` 补了 browser MCP 支持，把浏览器启动、导航、点击、输入、截图这一套最小闭环先接起来了。对前端开发来说，这很重要，因为它开始补上“边看页面边改页面”的能力，而不只是停在终端里写静态代码。\n\n至少对我来说，现阶段 `ccs + codex` 是一条比较顺手的路：既保留 Claude Code 的底座体验，又能吃到 `gpt-5.4` 的模型能力。",
 			Images: []deck.ImageBlock{{Src: "https://example.com/custom-image.png", Alt: "custom-image"}},
 		},
 	}

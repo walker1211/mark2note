@@ -135,19 +135,40 @@ func RenderAnimatedPageHTML(d deck.Deck, page deck.Page, animatedMS int) (string
 	return renderPageHTML(d, page, pageRenderMode{Animated: true, AnimatedMS: animatedMS, Preset: preset})
 }
 
+func pageIndexByName(pages []deck.Page, name string) int {
+	for i := range pages {
+		if pages[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
 func renderPageHTML(d deck.Deck, page deck.Page, mode pageRenderMode) (string, error) {
 	tmpl, err := compiledPageTemplate()
 	if err != nil {
 		return "", err
 	}
 
-	resolvedThemeKey := deck.ResolvePageTheme(d.ThemeName, page.Meta.Theme)
+	assignedPageTheme := ""
+	if d.ThemeName == deck.ThemeShuffleLight {
+		pageIndex := pageIndexByName(d.Pages, page.Name)
+		if pageIndex < 0 || pageIndex >= len(d.PageThemeKeys) {
+			return "", fmt.Errorf("missing shuffle-light palette assignment for page %q", page.Name)
+		}
+		assignedPageTheme = d.PageThemeKeys[pageIndex]
+		if strings.TrimSpace(assignedPageTheme) == "" {
+			return "", fmt.Errorf("missing shuffle-light palette assignment for page %q", page.Name)
+		}
+	}
+
+	resolvedThemeKey := deck.ResolveConcretePageTheme(d.ThemeName, page.Meta.Theme, assignedPageTheme)
 	if resolvedThemeKey == "" {
 		return "", fmt.Errorf("unknown theme %q", page.Meta.Theme)
 	}
 	theme, ok := d.Themes[resolvedThemeKey]
 	if !ok {
-		return "", fmt.Errorf("unknown theme %q", page.Meta.Theme)
+		return "", fmt.Errorf("unknown concrete theme %q for page %q", resolvedThemeKey, page.Name)
 	}
 	if err := theme.Validate(); err != nil {
 		return "", err

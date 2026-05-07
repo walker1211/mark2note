@@ -58,6 +58,13 @@ go build -o ./mark2note ./cmd/mark2note
 - 如果你确实需要继续使用根目录旧配置，可显式传入：`--config ./config.yaml`
 - 也可以通过 `--config` 指定任意其他配置文件
 
+## 主题说明
+
+- `deck.theme` 和 `--theme` 现在都支持 `shuffle-light`
+- `shuffle-light` 每次生成都会重新随机分配页面配色
+- 它只会复用这 6 套现有非 `tech-noir` 配色：`default-orange`、`default-green`、`warm-paper`、`editorial-cool`、`lifestyle-light`、`editorial-mono`
+- 相邻页面不会重复同一套配色，且不会使用 `tech-noir`
+
 ## 配置
 
 默认配置文件：`configs/config.yaml`
@@ -66,7 +73,7 @@ go build -o ./mark2note ./cmd/mark2note
 
 - `output.dir`：默认输出根目录
 - `ai.command` / `ai.args`：用于生成 deck JSON 的 AI CLI 命令及参数
-- `deck.theme`：默认主题，支持 `default`、`warm-paper`、`editorial-cool`、`lifestyle-light`、`tech-noir`、`editorial-mono`
+- `deck.theme`：默认主题，支持 `default`、`shuffle-light`、`warm-paper`、`editorial-cool`、`lifestyle-light`、`tech-noir`、`editorial-mono`
 - `deck.author`：封面作者默认值
 - `deck.watermark.enabled`：是否启用页内水印，默认启用
 - `deck.watermark.text`：水印文本，默认值为 `walker1211/mark2note`
@@ -142,6 +149,7 @@ ai:
 ./mark2note --input ./article.md --config ./configs/config.yaml
 ./mark2note --input ./article.md --config ./config.yaml
 ./mark2note --input ./article.md --theme warm-paper --author "Your Name"
+./mark2note --input ./article.md --theme shuffle-light
 ./mark2note --input ./article.md --theme tech-noir
 ./mark2note --input ./article.md --prompt-extra "封面更抓眼，整体更像经验复盘"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
