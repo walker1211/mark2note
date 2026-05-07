@@ -180,6 +180,30 @@ func TestPublishServiceRejectsFailedLiveReport(t *testing.T) {
 	}
 }
 
+func TestPublishServiceCarriesOriginalityFlagsIntoRequest(t *testing.T) {
+	orchestrator := &fakePublishOrchestrator{}
+	service := PublishService{
+		Now:             func() time.Time { return shanghaiNow(2026, 4, 18, 16, 0, 0) },
+		NewOrchestrator: func(PublishRuntimeOptions) PublishOrchestrator { return orchestrator },
+	}
+
+	_, err := service.Publish(PublishOptions{
+		Account:          "creator-a",
+		Title:            "标题",
+		Content:          "正文",
+		Mode:             string(xhs.PublishModeOnlySelf),
+		ImagePaths:       []string{"cover.jpg"},
+		DeclareOriginal:  true,
+		AllowContentCopy: false,
+	})
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if !orchestrator.request.DeclareOriginal || orchestrator.request.AllowContentCopy {
+		t.Fatalf("request = %#v", orchestrator.request)
+	}
+}
+
 func writePublishTestFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

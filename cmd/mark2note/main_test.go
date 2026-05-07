@@ -49,6 +49,15 @@ func TestDefaultOptions(t *testing.T) {
 	if opts.Live.OutputDir != "" {
 		t.Fatalf("Live.OutputDir = %q, want empty", opts.Live.OutputDir)
 	}
+	if opts.ImportPhotos {
+		t.Fatalf("ImportPhotos = true, want false")
+	}
+	if opts.ImportAlbum != "" {
+		t.Fatalf("ImportAlbum = %q, want empty", opts.ImportAlbum)
+	}
+	if opts.ImportTimeout != 120*time.Second {
+		t.Fatalf("ImportTimeout = %v, want %v", opts.ImportTimeout, 120*time.Second)
+	}
 	if opts.ViewportWidth != 0 {
 		t.Fatalf("ViewportWidth = %d, want 0", opts.ViewportWidth)
 	}
@@ -76,7 +85,7 @@ func TestUsageTextMentionsPromptExtraFlag(t *testing.T) {
 
 func TestUsageTextMentionsThemeAuthorAndAnimatedFlags(t *testing.T) {
 	text := usageText()
-	for _, want := range []string{"--theme <name>", "--author <name>", "--animated", "--animated-format <name>", "--animated-duration <ms>", "--animated-fps <n>", "--live", "--live-photo-format <name>", "--live-cover-frame <name>", "supported: first, middle, last", "--live-assemble", "--live-output-dir <dir>", "--live-import-photos", "--live-import-album", "--live-import-timeout", "page animation timeline duration; also affects Live motion timing", "animation capture fps / sampling density; affects Animated WebP/MP4 output and Live frame sampling", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
+	for _, want := range []string{"--theme <name>", "--author <name>", "--animated", "--animated-format <name>", "--animated-duration <ms>", "--animated-fps <n>", "--import-photos", "--import-album <name>", "--import-timeout <d>", "import generated PNG files into Apple Photos after export", "Apple Photos album name for imported PNG files", "--live", "--live-photo-format <name>", "--live-cover-frame <name>", "supported: first, middle, last", "--live-assemble", "--live-output-dir <dir>", "--live-import-photos", "--live-import-album", "--live-import-timeout", "page animation timeline duration; also affects Live motion timing", "animation capture fps / sampling density; affects Animated WebP/MP4 output and Live frame sampling", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("usageText() missing %q", want)
 		}
@@ -215,6 +224,45 @@ func TestParseOptionsParsesLiveImportFlags(t *testing.T) {
 	}
 }
 
+func TestParseOptionsParsesPNGImportFlags(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--import-photos", "--import-album", "  Camera Roll  ", "--import-timeout", "45s"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.ImportPhotos || opts.ImportAlbum != "  Camera Roll  " || opts.ImportTimeout != 45*time.Second {
+		t.Fatalf("opts import = photos:%v album:%q timeout:%v", opts.ImportPhotos, opts.ImportAlbum, opts.ImportTimeout)
+	}
+}
+
+func TestParseOptionsTracksImportFlagPresenceIndependently(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want Options
+	}{
+		{
+			name: "explicit false still counts as png import override",
+			args: []string{"--input", "article.md", "--import-photos=false"},
+			want: Options{ImportPhotosChanged: true},
+		},
+		{
+			name: "album and timeout overrides are tracked independently",
+			args: []string{"--input", "article.md", "--import-album", "png", "--import-timeout", "45s"},
+			want: Options{ImportAlbumChanged: true, ImportTimeoutChanged: true},
+		},
+	}
+
+	for _, tt := range tests {
+		opts, err := parseOptions(tt.args)
+		if err != nil {
+			t.Fatalf("%s: parseOptions() error = %v", tt.name, err)
+		}
+		if opts.ImportPhotosChanged != tt.want.ImportPhotosChanged || opts.ImportAlbumChanged != tt.want.ImportAlbumChanged || opts.ImportTimeoutChanged != tt.want.ImportTimeoutChanged {
+			t.Fatalf("%s: import flag tracking = %#v", tt.name, opts)
+		}
+	}
+}
+
 func TestParseOptionsTracksLiveFlagPresenceIndependently(t *testing.T) {
 	tests := []struct {
 		name string
@@ -236,6 +284,11 @@ func TestParseOptionsTracksLiveFlagPresenceIndependently(t *testing.T) {
 			args: []string{"--input", "article.md", "--live-assemble", "--live-output-dir", "apple-live"},
 			want: Options{LiveAssembleChanged: true, LiveOutputDirChanged: true},
 		},
+		{
+			name: "live import overrides are tracked independently",
+			args: []string{"--input", "article.md", "--live-import-photos=false", "--live-import-album", "live", "--live-import-timeout", "75s"},
+			want: Options{LiveImportPhotosChanged: true, LiveImportAlbumChanged: true, LiveImportTimeoutChanged: true},
+		},
 	}
 
 	for _, tt := range tests {
@@ -243,7 +296,7 @@ func TestParseOptionsTracksLiveFlagPresenceIndependently(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: parseOptions() error = %v", tt.name, err)
 		}
-		if opts.LiveEnabledChanged != tt.want.LiveEnabledChanged || opts.LivePhotoFormatChanged != tt.want.LivePhotoFormatChanged || opts.LiveCoverFrameChanged != tt.want.LiveCoverFrameChanged || opts.LiveAssembleChanged != tt.want.LiveAssembleChanged || opts.LiveOutputDirChanged != tt.want.LiveOutputDirChanged {
+		if opts.LiveEnabledChanged != tt.want.LiveEnabledChanged || opts.LivePhotoFormatChanged != tt.want.LivePhotoFormatChanged || opts.LiveCoverFrameChanged != tt.want.LiveCoverFrameChanged || opts.LiveAssembleChanged != tt.want.LiveAssembleChanged || opts.LiveOutputDirChanged != tt.want.LiveOutputDirChanged || opts.LiveImportPhotosChanged != tt.want.LiveImportPhotosChanged || opts.LiveImportAlbumChanged != tt.want.LiveImportAlbumChanged || opts.LiveImportTimeoutChanged != tt.want.LiveImportTimeoutChanged {
 			t.Fatalf("%s: live flag tracking = %#v", tt.name, opts)
 		}
 	}
@@ -426,7 +479,7 @@ func TestRunCaptureHTMLPassesOptionsToRenderer(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
-	want := Options{OutDir: "output", ChromePath: "/tmp/chrome", Jobs: 3, InputPath: "preview", Animated: app.AnimatedOptions{Format: "webp", DurationMS: 2400, FPS: 8}, Live: app.LiveOptions{PhotoFormat: "jpeg", CoverFrame: "middle", OutputDir: "", ImportTimeout: 120 * time.Second}}
+	want := Options{OutDir: "output", ChromePath: "/tmp/chrome", Jobs: 3, InputPath: "preview", Animated: app.AnimatedOptions{Format: "webp", DurationMS: 2400, FPS: 8}, Live: app.LiveOptions{PhotoFormat: "jpeg", CoverFrame: "middle", OutputDir: "", ImportTimeout: 120 * time.Second}, ImportTimeout: 120 * time.Second}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("opts = %#v, want %#v", got, want)
 	}

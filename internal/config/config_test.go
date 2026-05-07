@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadAppliesDefaultAIConfig(t *testing.T) {
@@ -148,6 +149,28 @@ func TestLoadAppliesDefaultRenderConfig(t *testing.T) {
 	}
 }
 
+func TestLoadAppliesDefaultRenderImportConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("output:\n  dir: custom-output\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Render.ImportPhotos {
+		t.Fatalf("Render.ImportPhotos = true, want false")
+	}
+	if cfg.Render.ImportAlbum != "" {
+		t.Fatalf("Render.ImportAlbum = %q, want empty", cfg.Render.ImportAlbum)
+	}
+	if cfg.Render.ImportTimeout != 120*time.Second {
+		t.Fatalf("Render.ImportTimeout = %v, want %v", cfg.Render.ImportTimeout, 120*time.Second)
+	}
+}
+
 func TestLoadAppliesDefaultRenderLiveConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -173,6 +196,15 @@ func TestLoadAppliesDefaultRenderLiveConfig(t *testing.T) {
 	}
 	if cfg.Render.Live.OutputDir != "" {
 		t.Fatalf("Render.Live.OutputDir = %q, want empty", cfg.Render.Live.OutputDir)
+	}
+	if cfg.Render.Live.ImportPhotos {
+		t.Fatalf("Render.Live.ImportPhotos = true, want false")
+	}
+	if cfg.Render.Live.ImportAlbum != "" {
+		t.Fatalf("Render.Live.ImportAlbum = %q, want empty", cfg.Render.Live.ImportAlbum)
+	}
+	if cfg.Render.Live.ImportTimeout != 120*time.Second {
+		t.Fatalf("Render.Live.ImportTimeout = %v, want %v", cfg.Render.Live.ImportTimeout, 120*time.Second)
 	}
 }
 
@@ -205,10 +237,89 @@ func TestLoadAppliesDefaultRenderLiveFieldsWhenPartiallyConfigured(t *testing.T)
 	}
 }
 
+func TestLoadRejectsNegativeRenderImportTimeout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "render:\n  import_timeout: -1s\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "render.import_timeout") {
+		t.Fatalf("Load() error = %v, want render.import_timeout validation error", err)
+	}
+}
+
+func TestLoadRejectsNegativeRenderLiveImportTimeout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "render:\n  live:\n    import_timeout: -1s\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "render.live.import_timeout") {
+		t.Fatalf("Load() error = %v, want render.live.import_timeout validation error", err)
+	}
+}
+
+func TestLoadRejectsZeroRenderImportTimeout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "render:\n  import_timeout: 0s\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "render.import_timeout") {
+		t.Fatalf("Load() error = %v, want render.import_timeout validation error", err)
+	}
+}
+
+func TestLoadRejectsZeroRenderLiveImportTimeout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "render:\n  live:\n    import_timeout: 0s\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "render.live.import_timeout") {
+		t.Fatalf("Load() error = %v, want render.live.import_timeout validation error", err)
+	}
+}
+
+func TestLoadKeepsExplicitRenderImportConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "render:\n  import_photos: true\n  import_album: PNG 相册\n  import_timeout: 45s\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.Render.ImportPhotos {
+		t.Fatalf("Render.ImportPhotos = false, want true")
+	}
+	if cfg.Render.ImportAlbum != "PNG 相册" {
+		t.Fatalf("Render.ImportAlbum = %q, want PNG 相册", cfg.Render.ImportAlbum)
+	}
+	if cfg.Render.ImportTimeout != 45*time.Second {
+		t.Fatalf("Render.ImportTimeout = %v, want %v", cfg.Render.ImportTimeout, 45*time.Second)
+	}
+}
+
 func TestLoadKeepsExplicitRenderLiveConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	content := "render:\n  live:\n    enabled: true\n    photo_format: webp\n    cover_frame: first\n    assemble: true\n    output_dir: exported-live\n"
+	content := "render:\n  live:\n    enabled: true\n    photo_format: webp\n    cover_frame: first\n    assemble: true\n    output_dir: exported-live\n    import_photos: true\n    import_album: Live 相册\n    import_timeout: 75s\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -231,6 +342,15 @@ func TestLoadKeepsExplicitRenderLiveConfig(t *testing.T) {
 	}
 	if cfg.Render.Live.OutputDir != "exported-live" {
 		t.Fatalf("Render.Live.OutputDir = %q, want exported-live", cfg.Render.Live.OutputDir)
+	}
+	if !cfg.Render.Live.ImportPhotos {
+		t.Fatalf("Render.Live.ImportPhotos = false, want true")
+	}
+	if cfg.Render.Live.ImportAlbum != "Live 相册" {
+		t.Fatalf("Render.Live.ImportAlbum = %q, want Live 相册", cfg.Render.Live.ImportAlbum)
+	}
+	if cfg.Render.Live.ImportTimeout != 75*time.Second {
+		t.Fatalf("Render.Live.ImportTimeout = %v, want %v", cfg.Render.Live.ImportTimeout, 75*time.Second)
 	}
 }
 
@@ -327,5 +447,44 @@ func TestLoadRejectsInvalidXHSPublishMode(t *testing.T) {
 	_, err := Load(path)
 	if err == nil || !strings.Contains(err.Error(), "validate xhs.publish.mode") {
 		t.Fatalf("Load() error = %v, want mode validation error", err)
+	}
+}
+
+func TestLoadAppliesDefaultXHSPublishOriginalityConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("output:\n  dir: out\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.DeclareOriginal == nil || !*cfg.XHS.Publish.DeclareOriginal {
+		t.Fatalf("DeclareOriginal = %#v, want true", cfg.XHS.Publish.DeclareOriginal)
+	}
+	if cfg.XHS.Publish.AllowContentCopy == nil || *cfg.XHS.Publish.AllowContentCopy {
+		t.Fatalf("AllowContentCopy = %#v, want false", cfg.XHS.Publish.AllowContentCopy)
+	}
+}
+
+func TestLoadKeepsExplicitXHSPublishOriginalityConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "xhs:\n  publish:\n    declare_original: false\n    allow_content_copy: true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.DeclareOriginal == nil || *cfg.XHS.Publish.DeclareOriginal {
+		t.Fatalf("DeclareOriginal = %#v, want false", cfg.XHS.Publish.DeclareOriginal)
+	}
+	if cfg.XHS.Publish.AllowContentCopy == nil || !*cfg.XHS.Publish.AllowContentCopy {
+		t.Fatalf("AllowContentCopy = %#v, want true", cfg.XHS.Publish.AllowContentCopy)
 	}
 }

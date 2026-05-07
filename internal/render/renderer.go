@@ -26,6 +26,9 @@ type Renderer struct {
 	Jobs               int
 	ViewportWidth      int
 	ViewportHeight     int
+	ImportPhotos       bool
+	ImportAlbum        string
+	ImportTimeout      time.Duration
 	Animated           animatedOptions
 	Live               liveOptions
 	Runner             CommandRunner
@@ -40,6 +43,8 @@ type Renderer struct {
 
 type RenderResult struct {
 	Warnings           []string
+	ImportReport       *DeliveryReport
+	ImportReportPath   string
 	DeliveryReport     *DeliveryReport
 	DeliveryReportPath string
 }
@@ -112,17 +117,22 @@ func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 		warnings = append(warnings, r.runAnimatedExports(d.Pages, outDir, captureMode, mode, liveMode)...)
 	}
 	result := RenderResult{Warnings: warnings}
+	if r.ImportPhotos {
+		delivery, err := r.deliverPNGImport(outDir, d.Pages)
+		result.ImportReport = &delivery.Report
+		result.ImportReportPath = delivery.ReportPath
+		if err != nil {
+			return result, err
+		}
+	}
 	if liveMode.Enabled && liveMode.Assemble && liveMode.ImportPhotos {
-		sourceDir := r.liveDeliverySourceDir(outDir, liveMode)
-		if !filepath.IsAbs(sourceDir) {
-			absSourceDir, err := filepath.Abs(sourceDir)
-			if err != nil {
-				return result, fmt.Errorf("resolve live delivery source dir: %w", err)
-			}
-			sourceDir = absSourceDir
+		sourceDir, importDir, err := r.liveImportSourceDirs(outDir, d.Pages, liveMode)
+		if err != nil {
+			return result, err
 		}
 		delivery, err := r.liveDeliveryOrchestrator().Deliver(liveDeliveryRequest{
 			SourceDir:     sourceDir,
+			ImportDir:     importDir,
 			AlbumName:     liveMode.ImportAlbum,
 			ImportTimeout: liveMode.ImportTimeout,
 		})
@@ -582,6 +592,22 @@ func fileURI(path string) string {
 	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
 }
 
+func (r Renderer) deliverPNGImport(outDir string, pages []deck.Page) (liveDeliveryResult, error) {
+	sourceDir := outDir
+	if !filepath.IsAbs(sourceDir) {
+		absSourceDir, err := filepath.Abs(sourceDir)
+		if err != nil {
+			return liveDeliveryResult{}, fmt.Errorf("resolve photos import source dir: %w", err)
+		}
+		sourceDir = absSourceDir
+	}
+	paths := make([]string, 0, len(pages))
+	for _, page := range pages {
+		paths = append(paths, filepath.Join(sourceDir, page.Name+".png"))
+	}
+	return r.pngDeliveryOrchestrator().Deliver(pngDeliveryRequest{SourceDir: sourceDir, Paths: paths, AlbumName: r.ImportAlbum, ImportTimeout: r.ImportTimeout})
+}
+
 func (r Renderer) liveDeliverySourceDir(outDir string, live normalizedLiveOptions) string {
 	if stringsTrim(live.OutputDir) != "" {
 		return live.OutputDir
@@ -589,11 +615,51 @@ func (r Renderer) liveDeliverySourceDir(outDir string, live normalizedLiveOption
 	return filepath.Join(outDir, defaultAppleLiveDirName)
 }
 
+func (r Renderer) liveImportSourceDirs(outDir string, pages []deck.Page, live normalizedLiveOptions) (string, string, error) {
+	sourceDir := r.liveDeliverySourceDir(outDir, live)
+	if !filepath.IsAbs(sourceDir) {
+		absSourceDir, err := filepath.Abs(sourceDir)
+		if err != nil {
+			return "", "", fmt.Errorf("resolve live delivery source dir: %w", err)
+		}
+		sourceDir = absSourceDir
+	}
+	stageDir := filepath.Join(sourceDir, ".photos-import", "live")
+	if err := os.RemoveAll(stageDir); err != nil {
+		return "", "", fmt.Errorf("prepare live import staging dir: %w", err)
+	}
+	if err := os.MkdirAll(stageDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create live import staging dir: %w", err)
+	}
+	for _, page := range pages {
+		for _, ext := range []string{".jpg", ".mov"} {
+			src := filepath.Join(sourceDir, page.Name+ext)
+			dst := filepath.Join(stageDir, page.Name+ext)
+			if err := copyFile(src, dst); err != nil {
+				return "", "", fmt.Errorf("stage live asset for import: %w", err)
+			}
+		}
+	}
+	return sourceDir, stageDir, nil
+}
+
 func (r Renderer) liveDeliveryOrchestrator() LiveDeliveryOrchestrator {
 	return LiveDeliveryOrchestrator{
 		Scanner:  livePairScanner{},
 		Importer: r.effectivePhotosImporter(),
 		Writer:   r.effectiveImportResultWriter(),
+		Now:      r.effectiveNow(),
+	}
+}
+
+func (r Renderer) pngDeliveryOrchestrator() PNGDeliveryOrchestrator {
+	writer := r.ImportResultWriter
+	if writer == nil {
+		writer = importResultWriter{Filename: photosImportResultFilename}
+	}
+	return PNGDeliveryOrchestrator{
+		Importer: r.effectivePhotosImporter(),
+		Writer:   writer,
 		Now:      r.effectiveNow(),
 	}
 }

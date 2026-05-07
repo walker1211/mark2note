@@ -12,20 +12,22 @@ import (
 )
 
 type PublishOptions struct {
-	Account        string
-	Title          string
-	TitleFile      string
-	Content        string
-	ContentFile    string
-	Tags           []string
-	Mode           string
-	ScheduleAt     string
-	ImagePaths     []string
-	LiveReportPath string
-	LivePages      []string
-	ChromePath     string
-	Headless       bool
-	ProfileDir     string
+	Account          string
+	Title            string
+	TitleFile        string
+	Content          string
+	ContentFile      string
+	Tags             []string
+	Mode             string
+	ScheduleAt       string
+	ImagePaths       []string
+	LiveReportPath   string
+	LivePages        []string
+	ChromePath       string
+	Headless         bool
+	ProfileDir       string
+	DeclareOriginal  bool
+	AllowContentCopy bool
 }
 
 type PublishRuntimeOptions struct {
@@ -90,12 +92,14 @@ func (s PublishService) Publish(opts PublishOptions) (PublishResult, error) {
 
 func buildPublishRequest(opts PublishOptions, title string, content string, mode xhs.PublishMode, scheduleTime *time.Time) (xhs.PublishRequest, error) {
 	request := xhs.PublishRequest{
-		Account:      strings.TrimSpace(opts.Account),
-		Title:        title,
-		Content:      content,
-		Tags:         trimSlice(opts.Tags),
-		Mode:         mode,
-		ScheduleTime: scheduleTime,
+		Account:          strings.TrimSpace(opts.Account),
+		Title:            title,
+		Content:          content,
+		Tags:             trimSlice(opts.Tags),
+		Mode:             mode,
+		ScheduleTime:     scheduleTime,
+		DeclareOriginal:  opts.DeclareOriginal,
+		AllowContentCopy: opts.AllowContentCopy,
 	}
 	imagePaths := trimSlice(opts.ImagePaths)
 	livePages := trimSlice(opts.LivePages)

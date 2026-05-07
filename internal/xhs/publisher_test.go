@@ -14,22 +14,27 @@ import (
 )
 
 type fakePublishPage struct {
-	calls              []string
-	uploaded           []string
-	title              string
-	content            string
-	scheduledAt        time.Time
-	openErr            error
-	uploadErr          error
-	titleErr           error
-	contentErr         error
-	publishOnlySelfErr error
-	confirmOnlySelfErr error
-	setScheduleErr     error
-	submitScheduleErr  error
-	confirmScheduleErr error
-	orderCounter       *int
-	firstActionOrder   int
+	calls               []string
+	uploaded            []string
+	title               string
+	content             string
+	scheduledAt         time.Time
+	openErr             error
+	uploadErr           error
+	titleErr            error
+	contentErr          error
+	publishOnlySelfErr  error
+	confirmOnlySelfErr  error
+	setScheduleErr      error
+	submitScheduleErr   error
+	confirmScheduleErr  error
+	dismissOverlaysErr  error
+	applyOriginalErr    error
+	applyContentCopyErr error
+	originalApplied     bool
+	contentCopyAllowed  bool
+	orderCounter        *int
+	firstActionOrder    int
 }
 
 func (f *fakePublishPage) Open(context.Context) error {
@@ -62,7 +67,8 @@ func (f *fakePublishPage) FillContent(_ context.Context, content string, tags []
 	return f.contentErr
 }
 
-func (f *fakePublishPage) PublishOnlySelf(context.Context) error {
+func (f *fakePublishPage) PublishOnlySelf(_ context.Context, request PublishRequest) error {
+	_ = request
 	f.calls = append(f.calls, "publish-only-self")
 	f.recordActionOrder()
 	return f.publishOnlySelfErr
@@ -90,6 +96,26 @@ func (f *fakePublishPage) ConfirmScheduledSubmitted(context.Context) error {
 	f.calls = append(f.calls, "confirm-scheduled")
 	f.recordActionOrder()
 	return f.confirmScheduleErr
+}
+
+func (f *fakePublishPage) dismissEditorOverlays() error {
+	f.calls = append(f.calls, "dismiss-overlays")
+	f.recordActionOrder()
+	return f.dismissOverlaysErr
+}
+
+func (f *fakePublishPage) applyOriginalDeclaration(enabled bool) error {
+	f.calls = append(f.calls, "declare-original")
+	f.recordActionOrder()
+	f.originalApplied = enabled
+	return f.applyOriginalErr
+}
+
+func (f *fakePublishPage) applyContentCopyPreference(allow bool) error {
+	f.calls = append(f.calls, "content-copy")
+	f.recordActionOrder()
+	f.contentCopyAllowed = allow
+	return f.applyContentCopyErr
 }
 
 func (f *fakePublishPage) recordActionOrder() {
@@ -169,7 +195,7 @@ func TestPublisherSetsScheduleTimeBeforeSubmit(t *testing.T) {
 	if err := (Publisher{}).PublishStandardScheduled(context.Background(), page, request); err != nil {
 		t.Fatalf("PublishStandardScheduled() error = %v", err)
 	}
-	wantCalls := []string{"open", "upload", "title", "content", "set-schedule", "submit-scheduled", "confirm-scheduled"}
+	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-schedule", "submit-scheduled", "confirm-scheduled"}
 	if !reflect.DeepEqual(page.calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
 	}
@@ -185,6 +211,25 @@ func TestPublisherReturnsScheduleErrorWhenControlsMissing(t *testing.T) {
 	err := (Publisher{}).PublishStandardScheduled(context.Background(), page, request)
 	if err == nil || !errors.Is(err, ErrScheduleFailed) {
 		t.Fatalf("PublishStandardScheduled() error = %v", err)
+	}
+}
+
+func TestPublisherScheduledFlowAppliesPreSubmitHooks(t *testing.T) {
+	page := &fakePublishPage{}
+	scheduledAt := time.Date(2026, 4, 11, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}, ScheduleTime: &scheduledAt, DeclareOriginal: true, AllowContentCopy: false}
+	if err := (Publisher{}).PublishStandardScheduled(context.Background(), page, request); err != nil {
+		t.Fatalf("PublishStandardScheduled() error = %v", err)
+	}
+	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-schedule", "submit-scheduled", "confirm-scheduled"}
+	if !reflect.DeepEqual(page.calls, wantCalls) {
+		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
+	}
+	if !page.originalApplied {
+		t.Fatal("expected original declaration hook to run")
+	}
+	if page.contentCopyAllowed {
+		t.Fatal("expected content copy hook to disable copy")
 	}
 }
 
@@ -782,6 +827,114 @@ func TestFillContentSelectsRecommendedTopicAndClosesPopup(t *testing.T) {
 	}
 }
 
+func TestSelectRecommendedTopicDismissesPopupByClickingBody(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="recommend-topic-wrapper"><div class="tag-group"><div class="tag">#测试话题</div></div></div>
+    <div id="tippy-1" style="visibility: visible;"><div class="tippy-box" data-state="visible"><div class="tippy-content" data-state="visible"></div></div></div>
+    <div id="creator-editor-topic-container" style="display: block;"></div>
+    <script>
+      const hidePopup = () => {
+        document.getElementById('tippy-1').style.visibility = 'hidden';
+        document.querySelector('.tippy-box').setAttribute('data-state', 'hidden');
+        document.querySelector('.tippy-content').setAttribute('data-state', 'hidden');
+        document.getElementById('creator-editor-topic-container').style.display = 'none';
+      };
+      document.querySelector('.tag').addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      document.body.addEventListener('click', hidePopup);
+      document.body.addEventListener('mousedown', hidePopup);
+      document.body.addEventListener('mouseup', hidePopup);
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.selectRecommendedTopic("测试话题"); err != nil {
+		t.Fatalf("selectRecommendedTopic() error = %v", err)
+	}
+	popupVisible := page.MustEval(`() => {
+		const root = document.querySelector('#tippy-1');
+		const items = document.querySelector('#creator-editor-topic-container');
+		return !!root && !!items && window.getComputedStyle(root).visibility !== 'hidden' && window.getComputedStyle(items).display !== 'none';
+	}`).Bool()
+	if popupVisible {
+		t.Fatal("topic popup should require explicit body click to dismiss")
+	}
+}
+
+func TestSelectRecommendedTopicDismissesDynamicPopupRootByClickingBody(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="recommend-topic-wrapper"><div class="tag-group"><div class="tag">#测试话题</div></div></div>
+    <div data-tippy-root="1" id="dynamic-root"><div class="tippy-box" data-state="visible"><div class="tippy-content" data-state="visible"></div></div></div>
+    <div id="creator-editor-topic-container-dynamic" style="display: block;"></div>
+    <script>
+      const hidePopup = () => {
+        document.getElementById('dynamic-root').style.visibility = 'hidden';
+        document.querySelector('.tippy-box').setAttribute('data-state', 'hidden');
+        document.querySelector('.tippy-content').setAttribute('data-state', 'hidden');
+        document.getElementById('creator-editor-topic-container-dynamic').style.display = 'none';
+      };
+      document.querySelector('.tag').addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      document.body.addEventListener('click', hidePopup);
+      document.body.addEventListener('mousedown', hidePopup);
+      document.body.addEventListener('mouseup', hidePopup);
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.selectRecommendedTopic("测试话题"); err != nil {
+		t.Fatalf("selectRecommendedTopic() error = %v", err)
+	}
+	popupVisible := page.MustEval(`() => {
+		const root = document.getElementById('dynamic-root');
+		const items = document.getElementById('creator-editor-topic-container-dynamic');
+		return !!root && !!items && window.getComputedStyle(root).visibility !== 'hidden' && window.getComputedStyle(items).display !== 'none';
+	}`).Bool()
+	if popupVisible {
+		t.Fatal("dynamic topic popup should be dismissed after selecting topic")
+	}
+}
+
 func TestConfirmOnlySelfPublishedAcceptsPublishedRedirect(t *testing.T) {
 	l := launcher.New().Headless(true)
 	controlURL := l.MustLaunch()
@@ -811,6 +964,364 @@ func TestConfirmOnlySelfPublishedAcceptsPublishedRedirect(t *testing.T) {
 	page.MustNavigate(dataURL)
 	page.MustWaitLoad()
 	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.ConfirmOnlySelfPublished(context.Background()); err != nil {
+		t.Fatalf("ConfirmOnlySelfPublished() error = %v", err)
+	}
+}
+
+func TestApplyOriginalDeclarationChecksUncheckedOriginalBox(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <section class="original-block">
+      <div class="option-row">原创<label>声明原创<input id="original" type="checkbox"></label></div>
+      <div>未声明</div>
+    </section>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
+	}
+	if !page.MustElement("#original").MustProperty("checked").Bool() {
+		t.Fatal("original checkbox should be checked")
+	}
+}
+
+func TestApplyContentCopyPreferenceUnchecksAllowCopyBox(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="copy-option">允许正文复制<label>允许正文复制<input id="copy" type="checkbox" checked></label></div>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyContentCopyPreference(false); err != nil {
+		t.Fatalf("applyContentCopyPreference(false) error = %v", err)
+	}
+	if page.MustElement("#copy").MustProperty("checked").Bool() {
+		t.Fatal("copy checkbox should be unchecked")
+	}
+}
+
+func TestApplyOriginalDeclarationChecksAgreementInModal(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="original-entry">原创<label>声明原创<input id="original" type="checkbox"></label></div>
+    <div class="d-modal-content">
+      <div class="footerLeft">
+        <label class="agreement">我已阅读并同意《原创声明须知》<input id="agreement" type="checkbox"></label>
+      </div>
+      <button id="confirm-original">声明原创</button>
+    </div>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
+	}
+	if !page.MustElement("#original").MustProperty("checked").Bool() {
+		t.Fatal("original checkbox should be checked")
+	}
+	if !page.MustElement("#agreement").MustProperty("checked").Bool() {
+		t.Fatal("agreement checkbox should be checked")
+	}
+}
+
+func TestApplyOriginalDeclarationClicksConfirmButtonInModal(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="original-entry">原创<label>声明原创<input id="original" type="checkbox"></label></div>
+    <div class="d-modal-content">
+      <div class="footerLeft">
+        <label class="agreement">我已阅读并同意《原创声明须知》<input id="agreement" type="checkbox"></label>
+      </div>
+      <button id="confirm-original">声明原创</button>
+    </div>
+    <script>
+      document.getElementById('confirm-original').addEventListener('click', () => {
+        document.body.setAttribute('data-original-confirmed', document.getElementById('agreement').checked ? 'yes' : 'no');
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
+	}
+	confirmed := page.MustEval(`() => document.body.getAttribute('data-original-confirmed') || ''`).String()
+	if confirmed != "yes" {
+		t.Fatalf("confirmed = %q, want yes", confirmed)
+	}
+}
+
+func TestApplyOriginalDeclarationClicksEntryBeforeConfirmingModal(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="d-grid d-checkbox d-checkbox-main-label" id="original-entry">
+      <span class="d-checkbox-simulator" id="original-simulator"></span>
+      <span class="d-checkbox-label">原创</span>
+    </div>
+    <template id="modal-template">
+      <div class="d-modal-content">
+        <div class="footerLeft">
+          <div class="d-grid d-checkbox d-checkbox-main-label" id="agreement-label">
+            <span class="d-checkbox-simulator" id="agreement-simulator"></span>
+            <input id="agreement" type="checkbox" onclick="event.preventDefault(); return false;">
+            <span class="d-checkbox-label">我已阅读并同意《原创声明须知》</span>
+          </div>
+        </div>
+        <button id="confirm-original">声明原创</button>
+      </div>
+    </template>
+    <script>
+      document.getElementById('original-entry').addEventListener('click', () => {
+        document.getElementById('original-simulator').classList.add('checked');
+        if (!document.querySelector('.d-modal-content')) {
+          document.body.appendChild(document.getElementById('modal-template').content.cloneNode(true));
+          document.getElementById('agreement-label').addEventListener('click', () => {
+            document.getElementById('agreement').checked = true;
+            document.getElementById('agreement-simulator').classList.add('checked');
+          });
+          document.getElementById('confirm-original').addEventListener('click', () => {
+            document.body.setAttribute('data-original-confirmed', document.getElementById('agreement').checked ? 'yes' : 'no');
+          });
+        }
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
+	}
+	confirmed := page.MustEval(`() => document.body.getAttribute('data-original-confirmed') || ''`).String()
+	if confirmed != "yes" {
+		t.Fatalf("confirmed = %q, want yes", confirmed)
+	}
+}
+
+func TestSetCheckboxStateClicksVisibleWrapper(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="d-modal-content">
+      <div class="footerLeft">
+        <div class="d-grid d-checkbox d-checkbox-main-label" id="agreement-label">
+          <span class="d-checkbox-simulator" id="agreement-simulator"></span>
+          <input id="agreement" type="checkbox" onclick="event.preventDefault(); return false;">
+          <span class="d-checkbox-label">我已阅读并同意《原创声明须知》</span>
+        </div>
+      </div>
+    </div>
+    <script>
+      document.getElementById('agreement-label').addEventListener('click', () => {
+        document.getElementById('agreement').checked = true;
+        document.getElementById('agreement-simulator').classList.add('checked');
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.setCheckboxState("我已阅读并同意", true); err != nil {
+		t.Fatalf("setCheckboxState() error = %v", err)
+	}
+	if !page.MustElement("#agreement").MustProperty("checked").Bool() {
+		t.Fatal("agreement checkbox should be checked")
+	}
+	checkedClass := page.MustEval(`() => document.getElementById('agreement-simulator').classList.contains('checked')`).Bool()
+	if !checkedClass {
+		t.Fatal("agreement wrapper should receive checked class")
+	}
+}
+
+func TestConfirmOnlySelfPublishedAcceptsNoteManagerRedirect(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <body>
+    <div>提交中...</div>
+    <script>
+      setTimeout(() => {
+        history.replaceState({}, '', '/publish/publish?source=&published=true');
+        document.body.innerHTML = '<div>笔记管理</div><div>草稿箱</div>';
+      }, 150);
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.ConfirmOnlySelfPublished(context.Background()); err != nil {
+		t.Fatalf("ConfirmOnlySelfPublished() error = %v", err)
+	}
+}
+
+func TestConfirmScheduledSubmittedAcceptsPublishedRedirect(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <body>
+    <div>提交中...</div>
+    <script>
+      setTimeout(() => {
+        history.replaceState({}, '', '/publish/publish?source=&published=true');
+        document.body.innerHTML = '<div>笔记管理</div><div>草稿箱</div>';
+      }, 150);
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.ConfirmScheduledSubmitted(context.Background()); err != nil {
+		t.Fatalf("ConfirmScheduledSubmitted() error = %v", err)
+	}
+}
+
+func TestConfirmOnlySelfPublishedAcceptsCleanPublishPageWithoutToast(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <body>
+    <div>提交中...</div>
+    <script>
+      setTimeout(() => {
+        history.replaceState({}, '', '/publish/publish?source=&published=true');
+        document.body.innerHTML = '<div>上传视频</div><div>上传图文</div><div>写长文</div>';
+      }, 150);
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
 
 	rodPage := &rodPage{page: page}
 	if err := rodPage.ConfirmOnlySelfPublished(context.Background()); err != nil {

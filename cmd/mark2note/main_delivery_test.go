@@ -41,6 +41,39 @@ func TestRunPrintsLiveDeliverySummaryWhenReportExists(t *testing.T) {
 	}
 }
 
+func TestRunPrintsPNGImportSummaryWhenReportExists(t *testing.T) {
+	originalGeneratePreview := generatePreview
+	defer func() { generatePreview = originalGeneratePreview }()
+
+	reportPath := filepath.Join(t.TempDir(), "import-result.json")
+	generatePreview = func(Options) (app.Result, error) {
+		return app.Result{
+			PageCount: 3,
+			OutDir:    t.TempDir(),
+			ImportReport: &render.DeliveryReport{
+				Status:  "partial",
+				Message: "import command submitted to Photos; manual verification required",
+			},
+			ImportReportPath: reportPath,
+		}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--input", "article.md"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "live delivery") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "photos import: partial") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), reportPath) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestRunReturnsZeroWhenDeliveryStatusIsPartial(t *testing.T) {
 	originalGeneratePreview := generatePreview
 	defer func() { generatePreview = originalGeneratePreview }()

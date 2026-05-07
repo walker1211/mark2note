@@ -84,11 +84,17 @@ go build -o ./mark2note ./cmd/mark2note
 - `render.animated.format`：动图格式，支持 `webp`、`mp4`
 - `render.animated.duration_ms`：每页动画时间轴总时长，默认 `2400`；启用 Live 时也会影响 `motion.mov` 的时长
 - `render.animated.fps`：动画抓帧密度，默认 `8`；对 Animated WebP / MP4 有用，在 Live 下也会影响帧采样密度
+- `render.import_photos`：是否把生成的普通 PNG 导入 Apple Photos，默认关闭
+- `render.import_album`：普通 PNG 导入相册名；留空时自动生成 `mark2note-photos-<timestamp>`
+- `render.import_timeout`：普通 PNG 导入超时，默认 `2m`；支持 `45s`、`2m` 这类 Go duration 字符串
 - `render.live.enabled`：是否额外导出每页实验性 Live package，默认关闭
 - `render.live.photo_format`：Live 静态封面格式，当前固定写出 `jpeg`
 - `render.live.cover_frame`：Live 封面帧选择策略，支持 `first`、`middle`、`last`
 - `render.live.assemble`：是否在 `.live/` 中间包生成后继续调用 `makelive` 组装最终 Apple Live Photo，默认关闭
 - `render.live.output_dir`：最终 Apple Live Photo 输出目录；留空时默认写到 `<out>/apple-live/`
+- `render.live.import_photos`：是否把组装后的 Live Photos 导入 Apple Photos，默认关闭；需要同时启用 `render.live.assemble`
+- `render.live.import_album`：Live 导入相册名；留空时自动生成 `mark2note-live-<timestamp>`
+- `render.live.import_timeout`：Live 导入超时，默认 `2m`；支持 `45s`、`2m` 这类 Go duration 字符串
 - `xhs.publish.account`：`publish-xhs` 默认发布账号
 - `xhs.publish.headless`：`publish-xhs` 默认是否无头运行浏览器
 - `xhs.publish.profile_dir`：`publish-xhs` 默认浏览器 profile 目录
@@ -103,6 +109,7 @@ go build -o ./mark2note ./cmd/mark2note
 - `render.viewport.width` / `render.viewport.height` 会同时作用于 HTML 视口和 PNG / 动图截图尺寸；未配置时回落到默认 `1242 x 1656`
 - 如果你要测试小红书竖屏链路，可先尝试 `720 x 960` 或 `1080 x 1440` 这类 `3:4` 尺寸
 - HTML + PNG 仍然是默认且更稳妥的主输出；Animated WebP、MP4、Live 都属于可选增强输出
+- 显式传入命令行导入参数时会覆盖配置默认值，包括 `--import-photos=false` 和 `--live-import-photos=false`
 - 启用 Animated WebP 导出时需要系统可用的 `img2webp`；启用 MP4 导出时需要 `ffmpeg`；若缺失，命令会保留 HTML + PNG 成功结果，并输出 warning
 - `render.animated.duration_ms` / `--animated-duration` 不只作用于 `.webp/.mp4`，启用 Live 时也会影响 `motion.mov` 的时间轴总时长
 - `render.animated.fps` / `--animated-fps` 对 Animated WebP / MP4 最直观；在 Live 下它表示抓帧密度，而不是最终 `motion.mov` 的固定播放帧率
@@ -154,7 +161,9 @@ ai:
 ./mark2note --input ./article.md --prompt-extra "封面更抓眼，整体更像经验复盘"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
+./mark2note --input ./article.md --import-photos --import-album "mark2note"
 ./mark2note --input ./article.md --live --live-cover-frame middle
+./mark2note --input ./article.md --live --live-assemble --live-import-photos --live-import-album "mark2note-live"
 ./mark2note --input ./article.md --live --live-assemble --live-output-dir ./output/apple-live
 ./mark2note capture-html --input ./output/preview/p02-quote.html
 ./mark2note capture-html --input ./output/preview

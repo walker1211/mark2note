@@ -88,7 +88,7 @@ func (o *Orchestrator) publishOnlySelf(ctx context.Context, page PublishPage, re
 		if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
 			return fmt.Errorf("%w: %v", ErrFillFailed, err)
 		}
-		if err := page.PublishOnlySelf(ctx); err != nil {
+		if err := page.PublishOnlySelf(ctx, request); err != nil {
 			return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 		}
 		if err := page.ConfirmOnlySelfPublished(ctx); err != nil {

@@ -16,6 +16,7 @@ type LiveDeliveryOrchestrator struct {
 
 type liveDeliveryRequest struct {
 	SourceDir     string
+	ImportDir     string
 	AlbumName     string
 	ImportTimeout time.Duration
 }
@@ -26,7 +27,11 @@ type liveDeliveryResult struct {
 }
 
 func (o LiveDeliveryOrchestrator) Deliver(req liveDeliveryRequest) (liveDeliveryResult, error) {
-	scanResult, err := o.scanner().Scan(req.SourceDir)
+	importDir := req.ImportDir
+	if stringsTrim(importDir) == "" {
+		importDir = req.SourceDir
+	}
+	scanResult, err := o.scanner().Scan(importDir)
 	if err != nil {
 		return liveDeliveryResult{}, err
 	}
@@ -56,7 +61,7 @@ func (o LiveDeliveryOrchestrator) Deliver(req liveDeliveryRequest) (liveDelivery
 		report.Message = err.Error()
 		return o.writeReport(reportWithErrorAlbum(report, req.AlbumName), err)
 	}
-	importResult, err := o.importer().ImportDirectory(ctx, ImportPhotosRequest{SourceDir: req.SourceDir, AlbumName: albumName})
+	importResult, err := o.importer().ImportDirectory(ctx, ImportPhotosRequest{SourceDir: importDir, AlbumName: albumName})
 	report.AlbumName = albumName
 	if err != nil {
 		report.Status = deliveryStatusFailed

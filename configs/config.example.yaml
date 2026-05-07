@@ -26,12 +26,18 @@ render:
 #    format: mp4
     duration_ms: 1200 # 动画时间轴总时长；启用 live 时也会影响 motion.mov 时长
     fps: 8 # 抓帧密度；对 Animated WebP/MP4 有用，也会影响 Live 的采样密度
+  import_photos: false # 生成普通 PNG 后导入 Apple Photos；命令行 --import-photos 可覆盖
+  import_album: "" # 普通 PNG 导入相册名；留空自动生成 mark2note-photos-<timestamp>
+  import_timeout: 2m # 普通 PNG 导入超时，支持 45s / 2m 等 Go duration
   live:
     enabled: false
     photo_format: jpeg
     cover_frame: last # first / middle / last
     assemble: false
     output_dir: apple-live
+    import_photos: false # 组装 Live Photo 后导入 Apple Photos；需要 assemble: true
+    import_album: "" # Live 导入相册名；留空自动生成 mark2note-live-<timestamp>
+    import_timeout: 2m # Live 导入超时，支持 45s / 2m 等 Go duration
 
 xhs:
   publish:
@@ -40,3 +46,5 @@ xhs:
     headless: false
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
     mode: only-self
+    declare_original: true
+    allow_content_copy: false
