@@ -27,6 +27,11 @@ type AICfg struct {
 	Args    []string `yaml:"args"`
 }
 
+const (
+	ThemeModeFixed  = "fixed"
+	ThemeModeWeekly = "weekly"
+)
+
 type DeckCfg struct {
 	Theme        string            `yaml:"theme"`
 	ThemeMode    string            `yaml:"theme_mode"`
@@ -187,7 +192,7 @@ func validDeckWeekday(value string) bool {
 
 func validateDeckThemeMode(value string) error {
 	switch strings.TrimSpace(value) {
-	case "fixed", "weekly":
+	case ThemeModeFixed, ThemeModeWeekly:
 		return nil
 	default:
 		return fmt.Errorf("unsupported value %q", value)
@@ -256,7 +261,7 @@ func Load(configPath string) (*Config, error) {
 	}
 	cfg.Deck.Theme = strings.TrimSpace(cfg.Deck.Theme)
 	if cfg.Deck.ThemeMode == "" {
-		cfg.Deck.ThemeMode = "weekly"
+		cfg.Deck.ThemeMode = ThemeModeWeekly
 	}
 	cfg.Deck.ThemeMode = strings.TrimSpace(cfg.Deck.ThemeMode)
 	if err := validateDeckThemeMode(cfg.Deck.ThemeMode); err != nil {

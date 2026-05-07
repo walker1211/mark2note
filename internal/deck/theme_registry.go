@@ -17,6 +17,22 @@ type CoverAuthor struct {
 	Text string
 }
 
+func RegisteredThemeKeys() []string {
+	return []string{
+		ThemeDefault,
+		ThemeWarmPaper,
+		ThemeEditorialCool,
+		ThemeTechNoir,
+		ThemePlumInk,
+		ThemeSageMist,
+		ThemeFreshGreen,
+	}
+}
+
+func RegisteredThemeList() string {
+	return strings.Join(RegisteredThemeKeys(), " / ")
+}
+
 func RegisteredThemes() map[string]Theme {
 	return map[string]Theme{
 		ThemeDefault: {
@@ -220,14 +236,6 @@ func ResolveDeckTheme(input string) string {
 		return candidate
 	}
 	return ThemeDefault
-}
-
-func ResolvePageTheme(deckTheme string, legacyPageTheme string) string {
-	return ResolveDeckTheme(deckTheme)
-}
-
-func ResolveConcretePageTheme(deckTheme string, legacyPageTheme string, assignedPageTheme string) string {
-	return ResolveDeckTheme(deckTheme)
 }
 
 func ResolveCoverAuthor(explicit string, fallback string) CoverAuthor {

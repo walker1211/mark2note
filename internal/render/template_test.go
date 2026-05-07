@@ -230,11 +230,10 @@ func TestRenderHTMLFreshGreenUsesDeckLevelTheme(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLRetiredShuffleLightFallsBackToDefaultAndIgnoresAssignments(t *testing.T) {
+func TestRenderHTMLRetiredShuffleLightFallsBackToDefault(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	d.ThemeName = "shuffle-light"
 	d.Themes = deck.RegisteredThemes()
-	d.PageThemeKeys = []string{deck.ThemeEditorialCool}
 
 	html, err := RenderPageHTML(d, d.Pages[0])
 	if err != nil {

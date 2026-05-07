@@ -14,6 +14,7 @@ import (
 	"github.com/walker1211/mark2note/internal/ai"
 	"github.com/walker1211/mark2note/internal/app"
 	"github.com/walker1211/mark2note/internal/config"
+	"github.com/walker1211/mark2note/internal/deck"
 	"github.com/walker1211/mark2note/internal/render"
 	"github.com/walker1211/mark2note/internal/xhs"
 )
@@ -107,7 +108,7 @@ Config defaults:
   deck.author     default cover author used when --author is not set
 
 Supported themes:
-  default / warm-paper / editorial-cool / tech-noir / plum-ink / sage-mist / fresh-green`
+  ` + deck.RegisteredThemeList()
 }
 
 func captureHTMLUsageText() string {
