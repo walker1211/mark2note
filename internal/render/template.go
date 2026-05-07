@@ -115,6 +115,7 @@ func compiledPageTemplate() (*template.Template, error) {
 				}
 				return " anim-" + preset
 			},
+			"contentFitClass": contentFitClass,
 		}).Parse(pageTemplate)
 	})
 	if pageTemplateErr != nil {
@@ -299,6 +300,43 @@ func watermarkPositionClass(position string) string {
 		return "watermark-bottom-left"
 	}
 	return "watermark-bottom-right"
+}
+
+func contentFitClass(text string) string {
+	score := contentFitScore(text)
+	switch {
+	case score >= 900:
+		return " content-fit-ultra"
+	case score >= 520:
+		return " content-fit-dense"
+	case score >= 280:
+		return " content-fit-compact"
+	default:
+		return ""
+	}
+}
+
+func contentFitScore(text string) int {
+	lines := strings.Split(text, "\n")
+	score := len([]rune(text))
+	inCode := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inCode = !inCode
+			continue
+		}
+		if inCode {
+			score += 24 + len([]rune(line))/2
+			continue
+		}
+		if trimmed == "" {
+			score += 12
+			continue
+		}
+		score += 8
+	}
+	return score
 }
 
 func placeholderImageDataURI(label string) string {

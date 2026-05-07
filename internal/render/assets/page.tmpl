@@ -52,7 +52,7 @@
       <div class="cta-bar cta-strong"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{else if eq .Page.Variant "image-caption"}}
       <div class="title-lg{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
-      <div class="image-caption-layout">
+      <div class="image-caption-layout{{if not .Page.Content.Images}} image-caption-no-image{{end}}{{contentFitClass .Page.Content.Body}}"{{if not .Page.Content.Images}} data-fit-auto="image-caption"{{end}}>
         {{if .Page.Content.Images}}
         <div class="image-frame image-caption-image{{animClass .RenderMode.Animated .RenderMode.Preset.Image}}"><img src="{{imageSrc (index .Page.Content.Images 0).Src}}" alt="{{(index .Page.Content.Images 0).Alt}}" /></div>
         {{end}}
@@ -95,11 +95,66 @@
       <div class="cta-bar"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{else if eq .Page.Variant "ending"}}
       <div class="title-md{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
-      <div class="ending-box{{animClass .RenderMode.Animated .RenderMode.Preset.Body}}">
+      <div class="ending-box{{contentFitClass .Page.Content.Body}}{{animClass .RenderMode.Animated .RenderMode.Preset.Body}}">
         <div class="ending-text">{{renderRichText .Rich.Body}}</div>
       </div>
       <div class="cta-bar"><span class="pill inverse{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{end}}
   </div>
+  <script>
+  (function () {
+    function applyImageCaptionAutoFit() {
+      var layouts = document.querySelectorAll('[data-fit-auto="image-caption"]');
+      if (!layouts.length) return;
+      var candidateClasses = [
+        'content-fit-roomy',
+        'content-fit-balanced',
+        'content-fit-compact',
+        'content-fit-dense',
+        'content-fit-ultra'
+      ];
+      var fallbackClasses = [
+        'content-fit-compact',
+        'content-fit-dense',
+        'content-fit-ultra'
+      ];
+      layouts.forEach(function (layout) {
+        var page = layout.closest('.page');
+        var caption = layout.querySelector('.caption');
+        var cta = layout.querySelector('.image-caption-cta');
+        if (!page || !caption || !cta) return;
+        var codeBlocks = caption.querySelectorAll('.code-block');
+        layout.classList.toggle('code-heavy', codeBlocks.length > 0);
+        candidateClasses.concat(fallbackClasses).forEach(function (className) {
+          layout.classList.remove(className);
+        });
+        var chosen = candidateClasses[candidateClasses.length - 1];
+        for (var i = 0; i < candidateClasses.length; i++) {
+          candidateClasses.concat(fallbackClasses).forEach(function (className) {
+            layout.classList.remove(className);
+          });
+          layout.classList.add(candidateClasses[i]);
+          var layoutFits = layout.scrollHeight <= layout.clientHeight + 1 && layout.scrollWidth <= layout.clientWidth + 1;
+          var pageFits = page.scrollHeight <= page.clientHeight + 1 && page.scrollWidth <= page.clientWidth + 1;
+          var captionFits = (caption.scrollHeight <= caption.clientHeight + 1 || layoutFits) && caption.scrollWidth <= caption.clientWidth + 1;
+          if (layoutFits && pageFits && captionFits) {
+            chosen = candidateClasses[i];
+            break;
+          }
+        }
+        candidateClasses.concat(fallbackClasses).forEach(function (className) {
+          layout.classList.remove(className);
+        });
+        layout.classList.add(chosen);
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', applyImageCaptionAutoFit);
+    } else {
+      applyImageCaptionAutoFit();
+    }
+    window.addEventListener('load', applyImageCaptionAutoFit);
+  })();
+  </script>
 {{.AnimatedScriptTag}}</body>
 </html>

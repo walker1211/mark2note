@@ -35,7 +35,11 @@ const deckPromptConstraints = `你是一个严格的 JSON 生成器。
 14. 在允许的字段中，必须保留 fenced code block（例如 body、note、tip），而不是改写成普通描述文本
 15. title/subtitle/cta/items/steps/compare 字段禁止承载 fenced code block；当字段不支持 block-level 代码块时，禁止把 fenced code block 塞进该字段
 16. 如果为了适配页型而改写原句，仍然必须把原文中的重点词保留为 **bold**，不能把强调语义改写丢失成普通文本
-17. 如果原文某些术语已使用行内代码反引号表示，改写后必须保留该行内代码语义，不得去掉`
+17. 如果原文某些术语已使用行内代码反引号表示，改写后必须保留该行内代码语义，不得去掉
+18. 每页可见内容必须完整放进 1242x1656 竖版卡片，不能依赖浏览器裁切
+19. 长正文和长代码块必须保留原文完整内容，不要用省略号、省略说明或伪代码替代 fenced code block
+20. 需要容纳长内容时优先选择 image-caption 或 ending，由渲染层缩小字号和间距；不要为了排版删减原文代码
+21. fenced code block 过长时不要强行塞进单页；拆成连续的 image-caption 页面，每页保留连续、完整、可执行的原始代码片段，不得用省略号替代被拆分的代码`
 
 const deckPromptMarkdownFooter = "\n\nMarkdown 如下：\n"
 const promptExtraIntro = "以下是本次生成的额外约束，只能用于控制风格、安全边界和取舍；不得原文复制、不得改写、不得概括到 JSON 的任何可见字段里，包括 title、subtitle、body、quote、note、tip、cta、items、steps、compare、images.alt。可见文案只能来自 Markdown 原文："

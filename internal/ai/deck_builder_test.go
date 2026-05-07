@@ -208,6 +208,68 @@ func TestBuildDeckJSONPromptLocksMarkdownSemanticPreservation(t *testing.T) {
 	}
 }
 
+func TestBuildDeckJSONPromptPreservesFullVisibleCodeBlocks(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"pages":[]}`}
+	b := Builder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	_, err := b.BuildDeckJSON("# 标题")
+	if err != nil {
+		t.Fatalf("BuildDeckJSON() error = %v", err)
+	}
+
+	if len(runner.args) < 4 {
+		t.Fatalf("args = %v, want command args plus --bare and -p prompt", runner.args)
+	}
+	prompt := runner.args[3]
+	for _, want := range []string{
+		"每页可见内容必须完整放进 1242x1656 竖版卡片",
+		"长正文和长代码块必须保留原文完整内容",
+		"不要用省略号、省略说明或伪代码替代 fenced code block",
+		"需要容纳长内容时优先选择 image-caption 或 ending，由渲染层缩小字号和间距",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing full-content fit rule %q: %q", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"fenced code block 超过 8 行时只保留关键命令和省略号",
+		"不输出完整长脚本",
+		"不超过 220 个中文字符",
+		"不超过 180 个中文字符",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("prompt should not ask AI to truncate with %q: %q", forbidden, prompt)
+		}
+	}
+}
+
+func TestBuildDeckJSONPromptSplitsOversizedFencedCodeBlocks(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"pages":[]}`}
+	b := Builder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	_, err := b.BuildDeckJSON("# 标题\n\n```bash\necho one\necho two\n```")
+	if err != nil {
+		t.Fatalf("BuildDeckJSON() error = %v", err)
+	}
+
+	if len(runner.args) < 4 {
+		t.Fatalf("args = %v, want command args plus --bare and -p prompt", runner.args)
+	}
+	prompt := runner.args[3]
+	for _, want := range []string{
+		"fenced code block 过长时不要强行塞进单页",
+		"拆成连续的 image-caption 页面",
+		"每页保留连续、完整、可执行的原始代码片段",
+		"不得用省略号替代被拆分的代码",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing long-code split rule %q: %q", want, prompt)
+		}
+	}
+}
+
 func TestBuildPublishTopicsUsesConfiguredCommand(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"topics":["AI编程","开源项目","工程实践"]}`}
 	b := TopicBuilder{Runner: runner}
