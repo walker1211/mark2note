@@ -33,10 +33,6 @@ Update `configs/config.yaml` for your AI CLI, output directory, theme, author, a
 
 HTML + PNG remain the primary stable outputs. Optional animation features can export Animated WebP or MP4, or experimental Live packages when `render.live.enabled` is enabled. Animated WebP export needs `img2webp`; MP4 and Live export need `ffmpeg`; Live package export also needs `exiftool`. The `capture-html` command does not export Animated WebP, MP4, or Live packages.
 
-## Documentation
-
-See [中文](./README.zh-CN.md) or [English](./README.en.md) for detailed usage and configuration.
-
 ## License
 
 See [LICENSE](./LICENSE).

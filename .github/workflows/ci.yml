@@ -44,6 +44,8 @@ jobs:
         run: go vet ./...
 
       - name: Run tests
+        env:
+          MARK2NOTE_FULL_TESTS: "1"
         run: go test ./...
 
       - name: Build

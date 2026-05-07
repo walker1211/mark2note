@@ -4,10 +4,16 @@
 
 ## Verification
 
-Run the full local CI before requesting review:
+Run the fast local CI before pushing:
 
 ```bash
-bash ./scripts/ci-local.sh
+bash ./scripts/ci-local.sh clean
+```
+
+Run the full local CI when touching browser automation or Xiaohongshu publishing behavior:
+
+```bash
+bash ./scripts/ci-local.sh full
 ```
 
 Add any other relevant commands:

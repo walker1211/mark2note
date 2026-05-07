@@ -833,8 +833,61 @@ func (b *rodBrowser) Close() error {
 	})
 }
 
+type rodPageTimeouts struct {
+	scheduleDateInput       time.Duration
+	scheduleTimeCommit      time.Duration
+	permissionDropdown      time.Duration
+	originalConfirm         time.Duration
+	topicSuggestion         time.Duration
+	topicConfirmation       time.Duration
+	topicFallbackSuggestion time.Duration
+}
+
+func defaultRodPageTimeouts() rodPageTimeouts {
+	return rodPageTimeouts{
+		scheduleDateInput:       3 * time.Second,
+		scheduleTimeCommit:      2 * time.Second,
+		permissionDropdown:      2 * time.Second,
+		originalConfirm:         2 * time.Second,
+		topicSuggestion:         2 * time.Second,
+		topicConfirmation:       1200 * time.Millisecond,
+		topicFallbackSuggestion: 300 * time.Millisecond,
+	}
+}
+
+func (p *rodPage) effectiveTimeouts() rodPageTimeouts {
+	result := defaultRodPageTimeouts()
+	if p == nil {
+		return result
+	}
+	overrides := p.timeouts
+	if overrides.scheduleDateInput > 0 {
+		result.scheduleDateInput = overrides.scheduleDateInput
+	}
+	if overrides.scheduleTimeCommit > 0 {
+		result.scheduleTimeCommit = overrides.scheduleTimeCommit
+	}
+	if overrides.permissionDropdown > 0 {
+		result.permissionDropdown = overrides.permissionDropdown
+	}
+	if overrides.originalConfirm > 0 {
+		result.originalConfirm = overrides.originalConfirm
+	}
+	if overrides.topicSuggestion > 0 {
+		result.topicSuggestion = overrides.topicSuggestion
+	}
+	if overrides.topicConfirmation > 0 {
+		result.topicConfirmation = overrides.topicConfirmation
+	}
+	if overrides.topicFallbackSuggestion > 0 {
+		result.topicFallbackSuggestion = overrides.topicFallbackSuggestion
+	}
+	return result
+}
+
 type rodPage struct {
-	page *rod.Page
+	page     *rod.Page
+	timeouts rodPageTimeouts
 }
 
 func (p *rodPage) Navigate(url string) error {

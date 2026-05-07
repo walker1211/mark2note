@@ -5,14 +5,66 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 )
+
+var (
+	testBrowserOnce     sync.Once
+	testBrowserLauncher *launcher.Launcher
+	testBrowserValue    *rod.Browser
+	testBrowserErr      error
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if testBrowserValue != nil {
+		_ = rodTry(func() { testBrowserValue.MustClose() })
+	}
+	if testBrowserLauncher != nil {
+		testBrowserLauncher.Kill()
+		testBrowserLauncher.Cleanup()
+	}
+	os.Exit(code)
+}
+
+func skipSlowBrowserTest(t *testing.T) {
+	t.Helper()
+	if os.Getenv("MARK2NOTE_FULL_TESTS") != "1" {
+		t.Skip("set MARK2NOTE_FULL_TESTS=1 to run slow browser tests")
+	}
+}
+
+func testBrowser(t *testing.T) *rod.Browser {
+	t.Helper()
+	skipSlowBrowserTest(t)
+	testBrowserOnce.Do(func() {
+		testBrowserLauncher = launcher.New().Headless(true)
+		controlURL := ""
+		testBrowserErr = rodTry(func() {
+			controlURL = testBrowserLauncher.MustLaunch()
+			testBrowserValue = rod.New().ControlURL(controlURL).MustConnect()
+		})
+	})
+	if testBrowserErr != nil {
+		t.Fatalf("launch shared browser: %v", testBrowserErr)
+	}
+	return testBrowserValue
+}
+
+func testPage(t *testing.T) *rod.Page {
+	t.Helper()
+	page := testBrowser(t).MustPage("about:blank")
+	t.Cleanup(func() { _ = rodTry(func() { page.MustClose() }) })
+	return page
+}
 
 type fakePublishPage struct {
 	calls               []string
@@ -194,17 +246,41 @@ func TestUploadInputSelectorsIncludeCreatorUploadInput(t *testing.T) {
 	}
 }
 
+func TestRodPageTimeoutsUseDefaultsAndAllowPartialOverrides(t *testing.T) {
+	defaults := (&rodPage{}).effectiveTimeouts()
+	wantDefaults := rodPageTimeouts{
+		scheduleDateInput:       3 * time.Second,
+		scheduleTimeCommit:      2 * time.Second,
+		permissionDropdown:      2 * time.Second,
+		originalConfirm:         2 * time.Second,
+		topicSuggestion:         2 * time.Second,
+		topicConfirmation:       1200 * time.Millisecond,
+		topicFallbackSuggestion: 300 * time.Millisecond,
+	}
+	if defaults != wantDefaults {
+		t.Fatalf("default timeouts = %#v, want %#v", defaults, wantDefaults)
+	}
+
+	overrides := (&rodPage{timeouts: rodPageTimeouts{
+		scheduleTimeCommit: 25 * time.Millisecond,
+		topicSuggestion:    30 * time.Millisecond,
+	}}).effectiveTimeouts()
+	if overrides.scheduleDateInput != 3*time.Second {
+		t.Fatalf("scheduleDateInput = %v, want default", overrides.scheduleDateInput)
+	}
+	if overrides.scheduleTimeCommit != 25*time.Millisecond {
+		t.Fatalf("scheduleTimeCommit = %v, want override", overrides.scheduleTimeCommit)
+	}
+	if overrides.topicSuggestion != 30*time.Millisecond {
+		t.Fatalf("topicSuggestion = %v, want override", overrides.topicSuggestion)
+	}
+	if overrides.topicConfirmation != 1200*time.Millisecond {
+		t.Fatalf("topicConfirmation = %v, want default", overrides.topicConfirmation)
+	}
+}
+
 func TestFillTitlePreservesLongTitle(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -227,16 +303,7 @@ func TestFillTitlePreservesLongTitle(t *testing.T) {
 }
 
 func TestElementBySelectorsDoesNotReturnElementWithShortTimeout(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -263,16 +330,7 @@ func TestElementBySelectorsDoesNotReturnElementWithShortTimeout(t *testing.T) {
 }
 
 func TestWaitForTopicConfirmationRejectsPlainTextTopic(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -290,16 +348,7 @@ func TestWaitForTopicConfirmationRejectsPlainTextTopic(t *testing.T) {
 }
 
 func TestWaitForTopicSuggestionAcceptsSuggestionNode(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -428,16 +477,7 @@ func TestPublisherScheduledFlowAppliesPreSubmitHooks(t *testing.T) {
 }
 
 func TestSetScheduleUsesRealSwitchAndDatePickerInput(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -539,16 +579,7 @@ func TestSetScheduleUsesRealSwitchAndDatePickerInput(t *testing.T) {
 }
 
 func TestSetScheduleIgnoresHiddenDatePickerTemplate(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -609,16 +640,7 @@ func TestSetScheduleIgnoresHiddenDatePickerTemplate(t *testing.T) {
 }
 
 func TestSetScheduleRejectsUncommittedVisibleDatePicker(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -660,7 +682,7 @@ func TestSetScheduleRejectsUncommittedVisibleDatePicker(t *testing.T) {
 	page.MustWaitLoad()
 	page.MustElement("body")
 
-	rodPage := &rodPage{page: page.Timeout(6 * time.Second)}
+	rodPage := &rodPage{page: page.Timeout(6 * time.Second), timeouts: rodPageTimeouts{scheduleTimeCommit: 100 * time.Millisecond}}
 	scheduledAt := time.Date(2026, 5, 1, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
 	if err := rodPage.SetSchedule(context.Background(), scheduledAt); err == nil {
 		state := page.MustEval(`() => JSON.stringify({
@@ -686,13 +708,7 @@ func TestPublisherScheduledStopBeforeSubmitSkipsSubmit(t *testing.T) {
 }
 
 func TestOpenPermissionDropdownSupportsMouseDownDrivenSelect(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
+	browser := testBrowser(t)
 
 	t.Run("mousedown opens dropdown", func(t *testing.T) {
 		page := browser.MustPage("about:blank")
@@ -842,16 +858,7 @@ func TestOpenPermissionDropdownSupportsMouseDownDrivenSelect(t *testing.T) {
 }
 
 func TestOpenPermissionDropdownAcceptsAlreadyVisibleDropdown(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -875,16 +882,7 @@ func TestOpenPermissionDropdownAcceptsAlreadyVisibleDropdown(t *testing.T) {
 }
 
 func TestSelectPermissionOptionSupportsMouseDownDrivenOption(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -979,16 +977,7 @@ func TestSelectPermissionOptionSupportsMouseDownDrivenOption(t *testing.T) {
 }
 
 func TestSetOnlySelfVisibleUsesTrustedClicksOnRealPermissionDOM(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1068,16 +1057,7 @@ func TestSetOnlySelfVisibleUsesTrustedClicksOnRealPermissionDOM(t *testing.T) {
 }
 
 func TestOpenPermissionDropdownIgnoresMatchingTextOutsidePermissionCard(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1121,16 +1101,7 @@ func TestOpenPermissionDropdownIgnoresMatchingTextOutsidePermissionCard(t *testi
 }
 
 func TestSelectPermissionOptionIgnoresMatchingTextOutsideDropdown(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1189,16 +1160,7 @@ func TestSelectPermissionOptionIgnoresMatchingTextOutsideDropdown(t *testing.T) 
 }
 
 func TestFillContentRejectsPlainTextTopicWithoutHighlight(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1226,7 +1188,7 @@ func TestFillContentRejectsPlainTextTopicWithoutHighlight(t *testing.T) {
 	page.MustWaitLoad()
 	page.MustElement("body")
 
-	rodPage := &rodPage{page: page}
+	rodPage := &rodPage{page: page, timeouts: rodPageTimeouts{topicSuggestion: 100 * time.Millisecond}}
 	err := rodPage.FillContent(context.Background(), "测试正文", []string{"AI编程"})
 	if err == nil || !strings.Contains(err.Error(), "did not enter Xiaohongshu suggestion mode") {
 		t.Fatalf("FillContent() error = %v", err)
@@ -1234,16 +1196,7 @@ func TestFillContentRejectsPlainTextTopicWithoutHighlight(t *testing.T) {
 }
 
 func TestFillContentAcceptsHighlightedTopicNode(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 	<html>
@@ -1304,16 +1257,7 @@ func TestFillContentAcceptsHighlightedTopicNode(t *testing.T) {
 }
 
 func TestConfirmOnlySelfPublishedAcceptsPublishedRedirect(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1340,16 +1284,7 @@ func TestConfirmOnlySelfPublishedAcceptsPublishedRedirect(t *testing.T) {
 }
 
 func TestApplyOriginalDeclarationChecksUncheckedOriginalBox(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1374,16 +1309,7 @@ func TestApplyOriginalDeclarationChecksUncheckedOriginalBox(t *testing.T) {
 }
 
 func TestApplyContentCopyPreferenceUnchecksAllowCopyBox(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1405,16 +1331,7 @@ func TestApplyContentCopyPreferenceUnchecksAllowCopyBox(t *testing.T) {
 }
 
 func TestApplyOriginalDeclarationChecksAgreementInModal(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1445,16 +1362,7 @@ func TestApplyOriginalDeclarationChecksAgreementInModal(t *testing.T) {
 }
 
 func TestApplyOriginalDeclarationClicksConfirmButtonInModal(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1488,16 +1396,7 @@ func TestApplyOriginalDeclarationClicksConfirmButtonInModal(t *testing.T) {
 }
 
 func TestApplyOriginalDeclarationClicksEntryBeforeConfirmingModal(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1550,16 +1449,7 @@ func TestApplyOriginalDeclarationClicksEntryBeforeConfirmingModal(t *testing.T) 
 }
 
 func TestApplyOriginalDeclarationUsesVisibleSwitchAndConfirmsPrompt(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 	<html>
@@ -1613,16 +1503,7 @@ func TestApplyOriginalDeclarationUsesVisibleSwitchAndConfirmsPrompt(t *testing.T
 }
 
 func TestApplyOriginalDeclarationClicksWrapperWithHiddenInput(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1658,16 +1539,7 @@ func TestApplyOriginalDeclarationClicksWrapperWithHiddenInput(t *testing.T) {
 }
 
 func TestSetCheckboxStateClicksVisibleWrapper(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1707,16 +1579,7 @@ func TestSetCheckboxStateClicksVisibleWrapper(t *testing.T) {
 }
 
 func TestConfirmOnlySelfPublishedAcceptsNoteManagerRedirect(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1740,16 +1603,7 @@ func TestConfirmOnlySelfPublishedAcceptsNoteManagerRedirect(t *testing.T) {
 }
 
 func TestConfirmScheduledSubmittedAcceptsPublishedRedirect(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>
@@ -1773,16 +1627,7 @@ func TestConfirmScheduledSubmittedAcceptsPublishedRedirect(t *testing.T) {
 }
 
 func TestConfirmOnlySelfPublishedAcceptsCleanPublishPageWithoutToast(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
+	page := testPage(t)
 
 	html := `<!doctype html>
 <html>

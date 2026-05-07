@@ -184,6 +184,7 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 }
 
 func (p *rodPage) inputTopicByKeyboard(field *rod.Element, tag string) error {
+	timeouts := p.effectiveTimeouts()
 	if err := rodTry(func() {
 		field.MustClick()
 	}); err != nil {
@@ -192,7 +193,7 @@ func (p *rodPage) inputTopicByKeyboard(field *rod.Element, tag string) error {
 	if err := p.typeTopicTrigger(); err != nil {
 		return fmt.Errorf("type topic trigger: %w", err)
 	}
-	if err := p.waitForTopicSuggestion("", 2*time.Second); err != nil {
+	if err := p.waitForTopicSuggestion("", timeouts.topicSuggestion); err != nil {
 		return err
 	}
 	if err := rodTry(func() {
@@ -200,7 +201,7 @@ func (p *rodPage) inputTopicByKeyboard(field *rod.Element, tag string) error {
 	}); err != nil {
 		return fmt.Errorf("type topic text: %w", err)
 	}
-	if err := p.waitForTopicSuggestion(tag, 2*time.Second); err != nil {
+	if err := p.waitForTopicSuggestion(tag, timeouts.topicSuggestion); err != nil {
 		return err
 	}
 
@@ -209,12 +210,12 @@ func (p *rodPage) inputTopicByKeyboard(field *rod.Element, tag string) error {
 		if err := p.pressSpaceKey(); err != nil {
 			return fmt.Errorf("press space: %w", err)
 		}
-		if err := p.waitForTopicConfirmation(tag, 1200*time.Millisecond); err == nil {
+		if err := p.waitForTopicConfirmation(tag, timeouts.topicConfirmation); err == nil {
 			return nil
 		} else {
 			lastErr = err
 		}
-		if i == 0 && p.waitForTopicSuggestion(tag, 300*time.Millisecond) != nil {
+		if i == 0 && p.waitForTopicSuggestion(tag, timeouts.topicFallbackSuggestion) != nil {
 			break
 		}
 	}
@@ -451,10 +452,11 @@ func (p *rodPage) SetSchedule(ctx context.Context, at time.Time) error {
 		return err
 	}
 	formatted := at.In(shanghaiLocation()).Format("2006-01-02 15:04")
+	timeouts := p.effectiveTimeouts()
 	if err := p.openScheduleDatePicker(ctx); err != nil {
 		return err
 	}
-	field, err := p.waitForScheduleDateInput(ctx, 3*time.Second)
+	field, err := p.waitForScheduleDateInput(ctx, timeouts.scheduleDateInput)
 	if err != nil {
 		return err
 	}
@@ -465,7 +467,7 @@ func (p *rodPage) SetSchedule(ctx context.Context, at time.Time) error {
 	}); err != nil {
 		return err
 	}
-	return p.waitForScheduleTimeCommit(ctx, field, formatted, 2*time.Second)
+	return p.waitForScheduleTimeCommit(ctx, field, formatted, timeouts.scheduleTimeCommit)
 }
 
 func (p *rodPage) openScheduleDatePicker(ctx context.Context) error {
@@ -714,7 +716,7 @@ func (p *rodPage) openPermissionDropdown() error {
 	if err := p.openPermissionDropdownFallback(trigger); err != nil {
 		return err
 	}
-	if err := p.waitForPermissionDropdown(2 * time.Second); err != nil {
+	if err := p.waitForPermissionDropdown(p.effectiveTimeouts().permissionDropdown); err != nil {
 		p.debugPermissionState()
 		return err
 	}
@@ -1229,7 +1231,7 @@ func (p *rodPage) applyOriginalDeclaration(enabled bool) error {
 	if clicked, err := p.clickByText("button", "声明原创"); err != nil {
 		return err
 	} else if clicked {
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(p.effectiveTimeouts().originalConfirm)
 		for time.Now().Before(deadline) {
 			if p.isOriginalDeclared() {
 				return nil

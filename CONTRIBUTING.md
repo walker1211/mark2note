@@ -19,13 +19,21 @@ bash ./build.sh
 
 ## Tests and local CI
 
-Run the full local check before submitting a pull request:
+Run the fast local check before pushing or creating a tag:
 
 ```bash
-bash ./scripts/ci-local.sh
+bash ./scripts/ci-local.sh clean
 ```
 
-The local CI covers secret scanning, formatting, vetting, tests, and build checks.
+This is the same default path installed by `scripts/install-hooks.sh` for pre-push checks. It covers secret scanning, formatting, vetting, fast tests, and build checks.
+
+Run the full local check before requesting review when touching browser automation or Xiaohongshu publishing behavior:
+
+```bash
+bash ./scripts/ci-local.sh full
+```
+
+Full mode sets `MARK2NOTE_FULL_TESTS=1` and includes slow Rod/Chrome browser tests. GitHub CI also runs the full test mode.
 
 ## Secret scanning
 
