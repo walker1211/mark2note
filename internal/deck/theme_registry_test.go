@@ -1,19 +1,12 @@
 package deck
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestResolveDeckThemeFallsBackToDefault(t *testing.T) {
 	if got := ResolveDeckTheme("missing-theme"); got != ThemeDefault {
 		t.Fatalf("ResolveDeckTheme() = %q, want %q", got, ThemeDefault)
-	}
-}
-
-func TestResolvePageThemeKeepsDefaultOrangeGreenVariants(t *testing.T) {
-	if got := ResolvePageTheme(ThemeDefault, "orange"); got != paletteDefaultOrange {
-		t.Fatalf("ResolvePageTheme() = %q, want %q", got, paletteDefaultOrange)
-	}
-	if got := ResolvePageTheme(ThemeDefault, "green"); got != paletteDefaultGreen {
-		t.Fatalf("ResolvePageTheme() = %q, want %q", got, paletteDefaultGreen)
 	}
 }
 
@@ -54,5 +47,50 @@ func TestResolveDeckThemeReturnsNewThemesDirectly(t *testing.T) {
 	}
 	if got := ResolveDeckTheme(ThemeEditorialMono); got != ThemeEditorialMono {
 		t.Fatalf("ResolveDeckTheme() = %q, want %q", got, ThemeEditorialMono)
+	}
+}
+
+func TestRegisteredThemesExposeSemanticTokens(t *testing.T) {
+	themes := RegisteredThemes()
+	required := []string{
+		paletteDefaultOrange,
+		paletteDefaultGreen,
+		ThemeWarmPaper,
+		ThemeEditorialCool,
+		ThemeLifestyle,
+		ThemeTechNoir,
+		ThemeEditorialMono,
+	}
+
+	for _, key := range required {
+		theme, ok := themes[key]
+		if !ok {
+			t.Fatalf("RegisteredThemes missing %s", key)
+		}
+		if err := theme.Validate(); err != nil {
+			t.Fatalf("theme %s validation failed: %v", key, err)
+		}
+	}
+}
+
+func TestResolvePageThemePreservesDefaultOrangeGreenResolutionBehavior(t *testing.T) {
+	cases := []struct {
+		name            string
+		deckTheme       string
+		legacyPageTheme string
+		want            string
+	}{
+		{name: "default orange", deckTheme: ThemeDefault, legacyPageTheme: "orange", want: paletteDefaultOrange},
+		{name: "default green", deckTheme: ThemeDefault, legacyPageTheme: "green", want: paletteDefaultGreen},
+		{name: "custom deck theme bypasses legacy orange", deckTheme: ThemeTechNoir, legacyPageTheme: "orange", want: ThemeTechNoir},
+		{name: "custom deck theme bypasses legacy green", deckTheme: ThemeEditorialMono, legacyPageTheme: "green", want: ThemeEditorialMono},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ResolvePageTheme(tc.deckTheme, tc.legacyPageTheme); got != tc.want {
+				t.Fatalf("ResolvePageTheme(%q, %q) = %q, want %q", tc.deckTheme, tc.legacyPageTheme, got, tc.want)
+			}
+		})
 	}
 }

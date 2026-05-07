@@ -149,6 +149,9 @@ func renderPageHTML(d deck.Deck, page deck.Page, mode pageRenderMode) (string, e
 	if !ok {
 		return "", fmt.Errorf("unknown theme %q", page.Meta.Theme)
 	}
+	if err := theme.Validate(); err != nil {
+		return "", err
+	}
 
 	hydrated, err := withVariantData(page)
 	if err != nil {
