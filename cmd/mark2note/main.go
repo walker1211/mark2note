@@ -134,20 +134,21 @@ Usage:
   mark2note publish-xhs --help
 
 Flags:
-  --account <name>         publish account/profile target (required)
+  --config <file>          config file path (default: configs/config.yaml)
+  --account <name>         publish account/profile target (default from xhs.publish.account)
   --title <text>           inline title text (exactly one of --title / --title-file)
   --title-file <file>      title file path
   --content <text>         inline content text (exactly one of --content / --content-file)
   --content-file <file>    content file path
   --tags <csv>             comma-separated tags
-  --mode <name>            publish mode: only-self or schedule (default: only-self)
+  --mode <name>            publish mode: only-self or schedule (default from xhs.publish.mode or only-self)
   --schedule-at <time>     schedule time in YYYY-MM-DD HH:MM:SS (Asia/Shanghai)
   --images <csv>           comma-separated image paths
   --live-report <file>     live delivery report path
   --live-pages <csv>       ordered live page subset; requires --live-report
   --chrome <path>          chrome binary path
-  --headless               run browser automation headless (default: true)
-  --profile-dir <dir>      browser profile directory
+  --headless               run browser automation headless (default: true; xhs.publish.headless can override)
+  --profile-dir <dir>      browser profile directory (default from xhs.publish.profile_dir)
 
 Rules:
   - exactly one of --title / --title-file is required
@@ -269,19 +270,32 @@ func parseCaptureHTMLOptions(args []string) (Options, error) {
 	return opts, nil
 }
 
-type publishXHSCLIOptions = app.PublishOptions
+type publishXHSCLIOptions struct {
+	app.PublishOptions
+
+	ConfigPath        string
+	ConfigPathChanged bool
+	AccountChanged    bool
+	HeadlessChanged   bool
+	ProfileDirChanged bool
+	ModeChanged       bool
+}
 
 func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	opts := publishXHSCLIOptions{
-		ChromePath: defaultOptions().ChromePath,
-		Headless:   true,
-		Mode:       string(xhs.PublishModeOnlySelf),
+		PublishOptions: app.PublishOptions{
+			ChromePath: defaultOptions().ChromePath,
+			Headless:   true,
+			Mode:       string(xhs.PublishModeOnlySelf),
+		},
+		ConfigPath: defaultOptions().ConfigPath,
 	}
 	var tags string
 	var images string
 	var livePages string
 	fs := flag.NewFlagSet("mark2note publish-xhs", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	fs.StringVar(&opts.ConfigPath, "config", opts.ConfigPath, "config file path")
 	fs.StringVar(&opts.Account, "account", opts.Account, "publish account/profile target")
 	fs.StringVar(&opts.Title, "title", opts.Title, "inline title text")
 	fs.StringVar(&opts.TitleFile, "title-file", opts.TitleFile, "title file path")
@@ -306,28 +320,75 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	opts.Tags = splitCSV(tags)
 	opts.ImagePaths = splitCSV(images)
 	opts.LivePages = splitCSV(livePages)
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "config":
+			opts.ConfigPathChanged = true
+		case "account":
+			opts.AccountChanged = true
+		case "headless":
+			opts.HeadlessChanged = true
+		case "profile-dir":
+			opts.ProfileDirChanged = true
+		case "mode":
+			opts.ModeChanged = true
+		}
+	})
+	return opts, nil
+}
+
+func loadPublishXHSConfig(path string, explicit bool) (*config.Config, error) {
+	cfg, err := loadConfig(path)
+	if err == nil {
+		return cfg, nil
+	}
+	if !explicit && errors.Is(err, os.ErrNotExist) {
+		return &config.Config{}, nil
+	}
+	return nil, fmt.Errorf("%w: %v", app.ErrLoadConfig, err)
+}
+
+func mergePublishXHSDefaults(cli publishXHSCLIOptions, cfg *config.Config) app.PublishOptions {
+	opts := cli.PublishOptions
+	defaults := cfg.XHS.Publish
+	if !cli.AccountChanged && strings.TrimSpace(opts.Account) == "" {
+		opts.Account = strings.TrimSpace(defaults.Account)
+	}
+	if !cli.HeadlessChanged && defaults.Headless != nil {
+		opts.Headless = *defaults.Headless
+	}
+	if !cli.ProfileDirChanged && strings.TrimSpace(opts.ProfileDir) == "" {
+		opts.ProfileDir = strings.TrimSpace(defaults.ProfileDir)
+	}
+	if !cli.ModeChanged && strings.TrimSpace(defaults.Mode) != "" {
+		opts.Mode = strings.TrimSpace(defaults.Mode)
+	}
+	return opts
+}
+
+func validatePublishXHSOptions(opts app.PublishOptions) error {
 	if strings.TrimSpace(opts.Account) == "" {
-		return publishXHSCLIOptions{}, fmt.Errorf("--account is required\n\n%s", publishXHSUsageText())
+		return fmt.Errorf("--account is required\n\n%s", publishXHSUsageText())
 	}
 	if strings.TrimSpace(opts.Mode) == string(xhs.PublishModeSchedule) && strings.TrimSpace(opts.ScheduleAt) == "" {
-		return publishXHSCLIOptions{}, fmt.Errorf("--schedule-at is required when --mode schedule\n\n%s", publishXHSUsageText())
+		return fmt.Errorf("--schedule-at is required when --mode schedule\n\n%s", publishXHSUsageText())
 	}
 	if len(opts.LivePages) > 0 && strings.TrimSpace(opts.LiveReportPath) == "" {
-		return publishXHSCLIOptions{}, fmt.Errorf("--live-pages requires --live-report\n\n%s", publishXHSUsageText())
+		return fmt.Errorf("--live-pages requires --live-report\n\n%s", publishXHSUsageText())
 	}
 	if !exactlyOne(strings.TrimSpace(opts.Title) != "", strings.TrimSpace(opts.TitleFile) != "") {
-		return publishXHSCLIOptions{}, fmt.Errorf("exactly one of --title / --title-file is required\n\n%s", publishXHSUsageText())
+		return fmt.Errorf("exactly one of --title / --title-file is required\n\n%s", publishXHSUsageText())
 	}
 	if !exactlyOne(strings.TrimSpace(opts.Content) != "", strings.TrimSpace(opts.ContentFile) != "") {
-		return publishXHSCLIOptions{}, fmt.Errorf("exactly one of --content / --content-file is required\n\n%s", publishXHSUsageText())
+		return fmt.Errorf("exactly one of --content / --content-file is required\n\n%s", publishXHSUsageText())
 	}
 	if !exactlyOne(len(opts.ImagePaths) > 0, strings.TrimSpace(opts.LiveReportPath) != "") {
-		return publishXHSCLIOptions{}, fmt.Errorf("exactly one media source is required: --images or --live-report\n\n%s", publishXHSUsageText())
+		return fmt.Errorf("exactly one media source is required: --images or --live-report\n\n%s", publishXHSUsageText())
 	}
 	if _, err := xhs.ValidateMode(opts.Mode); err != nil {
-		return publishXHSCLIOptions{}, fmt.Errorf("%v\n\n%s", err, publishXHSUsageText())
+		return fmt.Errorf("%v\n\n%s", err, publishXHSUsageText())
 	}
-	return opts, nil
+	return nil
 }
 
 var loadConfig = config.Load
@@ -494,12 +555,22 @@ func runCaptureHTML(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
-	opts, err := parsePublishXHSOptions(args)
+	cliOpts, err := parsePublishXHSOptions(args)
 	if err != nil {
 		if err == flag.ErrHelp {
 			fmt.Fprintln(stdout, publishXHSUsageText())
 			return 0
 		}
+		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
+		return 1
+	}
+	cfg, err := loadPublishXHSConfig(cliOpts.ConfigPath, cliOpts.ConfigPathChanged)
+	if err != nil {
+		fmt.Fprintf(stderr, "error loading config: %s\n", stripErrorPrefixes(err, app.ErrLoadConfig))
+		return 1
+	}
+	opts := mergePublishXHSDefaults(cliOpts, cfg)
+	if err := validatePublishXHSOptions(opts); err != nil {
 		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
 		return 1
 	}

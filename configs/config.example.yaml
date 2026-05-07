@@ -32,3 +32,11 @@ render:
     cover_frame: last # first / middle / last
     assemble: false
     output_dir: apple-live
+
+xhs:
+  publish:
+    # publish-xhs 的稳定默认值；命令行可单次覆盖
+    account: walker
+    headless: false
+    profile_dir: ~/.config/mark2note/xhs/profiles/walker
+    mode: only-self

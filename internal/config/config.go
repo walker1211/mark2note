@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -12,6 +13,7 @@ type Config struct {
 	AI     AICfg     `yaml:"ai"`
 	Deck   DeckCfg   `yaml:"deck"`
 	Render RenderCfg `yaml:"render"`
+	XHS    XHSCfg    `yaml:"xhs"`
 }
 
 type OutputCfg struct {
@@ -59,6 +61,26 @@ type LiveCfg struct {
 	CoverFrame  string `yaml:"cover_frame"`
 	Assemble    bool   `yaml:"assemble"`
 	OutputDir   string `yaml:"output_dir"`
+}
+
+type XHSCfg struct {
+	Publish XHSPublishCfg `yaml:"publish"`
+}
+
+type XHSPublishCfg struct {
+	Account    string `yaml:"account"`
+	Headless   *bool  `yaml:"headless"`
+	ProfileDir string `yaml:"profile_dir"`
+	Mode       string `yaml:"mode"`
+}
+
+func validateXHSPublishMode(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", "only-self", "schedule":
+		return nil
+	default:
+		return fmt.Errorf("unsupported value %q", value)
+	}
 }
 
 func Load(configPath string) (*Config, error) {
@@ -113,6 +135,12 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.Render.Live.CoverFrame == "" {
 		cfg.Render.Live.CoverFrame = "middle"
+	}
+	if cfg.XHS.Publish.Mode == "" {
+		cfg.XHS.Publish.Mode = "only-self"
+	}
+	if err := validateXHSPublishMode(cfg.XHS.Publish.Mode); err != nil {
+		return nil, fmt.Errorf("validate xhs.publish.mode: %w", err)
 	}
 	return &cfg, nil
 }
