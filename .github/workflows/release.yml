@@ -13,8 +13,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan
+        run: bash ./scripts/secret-scan.sh --current --history
+
   build:
     runs-on: ubuntu-latest
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:

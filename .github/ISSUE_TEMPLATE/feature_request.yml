@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest an improvement for mark2note
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement to `mark2note`. Please keep examples public-safe and avoid sharing secrets, private Markdown content, generated private notes, or local config values.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to accomplish?
+      placeholder: Describe the workflow or limitation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like `mark2note` to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workaround or different approach you considered?
+  - type: textarea
+    id: examples
+    attributes:
+      label: Public-safe examples
+      description: Share sanitized Markdown, config snippets, or output examples if useful. Do not include secrets, private documents, local paths, logs with credentials, or generated private notes.
