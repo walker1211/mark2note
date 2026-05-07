@@ -2,7 +2,7 @@
 
 [中文](./README.zh-CN.md) | [English](./README.en.md)
 
-`mark2note` converts Markdown into presentation assets through the flow: Markdown -> AI deck JSON -> HTML / PNG.
+`mark2note` converts Markdown into presentation assets through the flow: Markdown -> AI deck JSON -> HTML / PNG, with optional animated, Live Photo, Apple Photos, and Xiaohongshu publishing workflows.
 
 ## Install
 
