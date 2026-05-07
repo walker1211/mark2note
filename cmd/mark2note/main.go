@@ -62,6 +62,7 @@ Flags:
   --config <file>            config file path (default: configs/config.yaml)
   --theme <name>             one-off deck theme override (default from deck.theme)
   --author <name>            one-off cover author input (blank falls back to deck.author) (default from deck.author)
+  --prompt-extra <text>      extra natural-language guidance for deck generation
   --animated                 enable animated enhancement output
   --animated-format <name>   animated format (default: webp; supported: webp, mp4)
   --animated-duration <ms>   page animation timeline duration; also affects Live motion timing when --live is enabled (default: 2400)
@@ -81,6 +82,7 @@ Examples:
   mark2note --input ./example.md --out ./output/preview
   mark2note --input ./example.md --config ./configs/config.yaml
   mark2note --input ./example.md --config ./config.yaml
+  mark2note --input ./example.md --prompt-extra "封面更抓眼，少一点教程感"
   mark2note capture-html --input ./output/preview/p02-quote.html
   mark2note capture-html --input ./output/preview
   mark2note publish-xhs --account main --title "标题" --content "正文" --images ./cover.jpg
@@ -173,6 +175,7 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.ConfigPath, "config", opts.ConfigPath, "config file path")
 	fs.StringVar(&opts.Theme, "theme", opts.Theme, "one-off deck theme override")
 	fs.StringVar(&opts.Author, "author", opts.Author, "one-off cover author input (blank falls back to deck.author)")
+	fs.StringVar(&opts.PromptExtra, "prompt-extra", opts.PromptExtra, "extra natural-language guidance for deck generation")
 	fs.BoolVar(&opts.Animated.Enabled, "animated", opts.Animated.Enabled, "enable animated enhancement output")
 	fs.StringVar(&opts.Animated.Format, "animated-format", opts.Animated.Format, "animated format")
 	fs.IntVar(&opts.Animated.DurationMS, "animated-duration", opts.Animated.DurationMS, "animated duration per page in milliseconds")
@@ -399,16 +402,20 @@ var buildDeckJSON = func(cfg *config.Config, markdown string) (string, error) {
 	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
 	return b.BuildDeckJSON(markdown)
 }
-var generatePreview = func(opts Options) (app.Result, error) {
-	svc := app.Service{
-		LoadConfig:    loadConfig,
-		ReadFile:      readFile,
-		BuildDeckJSON: buildDeckJSON,
+
+func newPreviewService(opts Options) app.Service {
+	return app.Service{
+		LoadConfig:  loadConfig,
+		ReadFile:    readFile,
+		PromptExtra: opts.PromptExtra,
 		NewRenderer: func(o app.Options) app.DeckRenderer {
 			return buildRenderer(o)
 		},
 	}
-	return svc.GeneratePreview(opts)
+}
+
+var generatePreview = func(opts Options) (app.Result, error) {
+	return newPreviewService(opts).GeneratePreview(opts)
 }
 var publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
 	svc := app.PublishService{

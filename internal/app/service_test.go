@@ -15,6 +15,20 @@ import (
 	"github.com/walker1211/mark2note/internal/render"
 )
 
+type fakeAICommandRunner struct {
+	name   string
+	args   []string
+	stdout string
+	stderr string
+	err    error
+}
+
+func (r *fakeAICommandRunner) Run(name string, args ...string) (string, string, error) {
+	r.name = name
+	r.args = append([]string(nil), args...)
+	return r.stdout, r.stderr, r.err
+}
+
 type fakeRenderer struct {
 	rendered deck.Deck
 	result   render.RenderResult
@@ -26,6 +40,33 @@ func (r *fakeRenderer) Render(d deck.Deck) (render.RenderResult, error) {
 	r.called++
 	r.rendered = d
 	return r.result, r.err
+}
+
+func TestServiceGeneratePreviewPassesPromptExtraToAIBuilder(t *testing.T) {
+	cfg := &config.Config{Output: config.OutputCfg{Dir: "configured-output"}, AI: config.AICfg{Command: "ccs", Args: []string{"codex"}}}
+	runner := &fakeAICommandRunner{stdout: `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`}
+
+	svc := Service{
+		LoadConfig:      func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:        func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		AICommandRunner: runner,
+		NewRenderer:     func(Options) DeckRenderer { return &fakeRenderer{} },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, PromptExtra: "封面更抓眼"})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if len(runner.args) < 4 {
+		t.Fatalf("runner args = %v, want command args plus --bare and -p prompt", runner.args)
+	}
+	prompt := runner.args[3]
+	if !strings.Contains(prompt, "以下是本次生成的额外偏好") {
+		t.Fatalf("prompt = %q, want extra guidance wrapper", prompt)
+	}
+	if !strings.Contains(prompt, "封面更抓眼") {
+		t.Fatalf("prompt = %q, want PromptExtra contents", prompt)
+	}
 }
 
 func TestServiceGeneratePreviewSuccess(t *testing.T) {

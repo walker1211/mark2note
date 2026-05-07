@@ -163,12 +163,29 @@ type fakeLivePackageBuilder struct {
 	tasks []livePackageTask
 }
 
+type delayedLivePackageBuilder struct {
+	writeOutput bool
+	delays      map[string]time.Duration
+
+	mu    sync.Mutex
+	tasks []livePackageTask
+}
+
 type fakeLivePhotoAssembler struct {
 	checkErr error
 	callErr  error
 
 	mu    sync.Mutex
 	tasks []appleLiveTask
+}
+
+type trackingLivePhotoAssembler struct {
+	delay time.Duration
+
+	mu        sync.Mutex
+	tasks     []appleLiveTask
+	active    int
+	maxActive int
 }
 
 func (b *fakeLivePackageBuilder) CheckAvailable() error {
@@ -198,6 +215,35 @@ func (b *fakeLivePackageBuilder) snapshotTasks() []livePackageTask {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]livePackageTask(nil), b.tasks...)
+}
+
+func (b *delayedLivePackageBuilder) CheckAvailable() error {
+	return nil
+}
+
+func (b *delayedLivePackageBuilder) Build(task livePackageTask) error {
+	b.mu.Lock()
+	b.tasks = append(b.tasks, task)
+	delay := b.delays[task.PageName]
+	b.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	if b.writeOutput {
+		if err := os.MkdirAll(task.OutputDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(task.OutputDir, liveCoverFilename), []byte("jpg"), 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(task.OutputDir, liveMotionFilename), []byte("mov"), 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(task.OutputDir, "manifest.json"), []byte("{}"), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *fakeLivePhotoAssembler) CheckAvailable() error {
@@ -231,6 +277,39 @@ func (a *fakeLivePhotoAssembler) snapshotTasks() []appleLiveTask {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return append([]appleLiveTask(nil), a.tasks...)
+}
+
+func (a *trackingLivePhotoAssembler) CheckAvailable() error {
+	return nil
+}
+
+func (a *trackingLivePhotoAssembler) Assemble(task appleLiveTask) error {
+	a.mu.Lock()
+	a.tasks = append(a.tasks, task)
+	a.active++
+	if a.active > a.maxActive {
+		a.maxActive = a.active
+	}
+	a.mu.Unlock()
+	if a.delay > 0 {
+		time.Sleep(a.delay)
+	}
+	a.mu.Lock()
+	a.active--
+	a.mu.Unlock()
+	return nil
+}
+
+func (a *trackingLivePhotoAssembler) snapshotTasks() []appleLiveTask {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]appleLiveTask(nil), a.tasks...)
+}
+
+func (a *trackingLivePhotoAssembler) max() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.maxActive
 }
 
 func sampleDeck(outDir string) deck.Deck {
@@ -978,6 +1057,50 @@ func TestRenderReturnsWarningWhenLiveAssemblerFails(t *testing.T) {
 	}
 	if got := len(liveBuilder.snapshotTasks()); got != len(d.Pages) {
 		t.Fatalf("live tasks = %d, want %d", got, len(d.Pages))
+	}
+}
+
+func TestRenderAssemblesLiveArtifactsSeriallyInPageOrder(t *testing.T) {
+	outDir := t.TempDir()
+	runner := &fakeRunner{}
+	liveBuilder := &delayedLivePackageBuilder{
+		writeOutput: true,
+		delays: map[string]time.Duration{
+			"p01-cover":   40 * time.Millisecond,
+			"p02-bullets": 5 * time.Millisecond,
+			"p03-ending":  1 * time.Millisecond,
+		},
+	}
+	liveAssembler := &trackingLivePhotoAssembler{delay: 20 * time.Millisecond}
+	r := Renderer{
+		OutDir:             outDir,
+		ChromePath:         "chrome",
+		Jobs:               3,
+		Runner:             runner,
+		LivePackageBuilder: liveBuilder,
+		LivePhotoAssembler: liveAssembler,
+		Animated:           animatedOptions{Enabled: false, Format: "webp", DurationMS: 2400, FPS: 8},
+		Live:               liveOptions{Enabled: true, PhotoFormat: "jpeg", CoverFrame: "middle", Assemble: true, OutputDir: filepath.Join(outDir, "apple-live")},
+	}
+	d := sampleDeck(outDir)
+
+	result, err := r.Render(d)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if !reflect.DeepEqual(result, RenderResult{}) {
+		t.Fatalf("Render() result = %#v, want empty", result)
+	}
+	if got := liveAssembler.max(); got != 1 {
+		t.Fatalf("max concurrent live assemble = %d, want 1", got)
+	}
+	gotNames := make([]string, 0, len(liveAssembler.snapshotTasks()))
+	for _, task := range liveAssembler.snapshotTasks() {
+		gotNames = append(gotNames, task.PageName)
+	}
+	wantNames := []string{"p01-cover", "p02-bullets", "p03-ending"}
+	if !reflect.DeepEqual(gotNames, wantNames) {
+		t.Fatalf("assemble order = %#v, want %#v", gotNames, wantNames)
 	}
 }
 

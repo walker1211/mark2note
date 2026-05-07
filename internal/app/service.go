@@ -41,6 +41,7 @@ type Options struct {
 	OutDirChanged           bool
 	Theme                   string
 	Author                  string
+	PromptExtra             string
 	Animated                AnimatedOptions
 	Live                    LiveOptions
 	AnimatedEnabledChanged  bool
@@ -69,11 +70,13 @@ type DeckRenderer interface {
 }
 
 type Service struct {
-	LoadConfig    func(string) (*config.Config, error)
-	ReadFile      func(string) ([]byte, error)
-	BuildDeckJSON func(*config.Config, string) (string, error)
-	NewRenderer   func(Options) DeckRenderer
-	Now           func() time.Time
+	LoadConfig      func(string) (*config.Config, error)
+	ReadFile        func(string) ([]byte, error)
+	BuildDeckJSON   func(*config.Config, string) (string, error)
+	NewRenderer     func(Options) DeckRenderer
+	Now             func() time.Time
+	PromptExtra     string
+	AICommandRunner ai.CommandRunner
 }
 
 var (
@@ -104,6 +107,7 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("%w: %v", ErrReadMarkdown, err)
 	}
 
+	s.PromptExtra = opts.PromptExtra
 	rawJSON, err := s.effectiveBuildDeckJSON()(cfg, string(markdownBytes))
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %w", ErrBuildDeckJSON, err)
@@ -199,7 +203,7 @@ func (s Service) effectiveBuildDeckJSON() func(*config.Config, string) (string, 
 		return s.BuildDeckJSON
 	}
 	return func(cfg *config.Config, markdown string) (string, error) {
-		b := ai.Builder{}
+		b := ai.Builder{PromptExtra: s.PromptExtra, Runner: s.AICommandRunner}
 		b.SetCommand(cfg.AI.Command, cfg.AI.Args)
 		return b.BuildDeckJSON(markdown)
 	}

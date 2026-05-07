@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const deckPrompt = `你是一个严格的 JSON 生成器。
+const deckPromptConstraints = `你是一个严格的 JSON 生成器。
 请把输入的 Markdown 内容转换成 3-12 页动态小红书预览 deck JSON。
 要求：
 1. 只能输出 JSON，不要输出解释、代码块或额外文本
@@ -34,10 +34,10 @@ const deckPrompt = `你是一个严格的 JSON 生成器。
 14. 在允许的字段中，必须保留 fenced code block（例如 body、note、tip），而不是改写成普通描述文本
 15. title/subtitle/cta/items/steps/compare 字段禁止承载 fenced code block；当字段不支持 block-level 代码块时，禁止把 fenced code block 塞进该字段
 16. 如果为了适配页型而改写原句，仍然必须把原文中的重点词保留为 **bold**，不能把强调语义改写丢失成普通文本
-17. 如果原文某些术语已使用行内代码反引号表示，改写后必须保留该行内代码语义，不得去掉
+17. 如果原文某些术语已使用行内代码反引号表示，改写后必须保留该行内代码语义，不得去掉`
 
-Markdown 如下：
-`
+const deckPromptMarkdownFooter = "\n\nMarkdown 如下：\n"
+const promptExtraIntro = "以下是本次生成的额外偏好，请在不违反以上 JSON 结构、字段约束和页型约束的前提下尽量满足："
 
 var (
 	ErrAICommandFailed = errors.New("ai command failed")
@@ -50,9 +50,24 @@ type CommandRunner interface {
 }
 
 type Builder struct {
-	Command string
-	Args    []string
-	Runner  CommandRunner
+	Command     string
+	Args        []string
+	PromptExtra string
+	Runner      CommandRunner
+}
+
+func buildDeckPrompt(markdown, promptExtra string) string {
+	var sb strings.Builder
+	sb.WriteString(deckPromptConstraints)
+	if extra := strings.TrimSpace(promptExtra); extra != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(promptExtraIntro)
+		sb.WriteString("\n")
+		sb.WriteString(extra)
+	}
+	sb.WriteString(deckPromptMarkdownFooter)
+	sb.WriteString(markdown)
+	return sb.String()
 }
 
 type execRunner struct{}
@@ -87,7 +102,7 @@ func (b Builder) BuildDeckJSON(markdown string) (string, error) {
 	if shouldUseBareOutput(b.Command, b.Args) && !containsArg(args, "--bare") {
 		args = append(args, "--bare")
 	}
-	args = append(args, "-p", deckPrompt+"\n"+markdown)
+	args = append(args, "-p", buildDeckPrompt(markdown, b.PromptExtra))
 	stdout, stderr, err := b.effectiveRunner().Run(b.Command, args...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
