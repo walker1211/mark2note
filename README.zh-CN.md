@@ -29,6 +29,22 @@
 - `exiftool`（启用 Live package 导出时需要）
 - `makelive`（仅在启用最终 Apple Live Photo 组装时需要）
 
+## 安装
+
+优先从 [GitHub Releases](https://github.com/walker1211/mark2note/releases) 下载适合你平台的归档，例如：
+
+```bash
+tar -xzf mark2note_<tag>_<os>_<arch>.tar.gz
+./mark2note --help
+```
+
+如果需要本地开发，也可以从源码构建：
+
+```bash
+bash ./build.sh
+./mark2note --help
+```
+
 ## 快速开始
 
 ### 1. 初始化配置

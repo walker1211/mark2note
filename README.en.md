@@ -1,6 +1,6 @@
 # mark2note
 
-[Landing Page](./README.md) | [中文文档](./README.zh-CN.md)
+[Landing Page](./README.md) | [中文](./README.zh-CN.md)
 
 `mark2note` converts Markdown into presentation assets through the flow: Markdown -> AI deck JSON -> HTML / PNG.
 
@@ -28,6 +28,22 @@ The `capture-html` command is also a public CLI subcommand that converts existin
 - `ffmpeg` (required when MP4 or Live export is enabled)
 - `exiftool` (required when Live package export is enabled)
 - `makelive` (required only when final Apple Live Photo assembly is enabled)
+
+## Install
+
+Prefer downloading the archive for your platform from [GitHub Releases](https://github.com/walker1211/mark2note/releases), for example:
+
+```bash
+tar -xzf mark2note_<tag>_<os>_<arch>.tar.gz
+./mark2note --help
+```
+
+You can also build from source when developing locally:
+
+```bash
+bash ./build.sh
+./mark2note --help
+```
 
 ## Quick Start
 

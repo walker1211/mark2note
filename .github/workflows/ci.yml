@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 on:
   push:
@@ -14,34 +14,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
+  test:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Secret scan
         run: bash ./scripts/secret-scan.sh --current --history
 
-      - uses: actions/setup-go@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: true
 
-      - name: Check formatting
+      - name: Check gofmt
         run: |
           set -euo pipefail
-          unformatted=$(gofmt -l $(find . -name '*.go' -type f))
+          unformatted=$(find . -name '*.go' -type f -print0 | xargs -0 gofmt -l)
           if [ -n "$unformatted" ]; then
             printf '%s\n' "$unformatted"
             exit 1
           fi
 
-      - name: Go vet
+      - name: Run go vet
         run: go vet ./...
 
-      - name: Go test
+      - name: Run tests
         run: go test ./...
 
       - name: Build
