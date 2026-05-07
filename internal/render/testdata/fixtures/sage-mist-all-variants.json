@@ -1,5 +1,5 @@
 {
-  "theme": "lifestyle-light",
+  "theme": "sage-mist",
   "pages": [
     {
       "name": "p01-cover",
@@ -11,8 +11,8 @@
         "cta": "cta1"
       },
       "content": {
-        "title": "生活感封面",
-        "subtitle": "生活感副标题"
+        "title": "暖纸封面",
+        "subtitle": "暖纸副标题"
       }
     },
     {
@@ -25,8 +25,8 @@
         "cta": "cta2"
       },
       "content": {
-        "title": "生活感引用",
-        "quote": "先做成，再做美。",
+        "title": "暖纸引用",
+        "quote": "先结论，再补背景。",
         "note": "说明",
         "tip": "提示"
       }
@@ -41,8 +41,8 @@
         "cta": "cta3"
       },
       "content": {
-        "title": "生活感图文",
-        "body": "生活感说明"
+        "title": "暖纸图文",
+        "body": "暖纸说明"
       }
     },
     {
@@ -55,7 +55,7 @@
         "cta": "cta4"
       },
       "content": {
-        "title": "生活感列表",
+        "title": "暖纸列表",
         "items": [
           "一",
           "二",
@@ -73,14 +73,14 @@
         "cta": "cta5"
       },
       "content": {
-        "title": "生活感对比",
+        "title": "暖纸对比",
         "compare": {
           "leftLabel": "旧",
           "rightLabel": "新",
           "rows": [
             {
-              "left": "硬",
-              "right": "柔"
+              "left": "慢",
+              "right": "快"
             }
           ]
         }
@@ -96,7 +96,7 @@
         "cta": "cta6"
       },
       "content": {
-        "title": "生活感步骤",
+        "title": "暖纸步骤",
         "steps": [
           "一",
           "二"
@@ -113,8 +113,8 @@
         "cta": "cta7"
       },
       "content": {
-        "title": "生活感结尾",
-        "body": "生活感总结"
+        "title": "暖纸结尾",
+        "body": "暖纸总结"
       }
     }
   ]

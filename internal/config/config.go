@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"time"
@@ -27,9 +28,11 @@ type AICfg struct {
 }
 
 type DeckCfg struct {
-	Theme     string       `yaml:"theme"`
-	Author    string       `yaml:"author"`
-	Watermark WatermarkCfg `yaml:"watermark"`
+	Theme        string            `yaml:"theme"`
+	ThemeMode    string            `yaml:"theme_mode"`
+	WeeklyThemes map[string]string `yaml:"weekly_themes"`
+	Author       string            `yaml:"author"`
+	Watermark    WatermarkCfg      `yaml:"watermark"`
 }
 
 type WatermarkCfg struct {
@@ -157,6 +160,40 @@ func parseConfigDuration(value string) (time.Duration, error) {
 	return parsed, nil
 }
 
+var defaultDeckWeeklyThemes = map[string]string{
+	"mon": "default",
+	"tue": "warm-paper",
+	"wed": "editorial-cool",
+	"thu": "plum-ink",
+	"fri": "sage-mist",
+	"sat": "fresh-green",
+	"sun": "tech-noir",
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	out := make(map[string]string, len(input))
+	maps.Copy(out, input)
+	return out
+}
+
+func validDeckWeekday(value string) bool {
+	switch value {
+	case "mon", "tue", "wed", "thu", "fri", "sat", "sun":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateDeckThemeMode(value string) error {
+	switch strings.TrimSpace(value) {
+	case "fixed", "weekly":
+		return nil
+	default:
+		return fmt.Errorf("unsupported value %q", value)
+	}
+}
+
 func normalizeRawConfig(raw rawConfig) (Config, error) {
 	importTimeout, err := parseConfigDuration(raw.Render.ImportTimeout)
 	if err != nil {
@@ -216,6 +253,23 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.Deck.Theme == "" {
 		cfg.Deck.Theme = "default"
+	}
+	cfg.Deck.Theme = strings.TrimSpace(cfg.Deck.Theme)
+	if cfg.Deck.ThemeMode == "" {
+		cfg.Deck.ThemeMode = "weekly"
+	}
+	cfg.Deck.ThemeMode = strings.TrimSpace(cfg.Deck.ThemeMode)
+	if err := validateDeckThemeMode(cfg.Deck.ThemeMode); err != nil {
+		return nil, fmt.Errorf("validate deck.theme_mode: %w", err)
+	}
+	if cfg.Deck.WeeklyThemes == nil {
+		cfg.Deck.WeeklyThemes = cloneStringMap(defaultDeckWeeklyThemes)
+	}
+	for day, theme := range cfg.Deck.WeeklyThemes {
+		if !validDeckWeekday(day) {
+			return nil, fmt.Errorf("validate deck.weekly_themes.%s: unsupported weekday", day)
+		}
+		cfg.Deck.WeeklyThemes[day] = strings.TrimSpace(theme)
 	}
 	if cfg.Deck.Watermark.Enabled == nil {
 		enabled := true

@@ -228,11 +228,9 @@ func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, sourc
 	if opts.Live.ImportPhotos && opts.Live.ImportTimeout <= 0 {
 		return Result{}, fmt.Errorf("%w: invalid parameter: live import timeout must be > 0", ErrRenderPreview)
 	}
-	preserveSavedPageThemeKeys := source.FromDeck && len(d.PageThemeKeys) > 0
 	if meta != nil {
 		if len(meta.PageThemeKeys) > 0 {
 			d.PageThemeKeys = append([]string(nil), meta.PageThemeKeys...)
-			preserveSavedPageThemeKeys = true
 		}
 		if meta.Viewport.Width > 0 && opts.ViewportWidth == 0 {
 			opts.ViewportWidth = meta.Viewport.Width
@@ -258,8 +256,9 @@ func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, sourc
 	if meta != nil {
 		metaTheme = meta.Theme
 	}
-	d.ThemeName = resolveThemeWithPrecedence(opts.Theme, metaTheme, cfg.Deck.Theme, d.ThemeName)
-	if err := assignPageThemesForRender(&d, preserveSavedPageThemeKeys); err != nil {
+	configTheme := resolveConfigDeckTheme(cfg.Deck, s.effectiveNow()())
+	d.ThemeName = resolveThemeWithPrecedence(opts.Theme, metaTheme, configTheme, d.ThemeName)
+	if err := assignPageThemesForRender(&d); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
 	d.ViewportWidth = opts.ViewportWidth
@@ -324,15 +323,9 @@ func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, sourc
 	return result, nil
 }
 
-func assignPageThemesForRender(d *deck.Deck, preserveSavedKeys bool) error {
-	if d.ThemeName != deck.ThemeShuffleLight {
-		d.PageThemeKeys = nil
-		return d.Validate()
-	}
-	if preserveSavedKeys {
-		return d.Validate()
-	}
-	return deck.AssignPageThemesForDeck(d)
+func assignPageThemesForRender(d *deck.Deck) error {
+	d.PageThemeKeys = nil
+	return d.Validate()
 }
 
 func (s Service) effectiveLoadConfig() func(string) (*config.Config, error) {
@@ -528,16 +521,25 @@ func defaultDeckOutputDirName(fromDeckPath string, now time.Time) string {
 	return parent + "-" + now.Format("20060102-150405")
 }
 
+func resolveConfigDeckTheme(cfg config.DeckCfg, now time.Time) string {
+	if strings.TrimSpace(cfg.ThemeMode) != "weekly" {
+		return strings.TrimSpace(cfg.Theme)
+	}
+	weekday := strings.ToLower(now.Weekday().String()[:3])
+	weeklyTheme := strings.TrimSpace(cfg.WeeklyThemes[weekday])
+	if weeklyTheme != "" {
+		return weeklyTheme
+	}
+	return strings.TrimSpace(cfg.Theme)
+}
+
 func resolveThemeWithPrecedence(values ...string) string {
 	for _, value := range values {
 		trimmed := strings.TrimSpace(value)
 		if trimmed == "" {
 			continue
 		}
-		resolved := deck.ResolveDeckTheme(trimmed)
-		if trimmed == deck.ThemeDefault || resolved != deck.ThemeDefault {
-			return resolved
-		}
+		return deck.ResolveDeckTheme(trimmed)
 	}
 	return deck.ThemeDefault
 }

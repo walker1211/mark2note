@@ -235,15 +235,14 @@ func TestServiceGenerateFromDeckReadsDeckAndSkipsMarkdownBuilder(t *testing.T) {
 	if r.called != 1 {
 		t.Fatalf("renderer called %d times, want 1", r.called)
 	}
-	if r.rendered.ThemeName != deck.ThemeShuffleLight {
+	if r.rendered.ThemeName != deck.ThemeDefault {
 		t.Fatalf("rendered ThemeName = %q", r.rendered.ThemeName)
 	}
 	if r.rendered.ViewportWidth != 720 || r.rendered.ViewportHeight != 960 {
 		t.Fatalf("rendered viewport = %dx%d, want 720x960", r.rendered.ViewportWidth, r.rendered.ViewportHeight)
 	}
-	wantPageThemeKeys := []string{"default-green", "lifestyle-light", "default-orange"}
-	if !reflect.DeepEqual(r.rendered.PageThemeKeys, wantPageThemeKeys) {
-		t.Fatalf("PageThemeKeys = %#v, want %#v", r.rendered.PageThemeKeys, wantPageThemeKeys)
+	if len(r.rendered.PageThemeKeys) != 0 {
+		t.Fatalf("PageThemeKeys = %#v, want empty", r.rendered.PageThemeKeys)
 	}
 	if result.PageCount != 3 {
 		t.Fatalf("PageCount = %d, want 3", result.PageCount)
@@ -264,7 +263,7 @@ func TestServiceGenerateFromDeckUsesRenderMetaBeforeConfigDefaults(t *testing.T)
 	cfg := &config.Config{
 		Output: config.OutputCfg{Dir: t.TempDir()},
 		Deck: config.DeckCfg{
-			Theme:  deck.ThemeTechNoir,
+			Theme:  deck.ThemeDefault,
 			Author: "配置作者",
 			Watermark: config.WatermarkCfg{
 				Text:     "配置水印",
@@ -293,8 +292,8 @@ func TestServiceGenerateFromDeckUsesRenderMetaBeforeConfigDefaults(t *testing.T)
 	if err != nil {
 		t.Fatalf("GenerateFromDeck() error = %v", err)
 	}
-	if r.rendered.ThemeName != deck.ThemeShuffleLight {
-		t.Fatalf("ThemeName = %q, want shuffle-light", r.rendered.ThemeName)
+	if r.rendered.ThemeName != deck.ThemeDefault {
+		t.Fatalf("ThemeName = %q, want default", r.rendered.ThemeName)
 	}
 	if r.rendered.ViewportWidth != 720 || r.rendered.ViewportHeight != 960 {
 		t.Fatalf("viewport = %dx%d, want 720x960", r.rendered.ViewportWidth, r.rendered.ViewportHeight)
@@ -384,7 +383,7 @@ func TestServiceGenerateFromDeckCLIThemeOverridesRenderMeta(t *testing.T) {
 	}
 }
 
-func TestServiceGenerateFromDeckRejectsMalformedRenderMetaPageThemeKeys(t *testing.T) {
+func TestServiceGenerateFromDeckIgnoresMalformedRenderMetaPageThemeKeys(t *testing.T) {
 	deckDir := t.TempDir()
 	deckPath := filepath.Join(deckDir, "deck.json")
 	deckJSON := `{"theme":"shuffle-light","viewport":{"width":720,"height":960},"page_theme_keys":["default-green","lifestyle-light","default-orange"],"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
@@ -413,14 +412,14 @@ func TestServiceGenerateFromDeckRejectsMalformedRenderMetaPageThemeKeys(t *testi
 	}
 
 	_, err := svc.GenerateFromDeck(Options{FromDeckPath: deckPath, ConfigPath: "config.yaml", Jobs: 2})
-	if err == nil {
-		t.Fatalf("GenerateFromDeck() error = nil, want malformed page_theme_keys error")
+	if err != nil {
+		t.Fatalf("GenerateFromDeck() error = %v", err)
 	}
-	if !errors.Is(err, ErrParseDeck) {
-		t.Fatalf("GenerateFromDeck() error = %v, want ErrParseDeck", err)
+	if r.called != 1 {
+		t.Fatalf("renderer called %d times, want 1", r.called)
 	}
-	if r.called != 0 {
-		t.Fatalf("renderer called %d times, want 0", r.called)
+	if len(r.rendered.PageThemeKeys) != 0 {
+		t.Fatalf("PageThemeKeys = %#v, want empty", r.rendered.PageThemeKeys)
 	}
 }
 
@@ -550,7 +549,7 @@ func TestServiceGenerateFromDeckWritesFreshLayoutArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deck.FromJSON(output deck.json) error = %v", err)
 	}
-	if reloadedDeck.ThemeName != deck.ThemeShuffleLight || reloadedDeck.ViewportWidth != 720 || reloadedDeck.ViewportHeight != 960 {
+	if reloadedDeck.ThemeName != deck.ThemeDefault || reloadedDeck.ViewportWidth != 720 || reloadedDeck.ViewportHeight != 960 {
 		t.Fatalf("reloaded deck = %#v", reloadedDeck)
 	}
 	metaBytes, err := os.ReadFile(filepath.Join(outDir, "render-meta.json"))
@@ -606,7 +605,7 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 	cfg := &config.Config{
 		Output: config.OutputCfg{Dir: t.TempDir()},
 		Deck: config.DeckCfg{
-			Theme:  deck.ThemeShuffleLight,
+			Theme:  deck.ThemeDefault,
 			Author: "全局作者",
 			Watermark: config.WatermarkCfg{
 				Text:     "水印",
@@ -646,14 +645,14 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 	if err := json.Unmarshal(deckBytes, &savedDeck); err != nil {
 		t.Fatalf("json.Unmarshal(deck.json) error = %v", err)
 	}
-	if savedDeck.Theme != deck.ThemeShuffleLight {
-		t.Fatalf("saved deck theme = %q, want shuffle-light", savedDeck.Theme)
+	if savedDeck.Theme != deck.ThemeDefault {
+		t.Fatalf("saved deck theme = %q, want default", savedDeck.Theme)
 	}
 	if savedDeck.Viewport.Width != 720 || savedDeck.Viewport.Height != 960 {
 		t.Fatalf("saved deck viewport = %#v", savedDeck.Viewport)
 	}
-	if len(savedDeck.PageThemeKeys) != 3 {
-		t.Fatalf("saved deck page_theme_keys = %#v, want 3 assignments", savedDeck.PageThemeKeys)
+	if len(savedDeck.PageThemeKeys) != 0 {
+		t.Fatalf("saved deck page_theme_keys = %#v, want empty", savedDeck.PageThemeKeys)
 	}
 	gotPageNames := []string{savedDeck.Pages[0].Name, savedDeck.Pages[1].Name, savedDeck.Pages[2].Name}
 	wantPageNames := []string{"p01-cover", "p02-bullets", "p03-ending"}
@@ -664,7 +663,7 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deck.FromJSON(deck.json) error = %v", err)
 	}
-	if reloadedDeck.ThemeName != deck.ThemeShuffleLight || reloadedDeck.ViewportWidth != 720 || reloadedDeck.ViewportHeight != 960 {
+	if reloadedDeck.ThemeName != deck.ThemeDefault || reloadedDeck.ViewportWidth != 720 || reloadedDeck.ViewportHeight != 960 {
 		t.Fatalf("reloaded deck theme/viewport = %#v", reloadedDeck)
 	}
 	if !reflect.DeepEqual(reloadedDeck.PageThemeKeys, savedDeck.PageThemeKeys) {
@@ -696,7 +695,7 @@ func TestServiceGeneratePreviewWritesLayoutArtifacts(t *testing.T) {
 	if meta.SchemaVersion != 1 || meta.InputPath != "article.md" || meta.ConfigPath != "config.yaml" {
 		t.Fatalf("render meta identity = %#v", meta)
 	}
-	if meta.Theme != deck.ThemeShuffleLight || meta.Viewport.Width != 720 || meta.Viewport.Height != 960 {
+	if meta.Theme != deck.ThemeDefault || meta.Viewport.Width != 720 || meta.Viewport.Height != 960 {
 		t.Fatalf("render meta theme/viewport = %#v", meta)
 	}
 	if meta.AuthorText != "@全局作者" || !meta.ShowWatermark || meta.WatermarkText != "水印" || meta.WatermarkPosition != "bottom-left" {
@@ -1321,16 +1320,174 @@ func TestServiceGeneratePreviewFallsBackToConfigThemeAndAuthor(t *testing.T) {
 	}
 }
 
-func TestResolveThemeWithPrecedenceAcceptsShuffleLight(t *testing.T) {
-	if got := resolveThemeWithPrecedence("", deck.ThemeShuffleLight, deck.ThemeDefault); got != deck.ThemeShuffleLight {
-		t.Fatalf("resolveThemeWithPrecedence() = %q, want %q", got, deck.ThemeShuffleLight)
+func TestServiceGeneratePreviewUsesWeeklyDeckTheme(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: t.TempDir()},
+		Deck: config.DeckCfg{
+			Theme:     deck.ThemeWarmPaper,
+			ThemeMode: "weekly",
+			WeeklyThemes: map[string]string{
+				"mon": deck.ThemePlumInk,
+				"wed": deck.ThemeSageMist,
+			},
+		},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+		Now:           func() time.Time { return time.Date(2026, 4, 29, 10, 0, 0, 0, time.Local) },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if r.rendered.ThemeName != deck.ThemeSageMist {
+		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeSageMist)
 	}
 }
 
-func TestServiceGeneratePreviewAssignsShuffleLightPageThemesAfterThemeOverride(t *testing.T) {
+func TestServiceGeneratePreviewFallsBackToFixedThemeWhenWeeklyDayMissing(t *testing.T) {
 	cfg := &config.Config{
 		Output: config.OutputCfg{Dir: t.TempDir()},
-		Deck:   config.DeckCfg{Theme: deck.ThemeShuffleLight},
+		Deck: config.DeckCfg{
+			Theme:     deck.ThemeWarmPaper,
+			ThemeMode: "weekly",
+			WeeklyThemes: map[string]string{
+				"mon": deck.ThemePlumInk,
+			},
+		},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+		Now:           func() time.Time { return time.Date(2026, 5, 3, 10, 0, 0, 0, time.Local) },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if r.rendered.ThemeName != deck.ThemeWarmPaper {
+		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeWarmPaper)
+	}
+}
+
+func TestServiceGeneratePreviewThemeOverrideBeatsWeeklyTheme(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: t.TempDir()},
+		Deck: config.DeckCfg{
+			Theme:     deck.ThemeWarmPaper,
+			ThemeMode: "weekly",
+			WeeklyThemes: map[string]string{
+				"wed": deck.ThemeSageMist,
+			},
+		},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+		Now:           func() time.Time { return time.Date(2026, 4, 29, 10, 0, 0, 0, time.Local) },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Theme: deck.ThemePlumInk})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if r.rendered.ThemeName != deck.ThemePlumInk {
+		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemePlumInk)
+	}
+}
+
+func TestResolveThemeWithPrecedenceAcceptsDefault(t *testing.T) {
+	if got := resolveThemeWithPrecedence("", deck.ThemeDefault, deck.ThemeWarmPaper); got != deck.ThemeDefault {
+		t.Fatalf("resolveThemeWithPrecedence() = %q, want %q", got, deck.ThemeDefault)
+	}
+}
+
+func TestResolveThemeWithPrecedenceFallsBackToDefaultForFirstUnknownValue(t *testing.T) {
+	if got := resolveThemeWithPrecedence("shuffle-light", deck.ThemeWarmPaper); got != deck.ThemeDefault {
+		t.Fatalf("resolveThemeWithPrecedence() = %q, want %q", got, deck.ThemeDefault)
+	}
+}
+
+func TestServiceGeneratePreviewRetiredOverrideFallsBackToDefaultBeforeWeeklyTheme(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: t.TempDir()},
+		Deck: config.DeckCfg{
+			Theme:     deck.ThemeWarmPaper,
+			ThemeMode: "weekly",
+			WeeklyThemes: map[string]string{
+				"wed": deck.ThemeSageMist,
+			},
+		},
+	}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+		Now:           func() time.Time { return time.Date(2026, 4, 29, 10, 0, 0, 0, time.Local) },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, Theme: "shuffle-light"})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if r.rendered.ThemeName != deck.ThemeDefault {
+		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeDefault)
+	}
+}
+
+func TestServiceGenerateFromDeckRetiredMetaThemeFallsBackToDefaultBeforeConfig(t *testing.T) {
+	deckDir := t.TempDir()
+	deckPath := filepath.Join(deckDir, "deck.json")
+	deckJSON := `{"theme":"fresh-green","viewport":{"width":720,"height":960},"pages":[{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	metaJSON := `{"schema_version":1,"theme":"editorial-mono","viewport":{"width":720,"height":960}}`
+	if err := os.WriteFile(deckPath, []byte(deckJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(deck) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(deckDir, "render-meta.json"), []byte(metaJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(meta) error = %v", err)
+	}
+
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: t.TempDir()},
+		Deck:   config.DeckCfg{Theme: deck.ThemeTechNoir},
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:  func(string) (*config.Config, error) { return cfg, nil },
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GenerateFromDeck(Options{FromDeckPath: deckPath, ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GenerateFromDeck() error = %v", err)
+	}
+	if r.rendered.ThemeName != deck.ThemeDefault {
+		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeDefault)
+	}
+}
+
+func TestServiceGeneratePreviewClearsPageThemeKeysForDefault(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: t.TempDir()},
+		Deck:   config.DeckCfg{Theme: deck.ThemeDefault},
 	}
 	deckJSON := `{"theme":"default","pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
 	r := &fakeRenderer{}
@@ -1345,19 +1502,11 @@ func TestServiceGeneratePreviewAssignsShuffleLightPageThemesAfterThemeOverride(t
 	if err != nil {
 		t.Fatalf("GeneratePreview() error = %v", err)
 	}
-	if r.rendered.ThemeName != deck.ThemeShuffleLight {
-		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeShuffleLight)
+	if r.rendered.ThemeName != deck.ThemeDefault {
+		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeDefault)
 	}
-	if len(r.rendered.PageThemeKeys) != len(r.rendered.Pages) {
-		t.Fatalf("len(PageThemeKeys) = %d, want %d", len(r.rendered.PageThemeKeys), len(r.rendered.Pages))
-	}
-	for i, key := range r.rendered.PageThemeKeys {
-		if key == "" {
-			t.Fatalf("PageThemeKeys[%d] is empty", i)
-		}
-		if i > 0 && r.rendered.PageThemeKeys[i-1] == key {
-			t.Fatalf("adjacent shuffle-light keys repeated %q", key)
-		}
+	if len(r.rendered.PageThemeKeys) != 0 {
+		t.Fatalf("PageThemeKeys = %#v, want empty", r.rendered.PageThemeKeys)
 	}
 }
 
@@ -1489,7 +1638,7 @@ func TestServiceGeneratePreviewFallsBackToDefaultWatermarkPositionWhenInvalid(t 
 	}
 }
 
-func TestServiceGeneratePreviewFallsBackToConfigThemeWhenOverrideThemeIsInvalid(t *testing.T) {
+func TestServiceGeneratePreviewFallsBackToDefaultWhenOverrideThemeIsInvalid(t *testing.T) {
 	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, Deck: config.DeckCfg{Theme: deck.ThemeEditorialCool}}
 	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
 	r := &fakeRenderer{}
@@ -1504,8 +1653,8 @@ func TestServiceGeneratePreviewFallsBackToConfigThemeWhenOverrideThemeIsInvalid(
 	if err != nil {
 		t.Fatalf("GeneratePreview() error = %v", err)
 	}
-	if r.rendered.ThemeName != deck.ThemeEditorialCool {
-		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeEditorialCool)
+	if r.rendered.ThemeName != deck.ThemeDefault {
+		t.Fatalf("ThemeName = %q, want %q", r.rendered.ThemeName, deck.ThemeDefault)
 	}
 }
 

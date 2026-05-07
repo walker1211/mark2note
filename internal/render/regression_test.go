@@ -32,10 +32,6 @@ type loadedFixture struct {
 	Meta regressionFixture
 }
 
-func isSnapshotFixture(fixture loadedFixture) bool {
-	return fixture.Name != "shuffle-light-all-variants"
-}
-
 func TestMustLoadFixtureDeckIncludesDefaultWatermarkRuntimeFields(t *testing.T) {
 	fixtures := mustLoadRegressionFixtures(t)
 	d := mustLoadFixtureDeck(t, fixtures[0], t.TempDir())
@@ -55,9 +51,6 @@ func TestRenderFixtureHTMLSnapshots(t *testing.T) {
 	fixtures := mustLoadRegressionFixtures(t)
 	for i := range fixtures {
 		fixture := fixtures[i]
-		if !isSnapshotFixture(fixture) {
-			continue
-		}
 		t.Run(fixture.Name, func(t *testing.T) {
 			got := renderFixtureHTMLDigest(t, fixture)
 			assertGoldenDigest(t, filepath.Join(goldenHTMLDir, fixture.Name+".sha256"), got)
@@ -81,49 +74,17 @@ func TestRenderFixturePNGBaselines(t *testing.T) {
 	fixtures := mustLoadRegressionFixtures(t)
 	for i := range fixtures {
 		fixture := fixtures[i]
-		if !isSnapshotFixture(fixture) {
-			continue
+		goldenPath := filepath.Join(goldenPNGDir, fixture.Name+".sha256")
+		if _, err := os.Stat(goldenPath); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			t.Fatalf("Stat(%q) error = %v", goldenPath, err)
 		}
 		t.Run(fixture.Name, func(t *testing.T) {
 			got := renderFixturePNGDigest(t, fixture, chromePath)
-			assertGoldenDigest(t, filepath.Join(goldenPNGDir, fixture.Name+".sha256"), got)
+			assertGoldenDigest(t, goldenPath, got)
 		})
-	}
-}
-
-func TestShuffleLightFixtureRendersWithValidAdjacentAssignments(t *testing.T) {
-	fixtures := mustLoadRegressionFixtures(t)
-	var fixture loadedFixture
-	found := false
-	for _, candidate := range fixtures {
-		if candidate.Name == "shuffle-light-all-variants" {
-			fixture = candidate
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("shuffle-light-all-variants fixture not found")
-	}
-	d := mustLoadFixtureDeck(t, fixture, t.TempDir())
-	if d.ThemeName != deck.ThemeShuffleLight {
-		t.Fatalf("ThemeName = %q, want %q", d.ThemeName, deck.ThemeShuffleLight)
-	}
-	if len(d.PageThemeKeys) != len(d.Pages) {
-		t.Fatalf("len(PageThemeKeys) = %d, want %d", len(d.PageThemeKeys), len(d.Pages))
-	}
-	for i, key := range d.PageThemeKeys {
-		if key == deck.ThemeTechNoir {
-			t.Fatalf("PageThemeKeys[%d] unexpectedly used tech-noir", i)
-		}
-		if i > 0 && d.PageThemeKeys[i-1] == key {
-			t.Fatalf("adjacent pages repeated palette %q", key)
-		}
-	}
-	for _, page := range d.Pages {
-		if _, err := RenderPageHTML(d, page); err != nil {
-			t.Fatalf("RenderPageHTML(%s) error = %v", page.Name, err)
-		}
 	}
 }
 

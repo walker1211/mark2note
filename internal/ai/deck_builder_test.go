@@ -95,6 +95,12 @@ func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	if !strings.Contains(prompt, "badge、counter、theme、cta") {
 		t.Fatalf("prompt missing required meta fields: %q", prompt)
 	}
+	if !strings.Contains(prompt, "meta.theme 保留为兼容字段，可使用 default") {
+		t.Fatalf("prompt missing legacy meta.theme guidance: %q", prompt)
+	}
+	if strings.Contains(prompt, "meta.theme 只能使用 orange 或 green") {
+		t.Fatalf("prompt still contains old visual meta.theme constraint: %q", prompt)
+	}
 	if !strings.Contains(prompt, "cover 只能使用 title/subtitle") {
 		t.Fatalf("prompt missing cover content whitelist: %q", prompt)
 	}
