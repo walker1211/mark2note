@@ -78,7 +78,7 @@ Flags:
   --prompt-extra <text>      extra natural-language guidance for deck generation
   --asset-manifest <file>    poster asset manifest for list/article cover cards
   --auto-posters             automatically search poster candidates and hydrate cover cards
-  --poster-sources <csv>     poster providers for --auto-posters (default: anilist,mydramalist)
+  --poster-sources <csv>     poster providers for --auto-posters (default: bilibili,bangumi,anilist,mydramalist)
   --publish-xhs              publish generated PNG files to Xiaohongshu after render
   --xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs
   --import-photos            import generated PNG files into Apple Photos after export
@@ -167,11 +167,11 @@ Usage:
 Flags:
   --input <file.md>       markdown input path (required)
   --out <posters.yaml>    manifest output path (default: posters.yaml)
-  --poster-sources <csv>  poster providers (default: anilist,mydramalist)
+  --poster-sources <csv>  poster providers (default: bilibili,bangumi,anilist,mydramalist)
 
 Examples:
   mark2note enrich-posters --input ./example.md --out ./posters.yaml
-  mark2note enrich-posters --input ./example.md --out ./posters.yaml --poster-sources anilist,mydramalist`
+  mark2note enrich-posters --input ./example.md --out ./posters.yaml --poster-sources bilibili,bangumi,anilist,mydramalist`
 }
 
 func publishXHSUsageText() string {

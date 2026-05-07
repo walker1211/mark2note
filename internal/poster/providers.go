@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const maxProviderResponseBytes = 4 * 1024 * 1024
@@ -38,12 +39,28 @@ type AniListProvider struct {
 func (p AniListProvider) Name() string { return "anilist" }
 
 func (p AniListProvider) Search(ctx context.Context, title string) ([]Candidate, error) {
+	for _, mediaType := range []string{"ANIME", "MANGA"} {
+		candidates, err := p.searchMedia(ctx, title, mediaType)
+		if err != nil {
+			return nil, err
+		}
+		if mediaType == "MANGA" || !hasEastAsianScript(title) {
+			candidates = highConfidenceCandidates(candidates)
+		}
+		if len(candidates) > 0 {
+			return candidates, nil
+		}
+	}
+	return nil, nil
+}
+
+func (p AniListProvider) searchMedia(ctx context.Context, title string, mediaType string) ([]Candidate, error) {
 	client := p.Client
 	if client == nil {
 		client = http.DefaultClient
 	}
 	payload := map[string]any{
-		"query":     `query ($search:String){ Media(search:$search, type:MANGA){ title{romaji english native} coverImage{extraLarge large} } }`,
+		"query":     fmt.Sprintf(`query ($search:String){ Media(search:$search, type:%s){ title{romaji english native} coverImage{extraLarge large} } }`, mediaType),
 		"variables": map[string]string{"search": title},
 	}
 	body, err := json.Marshal(payload)
@@ -61,6 +78,9 @@ func (p AniListProvider) Search(ctx context.Context, title string) ([]Candidate,
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("anilist status %d", resp.StatusCode)
 	}
@@ -111,7 +131,7 @@ func (p MyDramaListProvider) Search(ctx context.Context, title string) ([]Candid
 		return nil, err
 	}
 	href, matched := firstMyDramaListResult(searchHTML)
-	if href == "" {
+	if href == "" || !titleMatches(title, matched) {
 		return nil, nil
 	}
 	pageURL := "https://mydramalist.com" + href
@@ -123,11 +143,7 @@ func (p MyDramaListProvider) Search(ctx context.Context, title string) ([]Candid
 	if image == "" {
 		return nil, nil
 	}
-	confidence := "medium"
-	if normalizeTitle(title) == normalizeTitle(matched) {
-		confidence = "high"
-	}
-	return []Candidate{{Title: matched, ImageURL: image, Source: p.Name(), Confidence: confidence, Reason: "MyDramaList search result"}}, nil
+	return []Candidate{{Title: matched, ImageURL: image, Source: p.Name(), Confidence: "high", Reason: "MyDramaList search result"}}, nil
 }
 
 func DefaultProviders(sources []string, client HTTPClient) []Provider {
@@ -137,7 +153,7 @@ func DefaultProviders(sources []string, client HTTPClient) []Provider {
 
 func ProvidersForSources(sources []string, client HTTPClient) ([]Provider, error) {
 	if len(sources) == 0 {
-		sources = []string{"anilist", "mydramalist"}
+		sources = []string{"bilibili", "bangumi", "anilist", "mydramalist"}
 	}
 	providers := make([]Provider, 0, len(sources))
 	for _, source := range sources {
@@ -145,6 +161,10 @@ func ProvidersForSources(sources []string, client HTTPClient) ([]Provider, error
 		switch name {
 		case "", "none":
 			continue
+		case "bilibili":
+			providers = append(providers, &BilibiliProvider{Client: client})
+		case "bangumi":
+			providers = append(providers, BangumiProvider{Client: client})
 		case "anilist":
 			providers = append(providers, AniListProvider{Client: client})
 		case "mydramalist":
@@ -205,6 +225,25 @@ func titleMatches(input string, values ...string) bool {
 	needle := normalizeTitle(input)
 	for _, value := range values {
 		if normalizeTitle(value) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func highConfidenceCandidates(candidates []Candidate) []Candidate {
+	filtered := candidates[:0]
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.Confidence) == "high" {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
+}
+
+func hasEastAsianScript(s string) bool {
+	for _, r := range s {
+		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
 			return true
 		}
 	}

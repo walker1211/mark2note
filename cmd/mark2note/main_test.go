@@ -86,7 +86,7 @@ func TestUsageTextMentionsPromptExtraFlag(t *testing.T) {
 
 func TestUsageTextMentionsPosterAssetFlagsAndCommand(t *testing.T) {
 	text := usageText()
-	for _, want := range []string{"enrich-posters", "--asset-manifest <file>", "poster asset manifest for list/article cover cards", "--auto-posters", "--poster-sources <csv>"} {
+	for _, want := range []string{"enrich-posters", "--asset-manifest <file>", "poster asset manifest for list/article cover cards", "--auto-posters", "--poster-sources <csv>", "default: bilibili,bangumi,anilist,mydramalist"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("usageText() missing %q", want)
 		}

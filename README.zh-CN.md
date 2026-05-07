@@ -101,10 +101,10 @@ posters:
 ./mark2note enrich-posters --input ./article.md --out ./posters.yaml
 ```
 
-当前内置 provider 是 `anilist` 和 `mydramalist`，也可以限制来源：
+当前内置 provider 是 `bilibili`、`bangumi`、`anilist` 和 `mydramalist`，也可以限制来源：
 
 ```bash
-./mark2note enrich-posters --input ./article.md --out ./posters.yaml --poster-sources anilist,mydramalist
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml --poster-sources bilibili,bangumi,anilist,mydramalist
 ```
 
 想一条命令完成「搜候选 + 渲染」，可以用：
@@ -190,7 +190,7 @@ posters:
 - `--asset-manifest` 会在渲染前读取 `posters.yaml` / JSON，把命中的作品封面补进适合的页面；本地图片路径相对 manifest 文件所在目录解析
 - `enrich-posters` 会从 Markdown 中抽取 `《作品名》` 和加粗列表项，调用 provider 搜索封面候选并写出 manifest，建议人工快速检查后再用于正式渲染
 - `--auto-posters` 会在单次 `--input` 渲染中自动搜索封面并补进 deck；如同时传 `--asset-manifest`，手动 manifest 优先
-- `--poster-sources` 可限制 `enrich-posters` / `--auto-posters` 使用的来源，目前支持 `anilist`、`mydramalist`
+- `--poster-sources` 可限制 `enrich-posters` / `--auto-posters` 使用的来源，默认按 `bilibili`、`bangumi`、`anilist`、`mydramalist` 顺序搜索；目前支持 `bilibili`、`bangumi`、`anilist`、`mydramalist`
 - `--publish-xhs` 会在主渲染流程成功生成普通 PNG 后发布到小红书；标题来自 Markdown 一级标题，小红书正文只包含 3-6 个话题
 - 自动发布标题超过 `xhs.publish.title_generation.max_runes` 时，会按 `xhs.publish.title_generation.enabled` 调用同一套 `ai.command` / `ai.args` 改写标题；代码只校验长度，不再本地截断
 - 未传 `--xhs-tags` 时，`--publish-xhs` 会按 `xhs.publish.topic_generation.enabled` 调用同一套 `ai.command` / `ai.args` 生成话题；AI 调用失败、JSON 不合法或没有有效话题时会跳过发布并报错，不再回退到本地规则推理

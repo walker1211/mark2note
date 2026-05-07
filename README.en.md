@@ -101,10 +101,10 @@ To generate a manifest from automatic candidates first, run:
 ./mark2note enrich-posters --input ./article.md --out ./posters.yaml
 ```
 
-The built-in providers are currently `anilist` and `mydramalist`; you can restrict them explicitly:
+The built-in providers are currently `bilibili`, `bangumi`, `anilist`, and `mydramalist`; you can restrict them explicitly:
 
 ```bash
-./mark2note enrich-posters --input ./article.md --out ./posters.yaml --poster-sources anilist,mydramalist
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml --poster-sources bilibili,bangumi,anilist,mydramalist
 ```
 
 For a one-command workflow that searches candidates and renders immediately, use:
@@ -190,7 +190,7 @@ Additional notes:
 - `--asset-manifest` reads a YAML / JSON poster manifest before rendering and hydrates matching work covers into suitable pages; local image paths are resolved relative to the manifest file
 - `enrich-posters` extracts titles from `《work title》` text and bold list leads, searches providers, and writes a manifest; review it before final renders when accuracy matters
 - `--auto-posters` searches poster candidates during a single `--input` render and hydrates the deck immediately; when combined with `--asset-manifest`, the manual manifest wins
-- `--poster-sources` restricts providers for `enrich-posters` / `--auto-posters`; currently supported values are `anilist` and `mydramalist`
+- `--poster-sources` restricts providers for `enrich-posters` / `--auto-posters`; by default it searches `bilibili`, `bangumi`, `anilist`, then `mydramalist`; currently supported values are `bilibili`, `bangumi`, `anilist`, and `mydramalist`
 - `--publish-xhs` publishes to Xiaohongshu after the main render flow successfully generates standard PNG files; the title comes from the Markdown H1 and the body contains only 3-6 topic hashtags
 - When the auto-publish title exceeds `xhs.publish.title_generation.max_runes`, `--publish-xhs` uses the same `ai.command` / `ai.args` to rewrite it according to `xhs.publish.title_generation.enabled`; code validates the length but does not truncate it locally
 - When `--xhs-tags` is omitted, `--publish-xhs` uses the same `ai.command` / `ai.args` to generate topics according to `xhs.publish.topic_generation.enabled`; AI command failures, invalid JSON, or no valid topics skip publishing and return an error instead of falling back to local rule-based inference
