@@ -83,6 +83,15 @@ func TestUsageTextMentionsPromptExtraFlag(t *testing.T) {
 	}
 }
 
+func TestUsageTextMentionsFromDeckFlag(t *testing.T) {
+	text := usageText()
+	for _, want := range []string{"--from-deck <deck.json>", "saved deck layout json input path"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("usageText() missing %q", want)
+		}
+	}
+}
+
 func TestUsageTextMentionsThemeAuthorAndAnimatedFlags(t *testing.T) {
 	text := usageText()
 	for _, want := range []string{"--theme <name>", "--author <name>", "--animated", "--animated-format <name>", "--animated-duration <ms>", "--animated-fps <n>", "--import-photos", "--import-album <name>", "--import-timeout <d>", "import generated PNG files into Apple Photos after export", "Apple Photos album name for imported PNG files", "--live", "--live-photo-format <name>", "--live-cover-frame <name>", "supported: first, middle, last", "--live-assemble", "--live-output-dir <dir>", "--live-import-photos", "--live-import-album", "--live-import-timeout", "page animation timeline duration; also affects Live motion timing", "animation capture fps / sampling density; affects Animated WebP/MP4 output and Live frame sampling", "deck.theme", "deck.author", "default / warm-paper / editorial-cool / lifestyle-light / tech-noir / editorial-mono", "one-off deck theme override", "one-off cover author input (blank falls back to deck.author)"} {
@@ -174,6 +183,55 @@ func TestParseOptionsParsesPromptExtra(t *testing.T) {
 	}
 	if opts.PromptExtra != "封面更抓眼" {
 		t.Fatalf("PromptExtra = %q, want %q", opts.PromptExtra, "封面更抓眼")
+	}
+}
+
+func TestParseOptionsParsesFromDeck(t *testing.T) {
+	opts, err := parseOptions([]string{"--from-deck", "output/old/deck.json", "--import-photos", "--live", "--live-assemble", "--live-import-photos"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if opts.FromDeckPath != "output/old/deck.json" {
+		t.Fatalf("FromDeckPath = %q, want %q", opts.FromDeckPath, "output/old/deck.json")
+	}
+	if opts.InputPath != "" {
+		t.Fatalf("InputPath = %q, want empty", opts.InputPath)
+	}
+	if !opts.ImportPhotos || !opts.Live.Enabled || !opts.Live.Assemble || !opts.Live.ImportPhotos {
+		t.Fatalf("opts import/live = %#v", opts)
+	}
+	if !opts.ImportPhotosChanged || !opts.LiveEnabledChanged || !opts.LiveAssembleChanged || !opts.LiveImportPhotosChanged {
+		t.Fatalf("changed flags not tracked: %#v", opts)
+	}
+}
+
+func TestParseOptionsRequiresExactlyOneInputSource(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "neither input nor from deck", args: nil, want: "exactly one of --input or --from-deck is required"},
+		{name: "both input and from deck", args: []string{"--input", "article.md", "--from-deck", "output/old/deck.json"}, want: "exactly one of --input or --from-deck is required"},
+	}
+	for _, tt := range tests {
+		_, err := parseOptions(tt.args)
+		if err == nil {
+			t.Fatalf("%s: parseOptions() error = nil, want non-nil", tt.name)
+		}
+		if !strings.Contains(err.Error(), tt.want) {
+			t.Fatalf("%s: error = %v, want %q", tt.name, err, tt.want)
+		}
+	}
+}
+
+func TestParseOptionsRejectsPromptExtraWithFromDeck(t *testing.T) {
+	_, err := parseOptions([]string{"--from-deck", "output/old/deck.json", "--prompt-extra", "封面更抓眼"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--prompt-extra can only be used with --input") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -328,6 +386,83 @@ func TestParseOptionsTracksAnimatedFlagPresenceIndependently(t *testing.T) {
 		if opts.AnimatedEnabledChanged != tt.want.AnimatedEnabledChanged || opts.AnimatedFormatChanged != tt.want.AnimatedFormatChanged || opts.AnimatedDurationChanged != tt.want.AnimatedDurationChanged || opts.AnimatedFPSChanged != tt.want.AnimatedFPSChanged {
 			t.Fatalf("%s: flag tracking = %#v", tt.name, opts)
 		}
+	}
+}
+
+func TestRunDispatchesFromDeckGeneration(t *testing.T) {
+	oldGeneratePreview := generatePreview
+	oldGenerateFromDeck := generateFromDeck
+	defer func() {
+		generatePreview = oldGeneratePreview
+		generateFromDeck = oldGenerateFromDeck
+	}()
+	previewCalled := false
+	var gotOpts Options
+	generatePreview = func(Options) (app.Result, error) {
+		previewCalled = true
+		return app.Result{}, nil
+	}
+	generateFromDeck = func(opts Options) (app.Result, error) {
+		gotOpts = opts
+		return app.Result{PageCount: 3, OutDir: "out"}, nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"--from-deck", "output/old/deck.json", "--import-photos"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %s", code, stderr.String())
+	}
+	if previewCalled {
+		t.Fatalf("generatePreview was called")
+	}
+	if gotOpts.FromDeckPath != "output/old/deck.json" || !gotOpts.ImportPhotos {
+		t.Fatalf("generateFromDeck opts = %#v", gotOpts)
+	}
+	if !strings.Contains(stdout.String(), "generated 3 preview pages") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestRunPrintsDeckReadError(t *testing.T) {
+	oldGenerateFromDeck := generateFromDeck
+	defer func() { generateFromDeck = oldGenerateFromDeck }()
+	generateFromDeck = func(Options) (app.Result, error) {
+		return app.Result{}, fmt.Errorf("%w: open deck.json: no such file", app.ErrReadDeck)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"--from-deck", "missing/deck.json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "error reading deck:") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "error reading markdown") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunPrintsRenderMetaReadError(t *testing.T) {
+	oldGenerateFromDeck := generateFromDeck
+	defer func() { generateFromDeck = oldGenerateFromDeck }()
+	generateFromDeck = func(Options) (app.Result, error) {
+		return app.Result{}, fmt.Errorf("%w: parse render-meta.json: invalid", app.ErrReadRenderMeta)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"--from-deck", "output/old/deck.json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "error reading render meta:") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "render preview failed") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
@@ -588,12 +723,12 @@ func TestRunCaptureHTMLMapsRendererError(t *testing.T) {
 	}
 }
 
-func TestParseOptionsRequiresInput(t *testing.T) {
+func TestParseOptionsRequiresInputSource(t *testing.T) {
 	_, err := parseOptions(nil)
 	if err == nil {
-		t.Fatalf("parseOptions() error = nil, want missing input error")
+		t.Fatalf("parseOptions() error = nil, want missing input source error")
 	}
-	if !strings.Contains(err.Error(), "--input is required") {
+	if !strings.Contains(err.Error(), "exactly one of --input or --from-deck is required") {
 		t.Fatalf("parseOptions() error = %q", err)
 	}
 	if !strings.Contains(err.Error(), usageText()) {
@@ -700,7 +835,7 @@ func TestRunPrintsHelpForMixedHelpArgs(t *testing.T) {
 	}
 }
 
-func TestRunRequiresInputWhenArgsEmpty(t *testing.T) {
+func TestRunRequiresInputSourceWhenArgsEmpty(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(nil, &stdout, &stderr)
 	if code != 1 {
@@ -709,7 +844,7 @@ func TestRunRequiresInputWhenArgsEmpty(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "--input is required") {
+	if !strings.Contains(stderr.String(), "exactly one of --input or --from-deck is required") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), usageText()) {

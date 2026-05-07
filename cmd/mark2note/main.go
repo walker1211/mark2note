@@ -47,6 +47,7 @@ func usageText() string {
 
 Usage:
   mark2note --input <file.md> [flags]
+  mark2note --from-deck <deck.json> [flags]
   mark2note capture-html --input <path> [flags]
   mark2note publish-xhs --account <name> [flags]
   mark2note --help
@@ -56,7 +57,8 @@ Commands:
   publish-xhs    publish assets to Xiaohongshu only-self-visible or schedule queue
 
 Flags:
-  --input <file.md>          markdown input path (required)
+  --input <file.md>          markdown input path
+  --from-deck <deck.json>    saved deck layout json input path; skips Markdown/AI generation
   --out <dir>                output directory (default: <output.dir>/<markdown-file-name>-<timestamp>, e.g. article-20260328-153000)
   --chrome <path>            chrome binary path
   --jobs <n>                 parallel screenshot jobs (default: 2)
@@ -88,6 +90,7 @@ Examples:
   mark2note --input ./example.md --config ./config.yaml
   mark2note --input ./example.md --prompt-extra "封面更抓眼，少一点教程感"
   mark2note --input ./example.md --import-photos --import-album "mark2note"
+  mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
   mark2note capture-html --input ./output/preview/p02-quote.html
   mark2note capture-html --input ./output/preview
   mark2note publish-xhs --account main --title "标题" --content "正文" --images ./cover.jpg
@@ -179,6 +182,7 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.ChromePath, "chrome", opts.ChromePath, "chrome binary path")
 	fs.IntVar(&opts.Jobs, "jobs", opts.Jobs, "parallel screenshot jobs")
 	fs.StringVar(&opts.InputPath, "input", opts.InputPath, "markdown input path")
+	fs.StringVar(&opts.FromDeckPath, "from-deck", opts.FromDeckPath, "saved deck layout json input path")
 	fs.StringVar(&opts.ConfigPath, "config", opts.ConfigPath, "config file path")
 	fs.StringVar(&opts.Theme, "theme", opts.Theme, "one-off deck theme override")
 	fs.StringVar(&opts.Author, "author", opts.Author, "one-off cover author input (blank falls back to deck.author)")
@@ -208,8 +212,13 @@ func parseOptions(args []string) (Options, error) {
 	if opts.Jobs <= 0 {
 		return Options{}, fmt.Errorf("jobs must be >= 1")
 	}
-	if strings.TrimSpace(opts.InputPath) == "" {
-		return Options{}, fmt.Errorf("--input is required\n\n%s", usageText())
+	hasInput := strings.TrimSpace(opts.InputPath) != ""
+	hasFromDeck := strings.TrimSpace(opts.FromDeckPath) != ""
+	if hasInput == hasFromDeck {
+		return Options{}, fmt.Errorf("exactly one of --input or --from-deck is required\n\n%s", usageText())
+	}
+	if hasFromDeck && strings.TrimSpace(opts.PromptExtra) != "" {
+		return Options{}, fmt.Errorf("--prompt-extra can only be used with --input\n\n%s", usageText())
 	}
 	outChanged := false
 	animatedEnabledChanged := false
@@ -465,6 +474,9 @@ func newPreviewService(opts Options) app.Service {
 var generatePreview = func(opts Options) (app.Result, error) {
 	return newPreviewService(opts).GeneratePreview(opts)
 }
+var generateFromDeck = func(opts Options) (app.Result, error) {
+	return newPreviewService(opts).GenerateFromDeck(opts)
+}
 var publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
 	svc := app.PublishService{
 		ReadFile: readFile,
@@ -563,13 +575,21 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 
-	result, err := generatePreview(opts)
+	generate := generatePreview
+	if strings.TrimSpace(opts.FromDeckPath) != "" {
+		generate = generateFromDeck
+	}
+	result, err := generate(opts)
 	if err != nil {
 		switch {
 		case errors.Is(err, app.ErrLoadConfig):
 			fmt.Fprintf(stderr, "error loading config: %s\n", stripErrorPrefixes(err, app.ErrLoadConfig))
 		case errors.Is(err, app.ErrReadMarkdown):
 			fmt.Fprintf(stderr, "error reading markdown: %s\n", stripErrorPrefixes(err, app.ErrReadMarkdown))
+		case errors.Is(err, app.ErrReadDeck):
+			fmt.Fprintf(stderr, "error reading deck: %s\n", stripErrorPrefixes(err, app.ErrReadDeck))
+		case errors.Is(err, app.ErrReadRenderMeta):
+			fmt.Fprintf(stderr, "error reading render meta: %s\n", stripErrorPrefixes(err, app.ErrReadRenderMeta))
 		case errors.Is(err, app.ErrBuildDeckJSON):
 			fmt.Fprintf(stderr, "error building deck json: %s\n", stripErrorPrefixes(err, app.ErrBuildDeckJSON))
 		default:
