@@ -415,6 +415,12 @@ func TestLoadAppliesDefaultXHSPublishConfig(t *testing.T) {
 	if !reflect.DeepEqual(cfg.XHS.Publish.ChromeArgs, DefaultXHSPublishChromeArgs) {
 		t.Fatalf("ChromeArgs = %#v, want %#v", cfg.XHS.Publish.ChromeArgs, DefaultXHSPublishChromeArgs)
 	}
+	if cfg.XHS.Publish.TitleGeneration.Enabled == nil || !*cfg.XHS.Publish.TitleGeneration.Enabled {
+		t.Fatalf("TitleGeneration.Enabled = %#v, want true", cfg.XHS.Publish.TitleGeneration.Enabled)
+	}
+	if cfg.XHS.Publish.TitleGeneration.MaxRunes != DefaultXHSPublishTitleMaxRunes {
+		t.Fatalf("TitleGeneration.MaxRunes = %d, want %d", cfg.XHS.Publish.TitleGeneration.MaxRunes, DefaultXHSPublishTitleMaxRunes)
+	}
 }
 
 func TestLoadKeepsExplicitXHSPublishConfig(t *testing.T) {
@@ -451,6 +457,12 @@ func TestLoadKeepsExplicitXHSPublishConfig(t *testing.T) {
 	if cfg.XHS.Publish.TopicGeneration.Enabled == nil || !*cfg.XHS.Publish.TopicGeneration.Enabled {
 		t.Fatalf("TopicGeneration.Enabled = %#v, want default true", cfg.XHS.Publish.TopicGeneration.Enabled)
 	}
+	if cfg.XHS.Publish.TitleGeneration.Enabled == nil || !*cfg.XHS.Publish.TitleGeneration.Enabled {
+		t.Fatalf("TitleGeneration.Enabled = %#v, want default true", cfg.XHS.Publish.TitleGeneration.Enabled)
+	}
+	if cfg.XHS.Publish.TitleGeneration.MaxRunes != DefaultXHSPublishTitleMaxRunes {
+		t.Fatalf("TitleGeneration.MaxRunes = %d, want default %d", cfg.XHS.Publish.TitleGeneration.MaxRunes, DefaultXHSPublishTitleMaxRunes)
+	}
 }
 
 func TestLoadKeepsExplicitDisabledXHSTopicGeneration(t *testing.T) {
@@ -467,6 +479,40 @@ func TestLoadKeepsExplicitDisabledXHSTopicGeneration(t *testing.T) {
 	}
 	if cfg.XHS.Publish.TopicGeneration.Enabled == nil || *cfg.XHS.Publish.TopicGeneration.Enabled {
 		t.Fatalf("TopicGeneration.Enabled = %#v, want false", cfg.XHS.Publish.TopicGeneration.Enabled)
+	}
+}
+
+func TestLoadKeepsExplicitXHSTitleGeneration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "xhs:\n  publish:\n    title_generation:\n      enabled: false\n      max_runes: 18\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.TitleGeneration.Enabled == nil || *cfg.XHS.Publish.TitleGeneration.Enabled {
+		t.Fatalf("TitleGeneration.Enabled = %#v, want false", cfg.XHS.Publish.TitleGeneration.Enabled)
+	}
+	if cfg.XHS.Publish.TitleGeneration.MaxRunes != 18 {
+		t.Fatalf("TitleGeneration.MaxRunes = %d, want 18", cfg.XHS.Publish.TitleGeneration.MaxRunes)
+	}
+}
+
+func TestLoadRejectsNegativeXHSTitleGenerationMaxRunes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "xhs:\n  publish:\n    title_generation:\n      max_runes: -1\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "xhs.publish.title_generation.max_runes") {
+		t.Fatalf("Load() error = %v, want max_runes validation error", err)
 	}
 }
 

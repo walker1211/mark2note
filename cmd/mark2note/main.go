@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/walker1211/mark2note/internal/ai"
 	"github.com/walker1211/mark2note/internal/app"
@@ -500,6 +501,12 @@ var buildPublishTopics = func(cfg *config.Config, markdown string, title string)
 	return b.BuildPublishTopics(markdown, title)
 }
 
+var buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+	b := ai.TitleBuilder{}
+	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
+	return b.BuildPublishTitle(markdown, title, maxRunes)
+}
+
 func newPreviewService(opts Options) app.Service {
 	return app.Service{
 		LoadConfig:  loadConfig,
@@ -625,6 +632,11 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 	if err != nil {
 		return app.PublishOptions{}, err
 	}
+	title, err = buildAutoPublishXHSTitle(*cfg, markdown, title)
+	if err != nil {
+		return app.PublishOptions{}, err
+	}
+	cliOpts.Title = title
 	topics, err := buildAutoPublishXHSTopics(*cfg, markdown, title, renderOpts.XHSTags)
 	if err != nil {
 		return app.PublishOptions{}, err
@@ -635,6 +647,35 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		return app.PublishOptions{}, err
 	}
 	return publishOpts, nil
+}
+
+func buildAutoPublishXHSTitle(cfg config.Config, markdown string, title string) (string, error) {
+	title = xhs.NormalizePublishTitle(title)
+	maxRunes := cfg.XHS.Publish.TitleGeneration.MaxRunes
+	if maxRunes == 0 {
+		maxRunes = config.DefaultXHSPublishTitleMaxRunes
+	}
+	if maxRunes < 0 {
+		return "", fmt.Errorf("xhs publish title max_runes must be > 0")
+	}
+	if utf8.RuneCountInString(title) <= maxRunes {
+		return title, nil
+	}
+	if cfg.XHS.Publish.TitleGeneration.Enabled == nil || !*cfg.XHS.Publish.TitleGeneration.Enabled {
+		return "", fmt.Errorf("xhs publish title exceeds %d characters; enable xhs.publish.title_generation.enabled or use a shorter Markdown title", maxRunes)
+	}
+	rewritten, err := buildPublishTitle(&cfg, markdown, title, maxRunes)
+	if err != nil {
+		return "", fmt.Errorf("generate xhs publish title: %w", err)
+	}
+	rewritten = xhs.NormalizePublishTitle(rewritten)
+	if rewritten == "" {
+		return "", fmt.Errorf("generate xhs publish title: empty title returned")
+	}
+	if utf8.RuneCountInString(rewritten) > maxRunes {
+		return "", fmt.Errorf("generate xhs publish title: title still exceeds %d characters", maxRunes)
+	}
+	return rewritten, nil
 }
 
 func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string, overrideTags []string) ([]string, error) {

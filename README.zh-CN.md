@@ -119,6 +119,8 @@ go build -o ./mark2note ./cmd/mark2note
 - `xhs.publish.profile_dir`：`publish-xhs` 和 `--publish-xhs` 默认浏览器 profile 目录
 - `xhs.publish.mode`：`publish-xhs` 和 `--publish-xhs` 默认发布模式，支持 `only-self`、`schedule`
 - `xhs.publish.topic_generation.enabled`：`--publish-xhs` 未传 `--xhs-tags` 时是否调用 AI 生成 3-6 个小红书话题，默认开启
+- `xhs.publish.title_generation.enabled`：`--publish-xhs` 标题超过 `max_runes` 时是否调用 AI 改写标题，默认开启
+- `xhs.publish.title_generation.max_runes`：自动发布标题长度上限，默认 `20`；按 Unicode 字符计数，中文、英文、数字、空格和标点通常都算 1 个字符
 - `xhs.publish.chrome_args`：小红书发布浏览器使用的额外 Chrome 启动参数
 
 补充说明：
@@ -145,6 +147,7 @@ go build -o ./mark2note ./cmd/mark2note
 - `--prompt-extra` 支持单次追加自然语言引导，用来控制 Markdown -> deck JSON 阶段的分页、标题语气和内容组织方向
 - `--prompt-extra` 只影响 deck 生成，不直接改变 HTML 渲染、PNG 截图、Animated / Live 导出或 `publish-xhs` 发布逻辑
 - `--publish-xhs` 会在主渲染流程成功生成普通 PNG 后发布到小红书；标题来自 Markdown 一级标题，小红书正文只包含 3-6 个话题
+- 自动发布标题超过 `xhs.publish.title_generation.max_runes` 时，会按 `xhs.publish.title_generation.enabled` 调用同一套 `ai.command` / `ai.args` 改写标题；代码只校验长度，不再本地截断
 - 未传 `--xhs-tags` 时，`--publish-xhs` 会按 `xhs.publish.topic_generation.enabled` 调用同一套 `ai.command` / `ai.args` 生成话题；AI 调用失败、JSON 不合法或没有有效话题时会跳过发布并报错，不再回退到本地规则推理
 - `--xhs-tags` 可手动覆盖 AI 话题，例如 `--xhs-tags "AI代理,数据安全,工程反思"`；它只能和 `--publish-xhs` 一起使用，且传入后不会调用 AI 生成话题
 - `xhs.publish.chrome_args` 不配置时，小红书发布默认使用 `disable-background-networking`、`disable-component-update`、`no-first-run`、`no-default-browser-check`；调试时可写 `chrome_args: []` 表示不加额外参数
@@ -220,9 +223,10 @@ ai:
 自动发布时：
 
 - 标题来自 Markdown 第一个一级标题；没有一级标题时回退到清理后的文件名
+- 标题不超过 `xhs.publish.title_generation.max_runes` 时直接使用；超过时才调用 AI 改写，返回标题仍超长或为空会报错停止发布
 - 正文只包含话题，例如 `#AI代理 #数据安全 #工程反思`
-- 话题会从 frontmatter `tags`、正文 hashtag、标题、二/三级标题和正文高频词里本地解析，自动结果会尽量保持 3-6 个
-- 如果要手动指定话题，可以加 `--xhs-tags`，手动值会跳过自动解析并仍用于正文 hashtag：
+- 话题由 AI 生成，自动结果会尽量保持 3-6 个
+- 如果要手动指定话题，可以加 `--xhs-tags`，手动值会跳过 AI 话题生成并仍用于正文 hashtag：
 
 ```bash
 ./mark2note \
