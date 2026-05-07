@@ -12,6 +12,7 @@ import (
 
 	"github.com/walker1211/mark2note/internal/app"
 	"github.com/walker1211/mark2note/internal/config"
+	"github.com/walker1211/mark2note/internal/poster"
 )
 
 func TestDefaultOptions(t *testing.T) {
@@ -77,6 +78,15 @@ func TestUsageTextMentionsConfiguredDefaultOutputDir(t *testing.T) {
 func TestUsageTextMentionsPromptExtraFlag(t *testing.T) {
 	text := usageText()
 	for _, want := range []string{"--prompt-extra <text>", "extra natural-language guidance for deck generation"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("usageText() missing %q", want)
+		}
+	}
+}
+
+func TestUsageTextMentionsPosterAssetFlagsAndCommand(t *testing.T) {
+	text := usageText()
+	for _, want := range []string{"enrich-posters", "--asset-manifest <file>", "poster asset manifest for list/article cover cards", "--auto-posters", "--poster-sources <csv>"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("usageText() missing %q", want)
 		}
@@ -199,6 +209,40 @@ func TestParseOptionsParsesPromptExtra(t *testing.T) {
 	}
 }
 
+func TestParseOptionsParsesAssetManifest(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--asset-manifest", "posters.yaml"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if opts.AssetManifestPath != "posters.yaml" {
+		t.Fatalf("AssetManifestPath = %q, want posters.yaml", opts.AssetManifestPath)
+	}
+}
+
+func TestParseOptionsParsesAutoPostersAndSources(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--auto-posters", "--poster-sources", "anilist, mydramalist"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.AutoPosters {
+		t.Fatalf("AutoPosters = false, want true")
+	}
+	want := []string{"anilist", "mydramalist"}
+	if !reflect.DeepEqual(opts.PosterSources, want) {
+		t.Fatalf("PosterSources = %#v, want %#v", opts.PosterSources, want)
+	}
+}
+
+func TestParseOptionsRejectsPosterSourcesWithoutAutoPosters(t *testing.T) {
+	_, err := parseOptions([]string{"--input", "article.md", "--poster-sources", "anilist"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--poster-sources requires --auto-posters") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestParseOptionsParsesAutoPublishXHSFlags(t *testing.T) {
 	opts, err := parseOptions([]string{"--input", "article.md", "--publish-xhs", "--xhs-tags", "AI, 写作,  小红书"})
 	if err != nil {
@@ -232,6 +276,16 @@ func TestParseOptionsRejectsPublishXHSWithFromDeck(t *testing.T) {
 		t.Fatalf("parseOptions() error = nil, want non-nil")
 	}
 	if !strings.Contains(err.Error(), "--publish-xhs can only be used with --input") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseOptionsRejectsAutoPostersWithFromDeck(t *testing.T) {
+	_, err := parseOptions([]string{"--from-deck", "output/old/deck.json", "--auto-posters"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--auto-posters can only be used with --input") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -516,6 +570,42 @@ func TestRunPrintsRenderMetaReadError(t *testing.T) {
 	}
 }
 
+func TestRunPrintsPosterManifestReadError(t *testing.T) {
+	oldGeneratePreview := generatePreview
+	defer func() { generatePreview = oldGeneratePreview }()
+	generatePreview = func(Options) (app.Result, error) {
+		return app.Result{}, fmt.Errorf("%w: open posters.yaml: no such file", app.ErrReadPosterManifest)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"--input", "article.md", "--asset-manifest", "posters.yaml"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "error reading poster manifest:") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunPrintsAutoPostersError(t *testing.T) {
+	oldGeneratePreview := generatePreview
+	defer func() { generatePreview = oldGeneratePreview }()
+	generatePreview = func(Options) (app.Result, error) {
+		return app.Result{}, fmt.Errorf("%w: unknown poster provider", app.ErrEnrichPosters)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"--input", "article.md", "--auto-posters"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "error enriching posters:") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestRunPassesThemeAuthorAndDefaultConfigToService(t *testing.T) {
 	originalGeneratePreview := generatePreview
 	defer func() { generatePreview = originalGeneratePreview }()
@@ -556,6 +646,86 @@ func TestRunPassesPromptExtraToService(t *testing.T) {
 	}
 	if got.PromptExtra != "封面更抓眼" {
 		t.Fatalf("PromptExtra = %q, want %q", got.PromptExtra, "封面更抓眼")
+	}
+}
+
+func TestRunPassesAssetManifestToService(t *testing.T) {
+	originalGeneratePreview := generatePreview
+	defer func() { generatePreview = originalGeneratePreview }()
+
+	var got Options
+	generatePreview = func(opts Options) (app.Result, error) {
+		got = opts
+		return app.Result{PageCount: 3, OutDir: t.TempDir()}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--input", "article.md", "--asset-manifest", "posters.yaml"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if got.AssetManifestPath != "posters.yaml" {
+		t.Fatalf("AssetManifestPath = %q, want posters.yaml", got.AssetManifestPath)
+	}
+}
+
+func TestRunPassesAutoPostersToService(t *testing.T) {
+	originalGeneratePreview := generatePreview
+	defer func() { generatePreview = originalGeneratePreview }()
+
+	var got Options
+	generatePreview = func(opts Options) (app.Result, error) {
+		got = opts
+		return app.Result{PageCount: 3, OutDir: t.TempDir()}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--input", "article.md", "--auto-posters", "--poster-sources", "anilist"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !got.AutoPosters || !reflect.DeepEqual(got.PosterSources, []string{"anilist"}) {
+		t.Fatalf("opts = %#v", got)
+	}
+}
+
+func TestRunEnrichPostersWritesManifest(t *testing.T) {
+	originalEnrichPosterManifest := enrichPosterManifest
+	defer func() { enrichPosterManifest = originalEnrichPosterManifest }()
+
+	var gotMarkdown string
+	var gotSources []string
+	enrichPosterManifest = func(markdown string, sources []string) (poster.Manifest, poster.EnrichReport, error) {
+		gotMarkdown = markdown
+		gotSources = append([]string(nil), sources...)
+		return poster.Manifest{Posters: map[string]poster.PosterAsset{"噬谎者": {Src: "https://img.example/usogui.jpg", Source: "anilist"}}}, poster.EnrichReport{Titles: []string{"噬谎者"}}, nil
+	}
+
+	root := t.TempDir()
+	inputPath := filepath.Join(root, "article.md")
+	outPath := filepath.Join(root, "posters.yaml")
+	if err := os.WriteFile(inputPath, []byte("# 片单\n\n推荐《噬谎者》。"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"enrich-posters", "--input", inputPath, "--out", outPath, "--poster-sources", "anilist"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(gotMarkdown, "噬谎者") || !reflect.DeepEqual(gotSources, []string{"anilist"}) {
+		t.Fatalf("got markdown/sources = %q / %#v", gotMarkdown, gotSources)
+	}
+	manifest, err := poster.LoadManifest(outPath)
+	if err != nil {
+		t.Fatalf("LoadManifest() error = %v", err)
+	}
+	asset, ok := manifest.Find("噬谎者")
+	if !ok || asset.Src != "https://img.example/usogui.jpg" {
+		t.Fatalf("manifest asset = %#v, ok = %v", asset, ok)
+	}
+	if !strings.Contains(stdout.String(), "wrote poster manifest") {
+		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
 

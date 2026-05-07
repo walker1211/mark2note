@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/walker1211/mark2note/internal/ai"
 	"github.com/walker1211/mark2note/internal/config"
 	"github.com/walker1211/mark2note/internal/deck"
+	"github.com/walker1211/mark2note/internal/poster"
 	"github.com/walker1211/mark2note/internal/render"
 )
 
@@ -154,6 +156,99 @@ func TestServiceGeneratePreviewSuccess(t *testing.T) {
 	}
 	if result.OutDir != wantOutDir {
 		t.Fatalf("result.OutDir = %q, want %q", result.OutDir, wantOutDir)
+	}
+}
+
+func TestServiceGeneratePreviewHydratesAssetManifestBeforeRendering(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "posters.yaml")
+	if err := os.WriteFile(manifestPath, []byte("posters:\n  噬谎者:\n    src: https://example.com/usogui.jpg\n  死亡笔记:\n    src: https://example.com/death-note.jpg\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cfg := &config.Config{Output: config.OutputCfg{Dir: root}}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-compare","variant":"compare","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"门面","compare":{"leftLabel":"《噬谎者》","rightLabel":"《死亡笔记》","rows":[{"left":"《噬谎者》：规则都算进局里。","right":"《死亡笔记》：夜神月和 L 的对抗。"}]} }},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, AssetManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if r.rendered.Pages[1].Variant != "gallery-steps" {
+		t.Fatalf("hydrated variant = %q, want gallery-steps", r.rendered.Pages[1].Variant)
+	}
+	if len(r.rendered.Pages[1].Content.Images) != 2 {
+		t.Fatalf("hydrated images = %#v", r.rendered.Pages[1].Content.Images)
+	}
+}
+
+func TestServiceGeneratePreviewAutoPostersHydratesBeforeRendering(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{Output: config.OutputCfg{Dir: root}}
+	markdown := "# 标题\n\n推荐《噬谎者》和《死亡笔记》。"
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-compare","variant":"compare","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"门面","compare":{"leftLabel":"《噬谎者》","rightLabel":"《死亡笔记》","rows":[{"left":"《噬谎者》：规则都算进局里。","right":"《死亡笔记》：夜神月和 L 的对抗。"}]} }},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	var gotMarkdown string
+	var gotSources []string
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte(markdown), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+		EnrichPosters: func(_ context.Context, md string, sources []string) (poster.Manifest, poster.EnrichReport, error) {
+			gotMarkdown = md
+			gotSources = append([]string(nil), sources...)
+			return poster.Manifest{Posters: map[string]poster.PosterAsset{
+				"噬谎者":  {Src: "https://example.com/usogui.jpg"},
+				"死亡笔记": {Src: "https://example.com/death-note.jpg"},
+			}}, poster.EnrichReport{Titles: []string{"噬谎者", "死亡笔记"}}, nil
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, AutoPosters: true, PosterSources: []string{"anilist"}})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if gotMarkdown != markdown || !reflect.DeepEqual(gotSources, []string{"anilist"}) {
+		t.Fatalf("enrich inputs = %q / %#v", gotMarkdown, gotSources)
+	}
+	if r.rendered.Pages[1].Variant != "gallery-steps" || len(r.rendered.Pages[1].Content.Images) != 2 {
+		t.Fatalf("hydrated page = %#v", r.rendered.Pages[1])
+	}
+}
+
+func TestServiceGeneratePreviewAssetManifestOverridesAutoPosters(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "posters.yaml")
+	if err := os.WriteFile(manifestPath, []byte("posters:\n  噬谎者:\n    src: https://example.com/manual-usogui.jpg\n  死亡笔记:\n    src: https://example.com/death-note.jpg\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cfg := &config.Config{Output: config.OutputCfg{Dir: root}}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-compare","variant":"compare","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"门面","compare":{"leftLabel":"《噬谎者》","rightLabel":"《死亡笔记》","rows":[{"left":"《噬谎者》：规则都算进局里。","right":"《死亡笔记》：夜神月和 L 的对抗。"}]} }},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+		EnrichPosters: func(_ context.Context, _ string, _ []string) (poster.Manifest, poster.EnrichReport, error) {
+			return poster.Manifest{Posters: map[string]poster.PosterAsset{
+				"噬谎者": {Src: "https://example.com/auto-usogui.jpg"},
+			}}, poster.EnrichReport{Titles: []string{"噬谎者"}}, nil
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, AutoPosters: true, AssetManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if got := r.rendered.Pages[1].Content.Images[0].Src; got != "https://example.com/manual-usogui.jpg" {
+		t.Fatalf("first poster src = %q, want manual override", got)
 	}
 }
 
