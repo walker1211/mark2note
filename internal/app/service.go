@@ -51,6 +51,7 @@ type Options struct {
 	AutoPosters              bool
 	PosterSources            []string
 	PublishXHS               bool
+	PrepareXHS               bool
 	XHSTags                  []string
 	XHSTagsChanged           bool
 	Animated                 AnimatedOptions

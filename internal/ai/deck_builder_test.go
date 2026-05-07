@@ -33,12 +33,21 @@ func TestBuildDeckPromptKeepsLegacyLayoutWhenPromptExtraEmpty(t *testing.T) {
 
 func TestBuildDeckPromptWrapsPromptExtraBeforeMarkdown(t *testing.T) {
 	got := buildDeckPrompt("# 标题", "封面更抓眼，少一点教程感")
-	wrapper := "以下是本次生成的额外偏好，请在不违反以上 JSON 结构、字段约束和页型约束的前提下尽量满足："
+	wrapper := promptExtraIntro
 	if !strings.Contains(got, wrapper+"\n封面更抓眼，少一点教程感") {
 		t.Fatalf("prompt missing wrapped extra guidance: %q", got)
 	}
 	if strings.Index(got, wrapper) > strings.Index(got, "Markdown 如下：") {
 		t.Fatalf("extra guidance should appear before markdown footer: %q", got)
+	}
+}
+
+func TestBuildDeckPromptTreatsPromptExtraAsHiddenConstraint(t *testing.T) {
+	got := buildDeckPrompt("# 标题", "保留封面，但弱化冲击感")
+	for _, want := range []string{"额外约束", "不得原文复制", "不得改写", "JSON 的任何可见字段", "title", "body", "cta", "steps", "images.alt"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing hidden constraint %q: %q", want, got)
+		}
 	}
 }
 

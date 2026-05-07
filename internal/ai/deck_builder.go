@@ -38,7 +38,7 @@ const deckPromptConstraints = `你是一个严格的 JSON 生成器。
 17. 如果原文某些术语已使用行内代码反引号表示，改写后必须保留该行内代码语义，不得去掉`
 
 const deckPromptMarkdownFooter = "\n\nMarkdown 如下：\n"
-const promptExtraIntro = "以下是本次生成的额外偏好，请在不违反以上 JSON 结构、字段约束和页型约束的前提下尽量满足："
+const promptExtraIntro = "以下是本次生成的额外约束，只能用于控制风格、安全边界和取舍；不得原文复制、不得改写、不得概括到 JSON 的任何可见字段里，包括 title、subtitle、body、quote、note、tip、cta、items、steps、compare、images.alt。可见文案只能来自 Markdown 原文："
 
 var (
 	ErrAICommandFailed = errors.New("ai command failed")

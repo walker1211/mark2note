@@ -80,7 +80,8 @@ Flags:
   --auto-posters             automatically search poster candidates and hydrate cover cards
   --poster-sources <csv>     poster providers for --auto-posters (default: bilibili,bangumi,anilist,mydramalist)
   --publish-xhs              publish generated PNG files to Xiaohongshu after render
-  --xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs
+  --prepare-xhs              generate Xiaohongshu publish metadata after render without publishing
+  --xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs/--prepare-xhs
   --import-photos            import generated PNG files into Apple Photos after export
   --import-album <name>      Apple Photos album name for imported PNG files
   --import-timeout <d>       Apple Photos PNG import timeout (default: 2m0s)
@@ -105,9 +106,10 @@ Examples:
   mark2note --input ./example.md --config ./config.yaml
   mark2note --input ./example.md --prompt-extra "封面更抓眼，少一点教程感"
   mark2note enrich-posters --input ./example.md --out ./posters.yaml
-  mark2note --input ./example.md --asset-manifest ./posters.yaml
-  mark2note --input ./example.md --auto-posters
+  mark2note --input ./example.md --asset-manifest ./posters.yaml --prepare-xhs
+  mark2note --input ./example.md --auto-posters --prepare-xhs
   mark2note --input ./example.md --theme fresh-green --publish-xhs
+  mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
   mark2note --input ./example.md --import-photos --import-album "mark2note"
   mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
   mark2note capture-html --input ./output/preview/p02-quote.html
@@ -236,6 +238,7 @@ func parseOptions(args []string) (Options, error) {
 	fs.BoolVar(&opts.AutoPosters, "auto-posters", opts.AutoPosters, "automatically search poster candidates and hydrate cover cards")
 	fs.StringVar(&posterSources, "poster-sources", posterSources, "comma-separated poster providers for --auto-posters")
 	fs.BoolVar(&opts.PublishXHS, "publish-xhs", opts.PublishXHS, "publish generated PNG files to Xiaohongshu after render")
+	fs.BoolVar(&opts.PrepareXHS, "prepare-xhs", opts.PrepareXHS, "generate Xiaohongshu publish metadata after render without publishing")
 	fs.StringVar(&xhsTags, "xhs-tags", xhsTags, "comma-separated Xiaohongshu topics for auto publish")
 	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
 	fs.StringVar(&opts.ImportAlbum, "import-album", opts.ImportAlbum, "Apple Photos album name for imported PNG files")
@@ -274,6 +277,12 @@ func parseOptions(args []string) (Options, error) {
 	}
 	if hasFromDeck && opts.PublishXHS {
 		return Options{}, fmt.Errorf("--publish-xhs can only be used with --input\n\n%s", usageText())
+	}
+	if hasFromDeck && opts.PrepareXHS {
+		return Options{}, fmt.Errorf("--prepare-xhs can only be used with --input\n\n%s", usageText())
+	}
+	if opts.PrepareXHS && opts.PublishXHS {
+		return Options{}, fmt.Errorf("--prepare-xhs cannot be combined with --publish-xhs\n\n%s", usageText())
 	}
 	if hasFromDeck && opts.AutoPosters {
 		return Options{}, fmt.Errorf("--auto-posters can only be used with --input\n\n%s", usageText())
@@ -357,8 +366,8 @@ func parseOptions(args []string) (Options, error) {
 	opts.LiveImportAlbumChanged = liveImportAlbumChanged
 	opts.LiveImportTimeoutChanged = liveImportTimeoutChanged
 	opts.XHSTagsChanged = xhsTagsChanged
-	if opts.XHSTagsChanged && !opts.PublishXHS {
-		return Options{}, fmt.Errorf("--xhs-tags requires --publish-xhs\n\n%s", usageText())
+	if opts.XHSTagsChanged && !opts.PublishXHS && !opts.PrepareXHS {
+		return Options{}, fmt.Errorf("--xhs-tags requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
 	}
 	return opts, nil
 }
@@ -809,9 +818,17 @@ type xhsPublishMeta struct {
 	ChromeArgs       []string `json:"chrome_args,omitempty"`
 }
 
-func writeAutoPublishXHSMeta(renderOpts Options, renderResult app.Result, publishOpts app.PublishOptions) error {
+func xhsPublishMetaPath(renderResult app.Result) string {
 	outDir := strings.TrimSpace(renderResult.OutDir)
 	if outDir == "" {
+		return ""
+	}
+	return filepath.Join(outDir, xhsPublishMetaFilename)
+}
+
+func writeAutoPublishXHSMeta(renderOpts Options, renderResult app.Result, publishOpts app.PublishOptions) error {
+	metaPath := xhsPublishMetaPath(renderResult)
+	if metaPath == "" {
 		return nil
 	}
 	meta := xhsPublishMeta{
@@ -837,7 +854,7 @@ func writeAutoPublishXHSMeta(renderOpts Options, renderResult app.Result, publis
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(filepath.Join(outDir, xhsPublishMetaFilename), data, 0o644)
+	return os.WriteFile(metaPath, data, 0o644)
 }
 
 func readXHSPublishMeta(path string) (app.PublishOptions, error) {
@@ -868,6 +885,29 @@ func readXHSPublishMeta(path string) (app.PublishOptions, error) {
 		DeclareOriginal:  meta.DeclareOriginal,
 		AllowContentCopy: meta.AllowContentCopy,
 	}, nil
+}
+
+func runPrepareXHS(renderOpts Options, renderResult app.Result, stdout io.Writer, stderr io.Writer) int {
+	publishOpts, err := buildAutoPublishXHSOptions(renderOpts, renderResult)
+	if err != nil {
+		switch {
+		case errors.Is(err, app.ErrLoadConfig):
+			fmt.Fprintf(stderr, "error loading config: %s\n", stripErrorPrefixes(err, app.ErrLoadConfig))
+		case errors.Is(err, app.ErrReadMarkdown):
+			fmt.Fprintf(stderr, "error reading markdown for xhs publish: %s\n", stripErrorPrefixes(err, app.ErrReadMarkdown))
+		default:
+			fmt.Fprintf(stderr, "prepare xhs failed: %v\n", err)
+		}
+		return 1
+	}
+	if err := writeAutoPublishXHSMeta(renderOpts, renderResult, publishOpts); err != nil {
+		fmt.Fprintf(stderr, "prepare xhs failed: write xhs publish metadata: %v\n", err)
+		return 1
+	}
+	if metaPath := xhsPublishMetaPath(renderResult); metaPath != "" {
+		fmt.Fprintf(stdout, "xhs publish metadata: %s\n", metaPath)
+	}
+	return 0
 }
 
 func runAutoPublishXHS(renderOpts Options, renderResult app.Result, stdout io.Writer, stderr io.Writer) int {
@@ -980,6 +1020,9 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	for _, warning := range result.Warnings {
 		fmt.Fprintln(stderr, warning)
+	}
+	if opts.PrepareXHS {
+		return runPrepareXHS(opts, result, stdout, stderr)
 	}
 	if opts.PublishXHS {
 		return runAutoPublishXHS(opts, result, stdout, stderr)

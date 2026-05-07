@@ -23,14 +23,15 @@ func HydrateDeck(d deck.Deck, manifest Manifest, opts HydrateOptions) (deck.Deck
 	out.Pages = append([]deck.Page(nil), d.Pages...)
 	report := HydrateReport{}
 	missing := map[string]struct{}{}
+	used := map[string]int{}
 	for i, page := range out.Pages {
-		selection := selectPagePosters(page, manifest)
-		if len(selection) < 2 {
-			for _, title := range pageCandidateTitles(page) {
-				if _, ok := manifest.Find(title); !ok {
-					missing[title] = struct{}{}
-				}
+		for _, title := range pageCandidateTitles(page) {
+			if _, ok := manifest.Find(title); !ok {
+				missing[title] = struct{}{}
 			}
+		}
+		selection := selectPagePosters(page, manifest, used)
+		if len(selection) < 2 {
 			continue
 		}
 		images := make([]deck.ImageBlock, 0, 2)
@@ -45,6 +46,7 @@ func HydrateDeck(d deck.Deck, manifest Manifest, opts HydrateOptions) (deck.Deck
 		if page.Variant != "gallery-steps" && !opts.DisablePageConversion {
 			updated.Variant = "gallery-steps"
 			updated.Content = deck.PageContent{Title: page.Content.Title, Steps: preservedSteps(page, selection[:2]), Images: images}
+			markSelectedPostersUsed(used, selection[:2])
 			report.PagesChanged++
 			report.ImagesAdded += len(images)
 			out.Pages[i] = updated
@@ -52,6 +54,7 @@ func HydrateDeck(d deck.Deck, manifest Manifest, opts HydrateOptions) (deck.Deck
 		}
 		if page.Variant == "gallery-steps" && len(page.Content.Images) == 0 {
 			updated.Content.Images = images
+			markSelectedPostersUsed(used, selection[:2])
 			report.PagesChanged++
 			report.ImagesAdded += len(images)
 			out.Pages[i] = updated
@@ -69,9 +72,9 @@ type selectedPoster struct {
 	Asset PosterAsset
 }
 
-func selectPagePosters(page deck.Page, manifest Manifest) []selectedPoster {
+func selectPagePosters(page deck.Page, manifest Manifest, used map[string]int) []selectedPoster {
 	candidates := pageCandidates(page)
-	selected := make([]selectedPoster, 0, 2)
+	available := make([]selectedPoster, 0, len(candidates))
 	seen := map[string]struct{}{}
 	for _, candidate := range candidates {
 		asset, ok := manifest.Find(candidate.Title)
@@ -83,12 +86,36 @@ func selectPagePosters(page deck.Page, manifest Manifest) []selectedPoster {
 			continue
 		}
 		seen[key] = struct{}{}
-		selected = append(selected, selectedPoster{Title: cleanTitle(candidate.Title), Text: candidate.Text, Asset: asset})
-		if len(selected) == 2 {
-			break
+		available = append(available, selectedPoster{Title: cleanTitle(candidate.Title), Text: candidate.Text, Asset: asset})
+	}
+	selected := make([]selectedPoster, 0, 2)
+	chosen := map[int]struct{}{}
+	for len(selected) < 2 && len(chosen) < len(available) {
+		best := -1
+		bestCount := 0
+		for i, candidate := range available {
+			if _, ok := chosen[i]; ok {
+				continue
+			}
+			count := used[normalizeTitle(candidate.Title)]
+			if best == -1 || count < bestCount {
+				best = i
+				bestCount = count
+			}
 		}
+		chosen[best] = struct{}{}
+		selected = append(selected, available[best])
 	}
 	return selected
+}
+
+func markSelectedPostersUsed(used map[string]int, selection []selectedPoster) {
+	for _, selected := range selection {
+		key := normalizeTitle(selected.Title)
+		if key != "" {
+			used[key]++
+		}
+	}
 }
 
 type pageCandidate struct {

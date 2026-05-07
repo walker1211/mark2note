@@ -171,6 +171,26 @@ func TestHydrateDeckDoesNotReportGenericCompareLabels(t *testing.T) {
 	}
 }
 
+func TestHydrateDeckReportsMissingTitlesEvenWhenPageCanHydrate(t *testing.T) {
+	d := deck.Deck{Pages: []deck.Page{
+		{
+			Name:    "p03-bullets",
+			Variant: "bullets",
+			Meta:    deck.PageMeta{Badge: "漫画", Counter: "3/3", Theme: "default", CTA: "继续"},
+			Content: deck.PageContent{Title: "人性局", Items: []string{"《朋友游戏》：选择比题目更好看。", "《真实账号》：社交网络那层皮。", "《赌博默示录》：每个选择都很重。"}},
+		},
+	}}
+	manifest := Manifest{Posters: map[string]PosterAsset{"朋友游戏": {Src: "https://example.com/tomodachi.jpg"}, "真实账号": {Src: "https://example.com/real-account.jpg"}}}
+
+	_, report, err := HydrateDeck(d, manifest, HydrateOptions{})
+	if err != nil {
+		t.Fatalf("HydrateDeck() error = %v", err)
+	}
+	if len(report.Missing) != 1 || report.Missing[0] != "赌博默示录" {
+		t.Fatalf("missing = %#v, want [赌博默示录]", report.Missing)
+	}
+}
+
 func TestHydrateDeckLeavesPageUnchangedWhenTwoPostersAreNotAvailable(t *testing.T) {
 	d := deck.Deck{Pages: []deck.Page{
 		{
@@ -214,5 +234,40 @@ func TestHydrateDeckAddsImagesToExistingGallerySteps(t *testing.T) {
 	}
 	if report.ImagesAdded != 2 {
 		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestHydrateDeckPrefersUnusedPostersFromCurrentPageCandidates(t *testing.T) {
+	d := deck.Deck{Pages: []deck.Page{
+		{
+			Name:    "p04-gallery-steps",
+			Variant: "gallery-steps",
+			Meta:    deck.PageMeta{Badge: "动画", Counter: "4/5", Theme: "default", CTA: "继续"},
+			Content: deck.PageContent{Title: "轻入口", Steps: []string{"先看 **冰果**、**药屋少女的呢喃**。"}},
+		},
+		{
+			Name:    "p05-gallery-steps",
+			Variant: "gallery-steps",
+			Meta:    deck.PageMeta{Badge: "动画", Counter: "5/5", Theme: "default", CTA: "继续"},
+			Content: deck.PageContent{Title: "路线选择", Steps: []string{"先看 **冰果**、**药屋少女的呢喃**，也可以补 **侦探学园Q**、**夏日重现**。"}},
+		},
+	}}
+	manifest := Manifest{Posters: map[string]PosterAsset{
+		"冰果":      {Src: "https://example.com/hyouka.jpg"},
+		"药屋少女的呢喃": {Src: "https://example.com/apothecary.jpg"},
+		"侦探学园Q":   {Src: "https://example.com/tantei-q.jpg"},
+		"夏日重现":    {Src: "https://example.com/summer-time.jpg"},
+	}}
+
+	got, _, err := HydrateDeck(d, manifest, HydrateOptions{})
+	if err != nil {
+		t.Fatalf("HydrateDeck() error = %v", err)
+	}
+	secondImages := got.Pages[1].Content.Images
+	if len(secondImages) != 2 {
+		t.Fatalf("second page images = %#v, want two", secondImages)
+	}
+	if secondImages[0].Caption != "《侦探学园Q》" || secondImages[1].Caption != "《夏日重现》" {
+		t.Fatalf("second page images = %#v", secondImages)
 	}
 }

@@ -15,6 +15,7 @@
 - 可选导出实验性的 Live package，并进一步组装 Apple Live Photo
 - 支持把已有 HTML 直接截图为 PNG
 - 支持 `publish-xhs` 发布普通图片内容或 Live Photo 产物到小红书
+- 支持主渲染命令 `--prepare-xhs` 在生成 PNG 后写出小红书发布元数据但不发布
 - 支持主渲染命令 `--publish-xhs` 在生成 PNG 后自动发布到小红书
 - 支持通过 `posters.yaml` 或 `--auto-posters` 给片单类内容自动补作品封面
 
@@ -79,7 +80,30 @@ go build -o ./mark2note ./cmd/mark2note
 
 ## 作品封面图
 
-片单、书单、剧集推荐这类文章可以给正文页补作品封面。稳定做法是先准备一个 `posters.yaml`，再在渲染时传入 `--asset-manifest`：
+片单、书单、剧集推荐这类文章可以给正文页补作品封面。省事路径是让渲染命令自动搜封面，并同时准备小红书发布元数据：
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs \
+  --prompt-extra "面向小红书发布，表达克制清爽，避免血腥、暴力和惊悚视觉"
+```
+
+这个命令只生成 HTML/PNG 和 `<out>/xhs-publish-meta.json`，不会发布。确认 PNG 没问题后再运行：
+
+```bash
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
+
+如果关键封面需要人工确认，可以先生成并检查 `posters.yaml`，再渲染：
+
+```bash
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml
+./mark2note --input ./article.md --asset-manifest ./posters.yaml --prepare-xhs
+```
+
+`posters.yaml` 格式如下：
 
 ```yaml
 posters:
@@ -89,31 +113,9 @@ posters:
   死亡笔记: ./assets/death-note.jpg
 ```
 
-```bash
-./mark2note --input ./article.md --asset-manifest ./posters.yaml
-```
-
 `src` 支持 `http://`、`https://`、`data:image/...`，也支持相对 `posters.yaml` 所在目录的本地图片路径。本地图片会在渲染前转成 data URI，方便 HTML 截图稳定读取。只使用可信来源的 manifest，避免把不该公开的本地图片路径误嵌入输出。
 
-如果想先自动搜候选，可以运行：
-
-```bash
-./mark2note enrich-posters --input ./article.md --out ./posters.yaml
-```
-
-当前内置 provider 是 `bilibili`、`bangumi`、`anilist` 和 `mydramalist`，也可以限制来源：
-
-```bash
-./mark2note enrich-posters --input ./article.md --out ./posters.yaml --poster-sources bilibili,bangumi,anilist,mydramalist
-```
-
-想一条命令完成「搜候选 + 渲染」，可以用：
-
-```bash
-./mark2note --input ./article.md --auto-posters
-```
-
-如果同时传 `--asset-manifest` 和 `--auto-posters`，手动 manifest 会覆盖自动候选，适合把关键作品封面固定下来，只让自动搜索补缺口。`--auto-posters` 只支持 `--input` 流程，不支持 `--from-deck`。
+当前内置 provider 是 `bilibili`、`bangumi`、`anilist` 和 `mydramalist`，也可以用 `--poster-sources bilibili,bangumi,anilist,mydramalist` 限制来源。如果同时传 `--asset-manifest` 和 `--auto-posters`，手动 manifest 会覆盖自动候选，适合把关键作品封面固定下来，只让自动搜索补缺口。`--auto-posters` 只支持 `--input` 流程，不支持 `--from-deck`。
 
 ## 主题说明
 
@@ -154,13 +156,13 @@ posters:
 - `render.live.import_photos`：是否把组装后的 Live Photos 导入 Apple Photos，默认关闭；需要同时启用 `render.live.assemble`
 - `render.live.import_album`：Live 导入相册名；留空时自动生成 `mark2note-live-<timestamp>`
 - `render.live.import_timeout`：Live 导入超时，默认 `2m`；支持 `45s`、`2m` 这类 Go duration 字符串
-- `xhs.publish.account`：`publish-xhs` 和 `--publish-xhs` 默认发布账号
-- `xhs.publish.headless`：`publish-xhs` 和 `--publish-xhs` 默认是否无头运行浏览器
-- `xhs.publish.browser_path`：`publish-xhs` 和 `--publish-xhs` 默认浏览器可执行文件路径；命令行 `--chrome` 可单次覆盖
-- `xhs.publish.profile_dir`：`publish-xhs` 和 `--publish-xhs` 默认浏览器 profile 目录
-- `xhs.publish.mode`：`publish-xhs` 和 `--publish-xhs` 默认发布模式，支持 `only-self`、`schedule`
-- `xhs.publish.topic_generation.enabled`：`--publish-xhs` 未传 `--xhs-tags` 时是否调用 AI 生成 3-6 个小红书话题，默认开启
-- `xhs.publish.title_generation.enabled`：`--publish-xhs` 标题超过 `max_runes` 时是否调用 AI 改写标题，默认开启
+- `xhs.publish.account`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认发布账号
+- `xhs.publish.headless`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认是否无头运行浏览器
+- `xhs.publish.browser_path`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认浏览器可执行文件路径；命令行 `--chrome` 可单次覆盖
+- `xhs.publish.profile_dir`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认浏览器 profile 目录
+- `xhs.publish.mode`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认发布模式，支持 `only-self`、`schedule`
+- `xhs.publish.topic_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 未传 `--xhs-tags` 时是否调用 AI 生成 3-6 个小红书话题，默认开启
+- `xhs.publish.title_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 标题超过 `max_runes` 时是否调用 AI 改写标题，默认开启
 - `xhs.publish.title_generation.max_runes`：自动发布标题长度上限，默认 `20`；按 Unicode 字符计数，中文、英文、数字、空格和标点通常都算 1 个字符
 - `xhs.publish.chrome_args`：小红书发布浏览器使用的额外 Chrome 启动参数
 
@@ -191,10 +193,11 @@ posters:
 - `enrich-posters` 会从 Markdown 中抽取 `《作品名》` 和加粗列表项，调用 provider 搜索封面候选并写出 manifest，建议人工快速检查后再用于正式渲染
 - `--auto-posters` 会在单次 `--input` 渲染中自动搜索封面并补进 deck；如同时传 `--asset-manifest`，手动 manifest 优先
 - `--poster-sources` 可限制 `enrich-posters` / `--auto-posters` 使用的来源，默认按 `bilibili`、`bangumi`、`anilist`、`mydramalist` 顺序搜索；目前支持 `bilibili`、`bangumi`、`anilist`、`mydramalist`
+- `--prepare-xhs` 会在主渲染流程成功生成普通 PNG 后写出 `<out>/xhs-publish-meta.json`；它复用 `--publish-xhs` 的标题改写、话题生成和校验，但不会打开浏览器或发布
 - `--publish-xhs` 会在主渲染流程成功生成普通 PNG 后发布到小红书；标题来自 Markdown 一级标题，小红书正文只包含 3-6 个话题
 - 自动发布标题超过 `xhs.publish.title_generation.max_runes` 时，会按 `xhs.publish.title_generation.enabled` 调用同一套 `ai.command` / `ai.args` 改写标题；代码只校验长度，不再本地截断
-- 未传 `--xhs-tags` 时，`--publish-xhs` 会按 `xhs.publish.topic_generation.enabled` 调用同一套 `ai.command` / `ai.args` 生成话题；AI 调用失败、JSON 不合法或没有有效话题时会跳过发布并报错，不再回退到本地规则推理
-- `--xhs-tags` 可手动覆盖 AI 话题，例如 `--xhs-tags "AI代理,数据安全,工程反思"`；它只能和 `--publish-xhs` 一起使用，且传入后不会调用 AI 生成话题
+- 未传 `--xhs-tags` 时，`--publish-xhs` / `--prepare-xhs` 会按 `xhs.publish.topic_generation.enabled` 调用同一套 `ai.command` / `ai.args` 生成话题；AI 调用失败、JSON 不合法或没有有效话题时会跳过发布准备 / 发布并报错，不再回退到本地规则推理
+- `--xhs-tags` 可手动覆盖 AI 话题，例如 `--xhs-tags "AI代理,数据安全,工程反思"`；它只能和 `--publish-xhs` 或 `--prepare-xhs` 一起使用，且传入后不会调用 AI 生成话题
 - `xhs.publish.chrome_args` 不配置时，小红书发布默认使用 `disable-background-networking`、`disable-component-update`、`no-first-run`、`no-default-browser-check`；调试时可写 `chrome_args: []` 表示不加额外参数
 - `xhs.publish.chrome_args` 每项可以带或不带开头的 `--`，也支持 `name=value` 形式
 
@@ -233,11 +236,12 @@ ai:
 ./mark2note --input ./article.md --theme plum-ink
 ./mark2note --input ./article.md --theme sage-mist
 ./mark2note --input ./article.md --prompt-extra "封面更抓眼，整体更像经验复盘"
+./mark2note --input ./article.md --auto-posters --prepare-xhs
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
 ./mark2note enrich-posters --input ./article.md --out ./posters.yaml
-./mark2note --input ./article.md --asset-manifest ./posters.yaml
-./mark2note --input ./article.md --auto-posters
+./mark2note --input ./article.md --asset-manifest ./posters.yaml --prepare-xhs
 ./mark2note --input ./article.md --theme fresh-green --prompt-extra "精简输出，但不要精简掉图片" --live=false --publish-xhs
-./mark2note --input ./article.md --theme fresh-green --publish-xhs --xhs-tags "AI代理,数据安全,工程反思"
+./mark2note --input ./article.md --theme fresh-green --prepare-xhs --xhs-tags "AI代理,数据安全,工程反思"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --import-photos --import-album "mark2note"
@@ -255,9 +259,24 @@ ai:
 
 ## 小红书发布
 
+### 推荐：先准备发布元数据 `--prepare-xhs`
+
+更稳妥的流程是先生成 PNG 和发布元数据，人工看一遍图片，再用元数据重放发布：
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs
+
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
+
+`--prepare-xhs` 会复用 `xhs.publish` 的账号、浏览器路径、浏览器 profile、无头模式、发布模式、原创声明和正文复制配置，生成并校验标题、话题和图片列表，然后写入 `<out>/xhs-publish-meta.json`。它不会打开浏览器，也不会发布。
+
 ### 渲染后自动发布 `--publish-xhs`
 
-主渲染命令可以在成功生成普通 PNG 后自动调用小红书发布流程。这个流程复用 `xhs.publish` 的账号、浏览器路径、浏览器 profile、无头模式、发布模式、原创声明和正文复制配置；发布素材使用本次渲染出的普通 PNG，不使用 Live Photo 产物。
+主渲染命令也可以在成功生成普通 PNG 后自动调用小红书发布流程。这个流程复用 `xhs.publish` 的账号、浏览器路径、浏览器 profile、无头模式、发布模式、原创声明和正文复制配置；发布素材使用本次渲染出的普通 PNG，不使用 Live Photo 产物。
 
 ```bash
 ./mark2note \
@@ -287,9 +306,10 @@ ai:
 
 约束：
 
-- `--publish-xhs` 只支持 `--input` 流程，不能和 `--from-deck` 一起使用
-- `--xhs-tags` 只能和 `--publish-xhs` 一起使用
-- 如果渲染失败，不会尝试发布
+- `--publish-xhs` 和 `--prepare-xhs` 只支持 `--input` 流程，不能和 `--from-deck` 一起使用
+- `--publish-xhs` 和 `--prepare-xhs` 不能同时使用
+- `--xhs-tags` 只能和 `--publish-xhs` 或 `--prepare-xhs` 一起使用
+- 如果渲染失败，不会尝试准备发布元数据或发布
 - 如果没有找到本次生成的普通 PNG，或 PNG 路径不存在，会在打印渲染摘要后返回错误
 
 ### 独立发布子命令 `publish-xhs`
@@ -313,7 +333,7 @@ mark2note publish-xhs --help
 ### 参数说明
 
 - `--config <file>`：配置文件路径，默认 `configs/config.yaml`
-- `--meta <file>`：读取自动 `--publish-xhs` 写出的发布元数据（通常是 `<out>/xhs-publish-meta.json`）并重放发布；`--meta` 必须单独使用，不能和手动发布字段混用
+- `--meta <file>`：读取 `--prepare-xhs` / `--publish-xhs` 写出的发布元数据（通常是 `<out>/xhs-publish-meta.json`）并重放发布；`--meta` 必须单独使用，不能和手动发布字段混用
 - `--account <name>`：发布账号 / profile 名称；未显式传入时，回退到 `xhs.publish.account`
 - `--title <text>`：直接传标题文本；与 `--title-file` 二选一且必填
 - `--title-file <file>`：从文件读取标题
@@ -385,7 +405,7 @@ xhs:
 
 ### 元数据重放
 
-自动 `--publish-xhs` 会先完成 Markdown 渲染、标题处理和话题生成，然后在浏览器自动化开始前写出 `xhs-publish-meta.json`。独立子命令可以用 `--meta` 读取这份元数据重放发布：
+`--prepare-xhs` 会先完成 Markdown 渲染、标题处理和话题生成，然后写出 `xhs-publish-meta.json`；`--publish-xhs` 也会在浏览器自动化开始前写出同一份元数据。独立子命令可以用 `--meta` 读取这份元数据重放发布：
 
 ```bash
 ./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json

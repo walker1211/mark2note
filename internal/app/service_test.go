@@ -65,8 +65,8 @@ func TestServiceGeneratePreviewPassesPromptExtraToAIBuilder(t *testing.T) {
 		t.Fatalf("runner args = %v, want command args plus --bare and -p prompt", runner.args)
 	}
 	prompt := runner.args[3]
-	if !strings.Contains(prompt, "以下是本次生成的额外偏好") {
-		t.Fatalf("prompt = %q, want extra guidance wrapper", prompt)
+	if !strings.Contains(prompt, "以下是本次生成的额外约束") || !strings.Contains(prompt, "不得原文复制") {
+		t.Fatalf("prompt = %q, want hidden extra constraint wrapper", prompt)
 	}
 	if !strings.Contains(prompt, "封面更抓眼") {
 		t.Fatalf("prompt = %q, want PromptExtra contents", prompt)

@@ -15,6 +15,7 @@ The `capture-html` command is also a public CLI subcommand that converts existin
 - Optional experimental Live package export and Apple Live Photo assembly
 - Convert existing HTML files into sibling PNG files
 - Publish standard image posts or Live-photo assets to Xiaohongshu through `publish-xhs`
+- Prepare Xiaohongshu publish metadata after the main PNG render with `--prepare-xhs`, without publishing
 - Publish to Xiaohongshu automatically after the main PNG render with `--publish-xhs`
 - Add work poster covers to list-style decks with `posters.yaml` or `--auto-posters`
 
@@ -79,7 +80,30 @@ Without `--out`, mark2note creates a new timestamped directory from the original
 
 ## Work poster covers
 
-List-style articles, book lists, manga lists, and drama recommendations can render work covers on content pages. The most stable workflow is to prepare a `posters.yaml` manifest and pass it with `--asset-manifest`:
+List-style articles, book lists, manga lists, and drama recommendations can render work covers on content pages. The shortest workflow is to search covers during render and prepare Xiaohongshu metadata at the same time:
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs \
+  --prompt-extra "make it suitable for Xiaohongshu: restrained, clean, and non-graphic"
+```
+
+This writes HTML/PNG plus `<out>/xhs-publish-meta.json`, but does not publish. After reviewing the PNG files, replay the metadata:
+
+```bash
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
+
+If important covers need human review, generate and inspect a `posters.yaml` manifest first, then render:
+
+```bash
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml
+./mark2note --input ./article.md --asset-manifest ./posters.yaml --prepare-xhs
+```
+
+`posters.yaml` format:
 
 ```yaml
 posters:
@@ -89,31 +113,9 @@ posters:
   Death Note: ./assets/death-note.jpg
 ```
 
-```bash
-./mark2note --input ./article.md --asset-manifest ./posters.yaml
-```
-
 `src` accepts `http://`, `https://`, `data:image/...`, and local image paths relative to the manifest file. Local files are converted to data URIs before rendering so screenshots can read them consistently. Use manifests only from trusted sources to avoid embedding unintended local images into the output.
 
-To generate a manifest from automatic candidates first, run:
-
-```bash
-./mark2note enrich-posters --input ./article.md --out ./posters.yaml
-```
-
-The built-in providers are currently `bilibili`, `bangumi`, `anilist`, and `mydramalist`; you can restrict them explicitly:
-
-```bash
-./mark2note enrich-posters --input ./article.md --out ./posters.yaml --poster-sources bilibili,bangumi,anilist,mydramalist
-```
-
-For a one-command workflow that searches candidates and renders immediately, use:
-
-```bash
-./mark2note --input ./article.md --auto-posters
-```
-
-When `--asset-manifest` and `--auto-posters` are used together, the manual manifest overrides automatic candidates. This is useful when you want to pin important covers and let automatic search fill gaps. `--auto-posters` is supported only with `--input`, not `--from-deck`.
+The built-in providers are currently `bilibili`, `bangumi`, `anilist`, and `mydramalist`; use `--poster-sources bilibili,bangumi,anilist,mydramalist` to restrict sources. When `--asset-manifest` and `--auto-posters` are used together, the manual manifest overrides automatic candidates. This is useful when you want to pin important covers and let automatic search fill gaps. `--auto-posters` is supported only with `--input`, not `--from-deck`.
 
 ## Theme Notes
 
@@ -154,13 +156,13 @@ Key fields:
 - `render.live.import_photos`: whether to import assembled Live Photos into Apple Photos, off by default; requires `render.live.assemble`
 - `render.live.import_album`: Apple Photos album name for Live import; when empty, `mark2note-live-<timestamp>` is generated
 - `render.live.import_timeout`: Live import timeout, default `2m`; supports Go duration strings such as `45s` and `2m`
-- `xhs.publish.account`: default account for `publish-xhs` and `--publish-xhs`
-- `xhs.publish.headless`: default browser headless mode for `publish-xhs` and `--publish-xhs`
-- `xhs.publish.browser_path`: default browser executable path for `publish-xhs` and `--publish-xhs`; CLI `--chrome` can override it for one run
-- `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs` and `--publish-xhs`
-- `xhs.publish.mode`: default publish mode for `publish-xhs` and `--publish-xhs`, supporting `only-self` and `schedule`
-- `xhs.publish.topic_generation.enabled`: whether `--publish-xhs` calls AI to generate 3-6 Xiaohongshu topics when `--xhs-tags` is omitted, on by default
-- `xhs.publish.title_generation.enabled`: whether `--publish-xhs` calls AI to rewrite titles that exceed `max_runes`, on by default
+- `xhs.publish.account`: default account for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
+- `xhs.publish.headless`: default browser headless mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
+- `xhs.publish.browser_path`: default browser executable path for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`; CLI `--chrome` can override it for one run
+- `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
+- `xhs.publish.mode`: default publish mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`, supporting `only-self` and `schedule`
+- `xhs.publish.topic_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to generate 3-6 Xiaohongshu topics when `--xhs-tags` is omitted, on by default
+- `xhs.publish.title_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to rewrite titles that exceed `max_runes`, on by default
 - `xhs.publish.title_generation.max_runes`: auto-publish title limit, default `20`; counted as Unicode characters, so Chinese characters, English letters, digits, spaces, and punctuation generally each count as 1
 - `xhs.publish.chrome_args`: extra Chrome launch arguments used only by Xiaohongshu publishing
 
@@ -191,10 +193,11 @@ Additional notes:
 - `enrich-posters` extracts titles from `《work title》` text and bold list leads, searches providers, and writes a manifest; review it before final renders when accuracy matters
 - `--auto-posters` searches poster candidates during a single `--input` render and hydrates the deck immediately; when combined with `--asset-manifest`, the manual manifest wins
 - `--poster-sources` restricts providers for `enrich-posters` / `--auto-posters`; by default it searches `bilibili`, `bangumi`, `anilist`, then `mydramalist`; currently supported values are `bilibili`, `bangumi`, `anilist`, and `mydramalist`
+- `--prepare-xhs` writes `<out>/xhs-publish-meta.json` after the main render flow successfully generates standard PNG files; it reuses the same title rewriting, topic generation, and validation as `--publish-xhs`, but does not open the browser or publish
 - `--publish-xhs` publishes to Xiaohongshu after the main render flow successfully generates standard PNG files; the title comes from the Markdown H1 and the body contains only 3-6 topic hashtags
-- When the auto-publish title exceeds `xhs.publish.title_generation.max_runes`, `--publish-xhs` uses the same `ai.command` / `ai.args` to rewrite it according to `xhs.publish.title_generation.enabled`; code validates the length but does not truncate it locally
-- When `--xhs-tags` is omitted, `--publish-xhs` uses the same `ai.command` / `ai.args` to generate topics according to `xhs.publish.topic_generation.enabled`; AI command failures, invalid JSON, or no valid topics skip publishing and return an error instead of falling back to local rule-based inference
-- `--xhs-tags` manually overrides AI topics, for example `--xhs-tags "AI agent,data safety,engineering reflection"`; it is valid only with `--publish-xhs` and skips AI topic generation
+- When the auto-publish title exceeds `xhs.publish.title_generation.max_runes`, `--publish-xhs` / `--prepare-xhs` uses the same `ai.command` / `ai.args` to rewrite it according to `xhs.publish.title_generation.enabled`; code validates the length but does not truncate it locally
+- When `--xhs-tags` is omitted, `--publish-xhs` / `--prepare-xhs` uses the same `ai.command` / `ai.args` to generate topics according to `xhs.publish.topic_generation.enabled`; AI command failures, invalid JSON, or no valid topics skip preparation / publishing and return an error instead of falling back to local rule-based inference
+- `--xhs-tags` manually overrides AI topics, for example `--xhs-tags "AI agent,data safety,engineering reflection"`; it is valid only with `--publish-xhs` or `--prepare-xhs` and skips AI topic generation
 - When `xhs.publish.chrome_args` is omitted, Xiaohongshu publishing uses `disable-background-networking`, `disable-component-update`, `no-first-run`, and `no-default-browser-check`; set `chrome_args: []` to launch without extra args for debugging
 - `xhs.publish.chrome_args` entries may include or omit the leading `--`, and `name=value` arguments are supported
 
@@ -233,11 +236,12 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ./mark2note --input ./article.md --theme plum-ink
 ./mark2note --input ./article.md --theme sage-mist
 ./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
+./mark2note --input ./article.md --auto-posters --prepare-xhs
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
 ./mark2note enrich-posters --input ./article.md --out ./posters.yaml
-./mark2note --input ./article.md --asset-manifest ./posters.yaml
-./mark2note --input ./article.md --auto-posters
+./mark2note --input ./article.md --asset-manifest ./posters.yaml --prepare-xhs
 ./mark2note --input ./article.md --theme fresh-green --prompt-extra "make the output concise but keep image pages" --live=false --publish-xhs
-./mark2note --input ./article.md --theme fresh-green --publish-xhs --xhs-tags "AI agent,data safety,engineering reflection"
+./mark2note --input ./article.md --theme fresh-green --prepare-xhs --xhs-tags "AI agent,data safety,engineering reflection"
 ./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
 ./mark2note --input ./article.md --import-photos --import-album "mark2note"
@@ -255,9 +259,24 @@ Note: in directory mode, `capture-html` only scans the current directory, does n
 
 ## Xiaohongshu publishing
 
+### Recommended: prepare publish metadata first with `--prepare-xhs`
+
+The safer workflow is to generate PNG files and publish metadata first, review the images, then replay the metadata:
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs
+
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
+
+`--prepare-xhs` reuses `xhs.publish` defaults for account, browser path, browser profile, headless mode, publish mode, originality declaration, and content-copy preference. It generates and validates the title, topics, and image list, then writes `<out>/xhs-publish-meta.json`. It does not open the browser or publish.
+
 ### Auto-publish after render with `--publish-xhs`
 
-The main render command can automatically invoke the Xiaohongshu publish flow after standard PNG files are generated successfully. This flow reuses `xhs.publish` defaults for account, browser path, browser profile, headless mode, publish mode, originality declaration, and content-copy preference. It publishes the standard PNG pages from the current render, not Live Photo artifacts.
+The main render command can also automatically invoke the Xiaohongshu publish flow after standard PNG files are generated successfully. This flow reuses `xhs.publish` defaults for account, browser path, browser profile, headless mode, publish mode, originality declaration, and content-copy preference. It publishes the standard PNG pages from the current render, not Live Photo artifacts.
 
 ```bash
 ./mark2note \
@@ -286,9 +305,10 @@ Auto-publish behavior:
 
 Rules:
 
-- `--publish-xhs` is supported only with `--input`, not `--from-deck`
-- `--xhs-tags` is accepted only with `--publish-xhs`
-- render failures skip publishing
+- `--publish-xhs` and `--prepare-xhs` are supported only with `--input`, not `--from-deck`
+- `--publish-xhs` and `--prepare-xhs` cannot be used together
+- `--xhs-tags` is accepted only with `--publish-xhs` or `--prepare-xhs`
+- render failures skip metadata preparation and publishing
 - if no generated standard PNG is found, or a listed PNG path is missing, the command prints the render summary first and then returns an error
 
 ### Standalone publish subcommand `publish-xhs`
@@ -305,12 +325,14 @@ Current behavior:
 
 ```bash
 mark2note publish-xhs --account <name> [flags]
+mark2note publish-xhs --meta <file>
 mark2note publish-xhs --help
 ```
 
 ### Flags
 
 - `--config <file>`: config file path, default `configs/config.yaml`
+- `--meta <file>`: replay metadata written by `--prepare-xhs` / `--publish-xhs` (usually `<out>/xhs-publish-meta.json`); `--meta` must be used standalone and cannot be combined with manual publish fields
 - `--account <name>`: publish account / profile target; when omitted it falls back to `xhs.publish.account`
 - `--title <text>`: inline title text; exactly one of `--title` / `--title-file` is required
 - `--title-file <file>`: title file path
@@ -373,11 +395,20 @@ Example command:
 
 ### Validation rules
 
-- exactly one of `--title` / `--title-file` is required
-- exactly one of `--content` / `--content-file` is required
+- `--meta` replays saved publish metadata and must be used standalone, without `--title`, `--content`, `--tags`, `--images`, `--account`, or other manual publish fields
+- without `--meta`, exactly one of `--title` / `--title-file` is required
+- without `--meta`, content may come from `--content` / `--content-file`; if `--tags` is provided, content may be omitted
 - exactly one media source is required: `--images` or `--live-report`
 - `--schedule-at` is required when `--mode schedule`
 - `--live-pages` is accepted only with `--live-report`
+
+### Metadata replay
+
+`--prepare-xhs` renders Markdown, handles the title and topics, and writes `xhs-publish-meta.json`; `--publish-xhs` writes the same metadata before browser automation starts. The standalone command can replay that file without regenerating PNG files or topics:
+
+```bash
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
 
 ### Standard image publish
 

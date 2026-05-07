@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -106,8 +107,10 @@ func TestUsageTextMentionsAutoPublishXHSFlags(t *testing.T) {
 	text := usageText()
 	for _, want := range []string{
 		"--publish-xhs              publish generated PNG files to Xiaohongshu after render",
-		"--xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs",
-		"mark2note --input ./example.md --theme fresh-green --publish-xhs",
+		"--prepare-xhs              generate Xiaohongshu publish metadata after render without publishing",
+		"--xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs/--prepare-xhs",
+		"mark2note --input ./example.md --auto-posters --prepare-xhs",
+		"mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("usageText() missing %q", want)
@@ -260,12 +263,43 @@ func TestParseOptionsParsesAutoPublishXHSFlags(t *testing.T) {
 	}
 }
 
-func TestParseOptionsRejectsXHSTagsWithoutPublishXHS(t *testing.T) {
+func TestParseOptionsParsesPrepareXHS(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.PrepareXHS {
+		t.Fatalf("PrepareXHS = false, want true")
+	}
+}
+
+func TestParseOptionsAllowsXHSTagsWithPrepareXHS(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs", "--xhs-tags", "动漫推荐, 推理番"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	wantTags := []string{"动漫推荐", "推理番"}
+	if !opts.PrepareXHS || !reflect.DeepEqual(opts.XHSTags, wantTags) || !opts.XHSTagsChanged {
+		t.Fatalf("opts = %#v, want prepare with tags %#v", opts, wantTags)
+	}
+}
+
+func TestParseOptionsRejectsPrepareXHSWithPublishXHS(t *testing.T) {
+	_, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs", "--publish-xhs"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--prepare-xhs cannot be combined with --publish-xhs") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseOptionsRejectsXHSTagsWithoutPublishOrPrepareXHS(t *testing.T) {
 	_, err := parseOptions([]string{"--input", "article.md", "--xhs-tags", "AI"})
 	if err == nil {
 		t.Fatalf("parseOptions() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), "--xhs-tags requires --publish-xhs") {
+	if !strings.Contains(err.Error(), "--xhs-tags requires --publish-xhs or --prepare-xhs") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -276,6 +310,16 @@ func TestParseOptionsRejectsPublishXHSWithFromDeck(t *testing.T) {
 		t.Fatalf("parseOptions() error = nil, want non-nil")
 	}
 	if !strings.Contains(err.Error(), "--publish-xhs can only be used with --input") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseOptionsRejectsPrepareXHSWithFromDeck(t *testing.T) {
+	_, err := parseOptions([]string{"--from-deck", "output/old/deck.json", "--prepare-xhs"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--prepare-xhs can only be used with --input") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -686,6 +730,103 @@ func TestRunPassesAutoPostersToService(t *testing.T) {
 	}
 	if !got.AutoPosters || !reflect.DeepEqual(got.PosterSources, []string{"anilist"}) {
 		t.Fatalf("opts = %#v", got)
+	}
+}
+
+func TestRunPrepareXHSWritesMetadataWithoutPublishing(t *testing.T) {
+	originalGeneratePreview := generatePreview
+	originalPublishXHS := publishXHS
+	originalLoadConfig := loadConfig
+	originalBuildPublishTitle := buildPublishTitle
+	originalBuildPublishTopics := buildPublishTopics
+	originalNowFunc := nowFunc
+	defer func() {
+		generatePreview = originalGeneratePreview
+		publishXHS = originalPublishXHS
+		loadConfig = originalLoadConfig
+		buildPublishTitle = originalBuildPublishTitle
+		buildPublishTopics = originalBuildPublishTopics
+		nowFunc = originalNowFunc
+	}()
+
+	root := t.TempDir()
+	outDir := filepath.Join(root, "preview")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	inputPath := filepath.Join(root, "article.md")
+	markdown := "# 一份我会反复推荐的推理悬疑作品片单\n\n正文"
+	if err := os.WriteFile(inputPath, []byte(markdown), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	imagePaths := []string{filepath.Join(outDir, "p01-cover.png"), filepath.Join(outDir, "p02-quote.png")}
+	for _, imagePath := range imagePaths {
+		if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", imagePath, err)
+		}
+	}
+
+	generatePreview = func(opts Options) (app.Result, error) {
+		if !opts.PrepareXHS || !opts.AutoPosters {
+			t.Fatalf("generatePreview opts = %#v, want prepare-xhs with auto-posters", opts)
+		}
+		return app.Result{PageCount: 12, OutDir: outDir, ImagePaths: imagePaths}, nil
+	}
+	publishXHS = func(app.PublishOptions) (app.PublishResult, error) {
+		t.Fatalf("publishXHS should not be called by --prepare-xhs")
+		return app.PublishResult{}, nil
+	}
+	topicEnabled := true
+	titleEnabled := true
+	loadConfig = func(string) (*config.Config, error) {
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:         "walker",
+			TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicEnabled},
+			TitleGeneration: config.XHSTitleGenerationCfg{Enabled: &titleEnabled, MaxRunes: 8},
+		}}}, nil
+	}
+	buildPublishTitle = func(_ *config.Config, md string, title string, maxRunes int) (string, error) {
+		if md != markdown || !strings.Contains(title, "推理悬疑作品片单") || maxRunes != 8 {
+			t.Fatalf("buildPublishTitle inputs = %q / %q / %d", md, title, maxRunes)
+		}
+		return "推理悬疑片单", nil
+	}
+	buildPublishTopics = func(_ *config.Config, md string, title string) ([]string, error) {
+		if md != markdown || title != "推理悬疑片单" {
+			t.Fatalf("buildPublishTopics inputs = %q / %q", md, title)
+		}
+		return []string{"#推理番", "悬疑动画", "推理番"}, nil
+	}
+	nowFunc = func() time.Time { return time.Date(2026, 5, 1, 10, 11, 12, 0, time.UTC) }
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--input", inputPath, "--out", outDir, "--auto-posters", "--prepare-xhs"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "generated 12 preview pages") || !strings.Contains(stdout.String(), "xhs publish metadata:") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+
+	data, err := os.ReadFile(filepath.Join(outDir, xhsPublishMetaFilename))
+	if err != nil {
+		t.Fatalf("ReadFile(meta) error = %v", err)
+	}
+	var meta xhsPublishMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("Unmarshal(meta) error = %v", err)
+	}
+	if meta.Title != "推理悬疑片单" {
+		t.Fatalf("meta.Title = %q, want rewritten title", meta.Title)
+	}
+	if !reflect.DeepEqual(meta.Tags, []string{"推理番", "悬疑动画"}) {
+		t.Fatalf("meta.Tags = %#v", meta.Tags)
+	}
+	if !reflect.DeepEqual(meta.Images, imagePaths) || meta.Account != "walker" || meta.InputPath != inputPath {
+		t.Fatalf("meta = %#v", meta)
+	}
+	if meta.GeneratedAt != "2026-05-01T10:11:12Z" {
+		t.Fatalf("meta.GeneratedAt = %q", meta.GeneratedAt)
 	}
 }
 
