@@ -56,12 +56,12 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (Pub
 		defaultXHSLogger("publish live attach success attached=%d", attachResult.AttachedCount)
 	}
 	switch request.Mode {
-	case PublishModeDraft:
-		if err := o.publishDraft(ctx, page, request); err != nil {
+	case PublishModeOnlySelf:
+		if err := o.publishOnlySelf(ctx, page, request); err != nil {
 			result.BrowserKept = true
 			return result, err
 		}
-		result.DraftSaved = true
+		result.OnlySelfPublished = true
 	case PublishModeSchedule:
 		if err := o.publishScheduled(ctx, page, request); err != nil {
 			result.BrowserKept = true
@@ -77,7 +77,7 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (Pub
 	return result, nil
 }
 
-func (o *Orchestrator) publishDraft(ctx context.Context, page PublishPage, request PublishRequest) error {
+func (o *Orchestrator) publishOnlySelf(ctx context.Context, page PublishPage, request PublishRequest) error {
 	if request.MediaKind == MediaKindLive {
 		if err := page.Open(ctx); err != nil {
 			return err
@@ -88,15 +88,15 @@ func (o *Orchestrator) publishDraft(ctx context.Context, page PublishPage, reque
 		if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
 			return fmt.Errorf("%w: %v", ErrFillFailed, err)
 		}
-		if err := page.SaveDraft(ctx); err != nil {
+		if err := page.PublishOnlySelf(ctx); err != nil {
 			return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 		}
-		if err := page.ConfirmDraftSaved(ctx); err != nil {
+		if err := page.ConfirmOnlySelfPublished(ctx); err != nil {
 			return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 		}
 		return nil
 	}
-	return o.publisher.PublishStandardDraft(ctx, page, request)
+	return o.publisher.PublishStandardOnlySelf(ctx, page, request)
 }
 
 func (o *Orchestrator) publishScheduled(ctx context.Context, page PublishPage, request PublishRequest) error {

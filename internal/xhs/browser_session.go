@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -94,9 +95,10 @@ const (
 )
 
 var (
-	ErrBrowserLaunch   = errors.New("browser launch failed")
-	ErrNotLoggedIn     = errors.New("not logged in to Xiaohongshu creator center")
-	ErrAccountMismatch = errors.New("xiaohongshu account mismatch")
+	ErrBrowserLaunch             = errors.New("browser launch failed")
+	ErrNotLoggedIn               = errors.New("not logged in to Xiaohongshu creator center")
+	ErrAccountMismatch           = errors.New("xiaohongshu account mismatch")
+	ErrStaleBrowserReuseMetadata = errors.New("stale browser reuse metadata")
 )
 
 type SessionOptions struct {
@@ -114,21 +116,22 @@ type BrowserSession interface {
 }
 
 type rodBrowserSession struct {
-	opts               SessionOptions
-	userConfigDir      func() (string, error)
-	mkdirAll           func(string, os.FileMode) error
-	readFile           func(string) ([]byte, error)
-	writeFile          func(string, []byte, os.FileMode) error
-	newLauncher        func(SessionOptions, string) sessionLauncher
-	newBrowser         func(string) (sessionBrowser, error)
-	logf               func(string, ...any)
-	loginPollInterval  time.Duration
-	loginGracePeriod   time.Duration
-	interactiveTimeout time.Duration
-	profileDir         string
-	browser            sessionBrowser
-	page               sessionPage
-	ownsBrowser        bool
+	opts                SessionOptions
+	userConfigDir       func() (string, error)
+	mkdirAll            func(string, os.FileMode) error
+	readFile            func(string) ([]byte, error)
+	writeFile           func(string, []byte, os.FileMode) error
+	newLauncher         func(SessionOptions, string) sessionLauncher
+	newBrowser          func(string) (sessionBrowser, error)
+	discoverBrowserURLs func(context.Context) ([]string, error)
+	logf                func(string, ...any)
+	loginPollInterval   time.Duration
+	loginGracePeriod    time.Duration
+	interactiveTimeout  time.Duration
+	profileDir          string
+	browser             sessionBrowser
+	page                sessionPage
+	ownsBrowser         bool
 }
 
 type sessionLauncher interface {
@@ -146,6 +149,7 @@ type sessionPage interface {
 	URL() (string, error)
 	AccountName() (string, error)
 	HasLoginPrompt() (bool, error)
+	Close() error
 }
 
 type profileState struct {
@@ -160,6 +164,11 @@ type loginStatus struct {
 	loggedIn       bool
 }
 
+type browserReuseCandidate struct {
+	controlURL   string
+	profileBound bool
+}
+
 func NewBrowserSession(opts SessionOptions) BrowserSession {
 	return &rodBrowserSession{
 		opts:          opts,
@@ -169,12 +178,13 @@ func NewBrowserSession(opts SessionOptions) BrowserSession {
 		writeFile: func(path string, data []byte, perm os.FileMode) error {
 			return os.WriteFile(path, data, perm)
 		},
-		newLauncher:        defaultSessionLauncher,
-		newBrowser:         defaultSessionBrowser,
-		logf:               defaultXHSLogger,
-		loginPollInterval:  2 * time.Second,
-		loginGracePeriod:   5 * time.Second,
-		interactiveTimeout: 2 * time.Minute,
+		newLauncher:         defaultSessionLauncher,
+		newBrowser:          defaultSessionBrowser,
+		discoverBrowserURLs: discoverLoopbackBrowserControlURLs,
+		logf:                defaultXHSLogger,
+		loginPollInterval:   2 * time.Second,
+		loginGracePeriod:    5 * time.Second,
+		interactiveTimeout:  2 * time.Minute,
 	}
 }
 
@@ -194,27 +204,45 @@ func (s *rodBrowserSession) Open(ctx context.Context) error {
 	if err := s.mkdirAll(profileDir, 0o755); err != nil {
 		return fmt.Errorf("%w: create profile dir: %v", ErrBrowserLaunch, err)
 	}
-	if controlURL, ok, err := readRunningBrowserControlURL(s.readFile, profileDir); err != nil {
-		s.debugf("read running browser control url failed: %v", err)
-	} else if ok {
-		s.debugf("reuse running browser control url=%s", controlURL)
-		browser, connectErr := s.newBrowser(controlURL)
-		if connectErr == nil {
-			s.debugf("open publish page url=%s", xhsPublishURL)
-			page, pageErr := browser.Page(xhsPublishURL)
-			if pageErr == nil {
-				s.profileDir = profileDir
-				s.browser = browser
-				s.page = page
-				s.ownsBrowser = false
-				s.debugf("browser session ready reused=true")
-				return nil
-			}
-			s.debugf("running browser page open failed: %v", pageErr)
+
+	candidates, hasRunningEvidence, err := s.browserReuseCandidates(ctx, profileDir)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBrowserLaunch, err)
+	}
+	var lastProfileBoundErr error
+	sawProfileBoundStaleFailure := false
+	sawProfileBoundNonStaleFailure := false
+	for _, candidate := range candidates {
+		if candidate.controlURL == "" {
+			continue
+		}
+		if err := s.attachBrowser(candidate.controlURL, profileDir); err == nil {
+			return nil
 		} else {
-			s.debugf("running browser connect failed: %v", connectErr)
+			s.debugf("browser reuse candidate failed url=%s profileBound=%t err=%v", candidate.controlURL, candidate.profileBound, err)
+			if !candidate.profileBound {
+				continue
+			}
+			lastProfileBoundErr = err
+			if errors.Is(err, ErrStaleBrowserReuseMetadata) {
+				sawProfileBoundStaleFailure = true
+			} else {
+				sawProfileBoundNonStaleFailure = true
+			}
 		}
 	}
+	if hasRunningEvidence {
+		if lastProfileBoundErr != nil {
+			if sawProfileBoundStaleFailure && !sawProfileBoundNonStaleFailure {
+				s.debugf("all profile-bound browser reuse candidates looked stale; launching a new browser")
+			} else {
+				return fmt.Errorf("%w: %v", ErrBrowserLaunch, lastProfileBoundErr)
+			}
+		} else {
+			return fmt.Errorf("%w: browser profile is already active but mark2note could not attach; close the existing browser or refresh DevTools reuse metadata", ErrBrowserLaunch)
+		}
+	}
+
 	launched, err := s.newLauncher(s.opts, profileDir).Launch()
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBrowserLaunch, err)
@@ -271,22 +299,22 @@ func (s *rodBrowserSession) inspectLoginStatus(ctx context.Context) (loginStatus
 		s.debugf("detected login url")
 		return status, nil
 	}
-	accountName, err := s.page.AccountName()
-	if err != nil {
-		return loginStatus{}, fmt.Errorf("%w: inspect account identity: %v", ErrNotLoggedIn, err)
-	}
-	status.accountName = sanitizeAccountName(accountName)
-	s.debugf("account probe result=%q", status.accountName)
-	if status.accountName != "" {
-		status.loggedIn = true
-		return status, nil
-	}
 	hasPrompt, promptErr := s.page.HasLoginPrompt()
 	if promptErr != nil {
 		return loginStatus{}, fmt.Errorf("%w: inspect login prompt: %v", ErrNotLoggedIn, promptErr)
 	}
 	status.hasLoginPrompt = hasPrompt
 	s.debugf("login prompt visible=%t", hasPrompt)
+	accountName, err := s.page.AccountName()
+	if err != nil {
+		return loginStatus{}, fmt.Errorf("%w: inspect account identity: %v", ErrNotLoggedIn, err)
+	}
+	status.accountName = sanitizeAccountName(accountName)
+	s.debugf("account probe result=%q", status.accountName)
+	if status.accountName != "" && !status.hasLoginPrompt {
+		status.loggedIn = true
+		return status, nil
+	}
 	return status, nil
 }
 
@@ -517,7 +545,11 @@ func readRunningBrowserControlURL(readFile func(string) ([]byte, error), profile
 		}
 		return "", false, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	return parseRunningBrowserControlURL(string(data))
+}
+
+func parseRunningBrowserControlURL(raw string) (string, bool, error) {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
 	if len(lines) < 2 {
 		return "", false, nil
 	}
@@ -530,6 +562,124 @@ func readRunningBrowserControlURL(readFile func(string) ([]byte, error), profile
 		return "", false, nil
 	}
 	return fmt.Sprintf("ws://127.0.0.1:%s%s", port, path), true, nil
+}
+
+func (s *rodBrowserSession) browserReuseCandidates(ctx context.Context, profileDir string) ([]browserReuseCandidate, bool, error) {
+	candidates := make([]browserReuseCandidate, 0, 2)
+	seen := map[string]struct{}{}
+	portFilePath := filepath.Join(profileDir, "DevToolsActivePort")
+	data, err := s.readFile(portFilePath)
+	hasRunningEvidence := false
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			s.debugf("running browser control url file missing path=%s", portFilePath)
+		} else {
+			s.debugf("read running browser control url failed: %v", err)
+			return nil, false, err
+		}
+	} else if controlURL, ok, _ := parseRunningBrowserControlURL(string(data)); ok {
+		hasRunningEvidence = true
+		candidates = appendUniqueBrowserReuseCandidate(candidates, seen, browserReuseCandidate{controlURL: controlURL, profileBound: true})
+		s.debugf("reuse running browser control url=%s", controlURL)
+	} else {
+		s.debugf("running browser control url file invalid path=%s", portFilePath)
+	}
+
+	if s.discoverBrowserURLs != nil {
+		discovered, err := s.discoverBrowserURLs(ctx)
+		if err != nil {
+			s.debugf("discover fallback browser control urls failed: %v", err)
+		} else {
+			for _, controlURL := range discovered {
+				candidates = appendUniqueBrowserReuseCandidate(candidates, seen, browserReuseCandidate{controlURL: controlURL, profileBound: false})
+			}
+			if len(discovered) > 0 {
+				s.debugf("discovered fallback browser control urls=%d", len(discovered))
+			}
+		}
+	}
+
+	return candidates, hasRunningEvidence, nil
+}
+
+func appendUniqueBrowserReuseCandidate(candidates []browserReuseCandidate, seen map[string]struct{}, candidate browserReuseCandidate) []browserReuseCandidate {
+	trimmed := strings.TrimSpace(candidate.controlURL)
+	if trimmed == "" {
+		return candidates
+	}
+	if _, exists := seen[trimmed]; exists {
+		return candidates
+	}
+	candidate.controlURL = trimmed
+	seen[trimmed] = struct{}{}
+	return append(candidates, candidate)
+}
+
+func (s *rodBrowserSession) attachBrowser(controlURL string, profileDir string) (err error) {
+	browser, err := s.newBrowser(controlURL)
+	if err != nil {
+		if isConnectionRefusedError(err) {
+			return fmt.Errorf("%w: connect running browser: %v", ErrStaleBrowserReuseMetadata, err)
+		}
+		return fmt.Errorf("connect running browser: %w", err)
+	}
+	s.debugf("open publish page url=%s", xhsPublishURL)
+	page, pageErr := browser.Page(xhsPublishURL)
+	if pageErr != nil {
+		return fmt.Errorf("open publish page: %w", pageErr)
+	}
+	defer func() {
+		if err == nil || page == nil {
+			return
+		}
+		if closeErr := page.Close(); closeErr != nil {
+			s.debugf("cleanup reused browser probe page failed url=%s err=%v", controlURL, closeErr)
+		}
+	}()
+	accountName, accountErr := page.AccountName()
+	if accountErr != nil {
+		return fmt.Errorf("inspect running browser account: %w", accountErr)
+	}
+	activeAccount := sanitizeAccountName(accountName)
+	requestedAccount := sanitizeAccountName(s.opts.Account)
+	if activeAccount == "" {
+		return fmt.Errorf("inspect running browser account: active account is empty")
+	}
+	if !accountNamesMatch(activeAccount, requestedAccount) {
+		return fmt.Errorf("active account %q does not match requested account %q", activeAccount, requestedAccount)
+	}
+	s.profileDir = profileDir
+	s.browser = browser
+	s.page = page
+	s.ownsBrowser = false
+	s.debugf("browser session ready reused=true account=%q", activeAccount)
+	return nil
+}
+
+func discoverLoopbackBrowserControlURLs(ctx context.Context) ([]string, error) {
+	const versionURL = "http://127.0.0.1:9222/json/version"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fallback debugger endpoint returned status %d", response.StatusCode)
+	}
+	var payload struct {
+		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(payload.WebSocketDebuggerURL) == "" {
+		return nil, nil
+	}
+	return []string{strings.TrimSpace(payload.WebSocketDebuggerURL)}, nil
 }
 
 func resolveSessionProfileDir(userConfigDir func() (string, error), account string, explicit string) (string, error) {
@@ -566,6 +716,14 @@ func (s *rodBrowserSession) debugf(format string, args ...any) {
 func looksLikeLoginURL(url string) bool {
 	trimmed := strings.ToLower(strings.TrimSpace(url))
 	return strings.Contains(trimmed, "/login") || strings.Contains(trimmed, "login.xiaohongshu.com")
+}
+
+func isConnectionRefusedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "connection refused")
 }
 
 func defaultSessionLauncher(opts SessionOptions, profileDir string) sessionLauncher {
@@ -652,6 +810,12 @@ func (p *rodPage) HasLoginPrompt() (result bool, err error) {
 		result = p.page.MustEval(loginPromptScript).Bool()
 	})
 	return result, err
+}
+
+func (p *rodPage) Close() error {
+	return rodTry(func() {
+		p.page.MustClose()
+	})
 }
 
 func waitForRodPageReady(page *rod.Page) error {

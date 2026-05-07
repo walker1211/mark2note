@@ -3,6 +3,7 @@ package xhs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,12 +49,14 @@ type fakeSessionPage struct {
 	urlErr          error
 	accountErr      error
 	promptErr       error
+	closeErr        error
 	urlSequence     []string
 	accountSequence []string
 	promptSequence  []bool
 	urlCalls        int
 	accountCalls    int
 	promptCalls     int
+	closeCalls      int
 }
 
 func (f *fakeSessionPage) Navigate(url string) error {
@@ -106,12 +109,17 @@ func (f *fakeSessionPage) HasLoginPrompt() (bool, error) {
 	return f.promptSequence[index], nil
 }
 
+func (f *fakeSessionPage) Close() error {
+	f.closeCalls++
+	return f.closeErr
+}
+
 func (f *fakeSessionPage) Open(context.Context) error                          { return nil }
 func (f *fakeSessionPage) UploadImages(context.Context, []string) error        { return nil }
 func (f *fakeSessionPage) FillTitle(context.Context, string) error             { return nil }
 func (f *fakeSessionPage) FillContent(context.Context, string, []string) error { return nil }
-func (f *fakeSessionPage) SaveDraft(context.Context) error                     { return nil }
-func (f *fakeSessionPage) ConfirmDraftSaved(context.Context) error             { return nil }
+func (f *fakeSessionPage) PublishOnlySelf(context.Context) error               { return nil }
+func (f *fakeSessionPage) ConfirmOnlySelfPublished(context.Context) error      { return nil }
 func (f *fakeSessionPage) SetSchedule(context.Context, time.Time) error        { return nil }
 func (f *fakeSessionPage) SubmitScheduled(context.Context) error               { return nil }
 func (f *fakeSessionPage) ConfirmScheduledSubmitted(context.Context) error     { return nil }
@@ -188,6 +196,30 @@ func TestBrowserSessionCheckLoginReturnsAccountMismatch(t *testing.T) {
 	}
 }
 
+func TestBrowserSessionDoesNotTreatStoredAccountAsLoggedInWhenLoginPromptIsVisible(t *testing.T) {
+	tempDir := t.TempDir()
+	page := &fakeSessionPage{url: xhsPublishURL, account: "Walker", hasLoginPrompt: true}
+	browser := &fakeSessionBrowser{page: page}
+	session := &rodBrowserSession{
+		opts:               SessionOptions{Account: "walker", Headless: false},
+		userConfigDir:      func() (string, error) { return tempDir, nil },
+		mkdirAll:           os.MkdirAll,
+		readFile:           os.ReadFile,
+		writeFile:          func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		newLauncher:        func(SessionOptions, string) sessionLauncher { return fakeSessionLauncher{url: "ws://browser"} },
+		newBrowser:         func(string) (sessionBrowser, error) { return browser, nil },
+		loginPollInterval:  20 * time.Millisecond,
+		interactiveTimeout: 200 * time.Millisecond,
+	}
+	err := session.EnsureLoggedIn(context.Background())
+	if err == nil || !errors.Is(err, ErrNotLoggedIn) {
+		t.Fatalf("EnsureLoggedIn() error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "timed out waiting for QR login") {
+		t.Fatalf("EnsureLoggedIn() error = %v", err)
+	}
+}
+
 func TestBrowserSessionRejectsHeadlessWhenLoginRequired(t *testing.T) {
 	tempDir := t.TempDir()
 	page := &fakeSessionPage{url: xhsLoginURL, hasLoginPrompt: true}
@@ -239,9 +271,9 @@ func TestBrowserSessionReturnsNavigateLoginError(t *testing.T) {
 func TestBrowserSessionWaitsForInteractiveLoginCompletion(t *testing.T) {
 	tempDir := t.TempDir()
 	page := &fakeSessionPage{
-		urlSequence:     []string{xhsLoginURL, xhsPublishURL},
-		accountSequence: []string{"", "writer"},
-		promptSequence:  []bool{true},
+		urlSequence:     []string{xhsLoginURL, xhsPublishURL, xhsPublishURL},
+		accountSequence: []string{"", "", "writer"},
+		promptSequence:  []bool{true, false},
 	}
 	browser := &fakeSessionBrowser{page: page}
 	session := &rodBrowserSession{
@@ -415,29 +447,30 @@ func TestBrowserSessionOpenReusesRunningBrowser(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("9222\n/devtools/browser/test-browser\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	page := &fakeSessionPage{}
+	page := &fakeSessionPage{account: "walker"}
 	browser := &fakeSessionBrowser{page: page}
-	var gotControlURL string
+	var gotControlURLs []string
 	session := &rodBrowserSession{
-		opts:          SessionOptions{Account: "walker", ProfileDir: profileDir},
-		userConfigDir: func() (string, error) { return tempDir, nil },
-		mkdirAll:      os.MkdirAll,
-		readFile:      os.ReadFile,
-		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		opts:                SessionOptions{Account: "walker", ProfileDir: profileDir},
+		userConfigDir:       func() (string, error) { return tempDir, nil },
+		mkdirAll:            os.MkdirAll,
+		readFile:            os.ReadFile,
+		writeFile:           func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) { return nil, nil },
 		newLauncher: func(SessionOptions, string) sessionLauncher {
 			t.Fatal("newLauncher should not be called when reusing running browser")
 			return fakeSessionLauncher{}
 		},
 		newBrowser: func(controlURL string) (sessionBrowser, error) {
-			gotControlURL = controlURL
+			gotControlURLs = append(gotControlURLs, controlURL)
 			return browser, nil
 		},
 	}
 	if err := session.Open(context.Background()); err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	if gotControlURL != "ws://127.0.0.1:9222/devtools/browser/test-browser" {
-		t.Fatalf("controlURL = %q", gotControlURL)
+	if len(gotControlURLs) != 1 || gotControlURLs[0] != "ws://127.0.0.1:9222/devtools/browser/test-browser" {
+		t.Fatalf("controlURLs = %#v", gotControlURLs)
 	}
 	if session.ownsBrowser {
 		t.Fatal("session.ownsBrowser = true, want false")
@@ -450,6 +483,371 @@ func TestBrowserSessionOpenReusesRunningBrowser(t *testing.T) {
 	}
 	if browser.closeCalls != 0 {
 		t.Fatalf("closeCalls = %d, want 0", browser.closeCalls)
+	}
+}
+
+func TestBrowserSessionOpenFallsBackToDiscoveredBrowserControlURL(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("50691\n/devtools/browser/stale-browser\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	page := &fakeSessionPage{account: "walker"}
+	browser := &fakeSessionBrowser{page: page}
+	var gotControlURLs []string
+	session := &rodBrowserSession{
+		opts:          SessionOptions{Account: "walker", ProfileDir: profileDir},
+		userConfigDir: func() (string, error) { return tempDir, nil },
+		mkdirAll:      os.MkdirAll,
+		readFile:      os.ReadFile,
+		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) {
+			return []string{"ws://127.0.0.1:9222/devtools/browser/live-browser"}, nil
+		},
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			t.Fatal("newLauncher should not be called when fallback reuse succeeds")
+			return fakeSessionLauncher{}
+		},
+		newBrowser: func(controlURL string) (sessionBrowser, error) {
+			gotControlURLs = append(gotControlURLs, controlURL)
+			if strings.Contains(controlURL, "stale-browser") {
+				return nil, errors.New("connect stale browser failed")
+			}
+			return browser, nil
+		},
+	}
+	if err := session.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	want := []string{
+		"ws://127.0.0.1:50691/devtools/browser/stale-browser",
+		"ws://127.0.0.1:9222/devtools/browser/live-browser",
+	}
+	if fmt.Sprintf("%#v", gotControlURLs) != fmt.Sprintf("%#v", want) {
+		t.Fatalf("controlURLs = %#v, want %#v", gotControlURLs, want)
+	}
+	if session.ownsBrowser {
+		t.Fatal("session.ownsBrowser = true, want false")
+	}
+}
+
+func TestBrowserSessionOpenDoesNotLaunchWhenRunningBrowserEvidenceCannotBeAttached(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("50691\n/devtools/browser/stale-browser\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	launcherCalled := false
+	session := &rodBrowserSession{
+		opts:          SessionOptions{Account: "walker", ProfileDir: profileDir},
+		userConfigDir: func() (string, error) { return tempDir, nil },
+		mkdirAll:      os.MkdirAll,
+		readFile:      os.ReadFile,
+		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) {
+			return []string{"ws://127.0.0.1:9222/devtools/browser/live-browser"}, nil
+		},
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			launcherCalled = true
+			return fakeSessionLauncher{url: "ws://new-browser"}
+		},
+		newBrowser: func(controlURL string) (sessionBrowser, error) {
+			return nil, fmt.Errorf("attach failed for %s", controlURL)
+		},
+	}
+	err := session.Open(context.Background())
+	if err == nil {
+		t.Fatal("Open() error = nil, want reuse failure")
+	}
+	if !strings.Contains(err.Error(), "attach failed") {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if launcherCalled {
+		t.Fatal("newLauncher should not be called when profile already appears active")
+	}
+}
+
+func TestBrowserSessionOpenLaunchesWhenFallbackReuseCandidateIsUnusable(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("50691\n/devtools/browser/stale-browser\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	launcherCalled := false
+	launchedBrowser := &fakeSessionBrowser{page: &fakeSessionPage{account: "walker"}}
+	session := &rodBrowserSession{
+		opts:          SessionOptions{Account: "walker", ProfileDir: profileDir},
+		userConfigDir: func() (string, error) { return tempDir, nil },
+		mkdirAll:      os.MkdirAll,
+		readFile:      os.ReadFile,
+		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) {
+			return []string{"ws://127.0.0.1:9222/devtools/browser/live-browser"}, nil
+		},
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			launcherCalled = true
+			return fakeSessionLauncher{url: "ws://new-browser"}
+		},
+		newBrowser: func(controlURL string) (sessionBrowser, error) {
+			if strings.Contains(controlURL, "stale-browser") {
+				return nil, errors.New("dial tcp 127.0.0.1:50691: connect: connection refused")
+			}
+			if strings.Contains(controlURL, "live-browser") {
+				return &fakeSessionBrowser{pageErr: errors.New("target closed")}, nil
+			}
+			if controlURL == "ws://new-browser" {
+				return launchedBrowser, nil
+			}
+			return nil, fmt.Errorf("unexpected controlURL %s", controlURL)
+		},
+	}
+	if err := session.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if !launcherCalled {
+		t.Fatal("newLauncher should be called when fallback reuse candidate is unusable")
+	}
+	if !session.ownsBrowser {
+		t.Fatal("session.ownsBrowser = false, want true")
+	}
+}
+
+func TestBrowserSessionOpenLaunchesWhenFallbackBrowserAccountDoesNotMatch(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("50691\n/devtools/browser/stale-browser\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	launcherCalled := false
+	wrongAccountPage := &fakeSessionPage{account: "Walker"}
+	wrongAccountBrowser := &fakeSessionBrowser{page: wrongAccountPage}
+	launchedBrowser := &fakeSessionBrowser{page: &fakeSessionPage{account: "writer"}}
+	session := &rodBrowserSession{
+		opts:          SessionOptions{Account: "writer", ProfileDir: profileDir},
+		userConfigDir: func() (string, error) { return tempDir, nil },
+		mkdirAll:      os.MkdirAll,
+		readFile:      os.ReadFile,
+		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) {
+			return []string{"ws://127.0.0.1:9222/devtools/browser/live-browser"}, nil
+		},
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			launcherCalled = true
+			return fakeSessionLauncher{url: "ws://new-browser"}
+		},
+		newBrowser: func(controlURL string) (sessionBrowser, error) {
+			if strings.Contains(controlURL, "stale-browser") {
+				return nil, errors.New("dial tcp 127.0.0.1:50691: connect: connection refused")
+			}
+			if strings.Contains(controlURL, "live-browser") {
+				return wrongAccountBrowser, nil
+			}
+			if controlURL == "ws://new-browser" {
+				return launchedBrowser, nil
+			}
+			return nil, fmt.Errorf("unexpected controlURL %s", controlURL)
+		},
+	}
+	if err := session.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if !launcherCalled {
+		t.Fatal("newLauncher should be called when fallback browser account mismatches")
+	}
+	if !session.ownsBrowser {
+		t.Fatal("session.ownsBrowser = false, want true")
+	}
+	if wrongAccountBrowser.closeCalls != 0 {
+		t.Fatalf("closeCalls = %d, want 0", wrongAccountBrowser.closeCalls)
+	}
+}
+
+func TestBrowserSessionOpenLaunchesWhenOnlyReuseEvidenceIsStale(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("50691\n/devtools/browser/stale-browser\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	launched := false
+	launchedBrowser := &fakeSessionBrowser{page: &fakeSessionPage{account: "writer"}}
+	session := &rodBrowserSession{
+		opts:          SessionOptions{Account: "writer", ProfileDir: profileDir},
+		userConfigDir: func() (string, error) { return tempDir, nil },
+		mkdirAll:      os.MkdirAll,
+		readFile:      os.ReadFile,
+		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) {
+			return nil, nil
+		},
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			launched = true
+			return fakeSessionLauncher{url: "ws://new-browser"}
+		},
+		newBrowser: func(controlURL string) (sessionBrowser, error) {
+			if strings.Contains(controlURL, "stale-browser") {
+				return nil, errors.New("dial tcp 127.0.0.1:50691: connect: connection refused")
+			}
+			if controlURL == "ws://new-browser" {
+				return launchedBrowser, nil
+			}
+			return nil, fmt.Errorf("unexpected controlURL %s", controlURL)
+		},
+	}
+	if err := session.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if !launched {
+		t.Fatal("newLauncher should be called when stale reuse metadata is the only evidence")
+	}
+	if !session.ownsBrowser {
+		t.Fatal("session.ownsBrowser = false, want true")
+	}
+}
+
+func TestBrowserSessionOpenLaunchesWhenDevToolsActivePortIsInvalid(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("garbage"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	launched := false
+	launchedBrowser := &fakeSessionBrowser{page: &fakeSessionPage{account: "writer"}}
+	session := &rodBrowserSession{
+		opts:          SessionOptions{Account: "writer", ProfileDir: profileDir},
+		userConfigDir: func() (string, error) { return tempDir, nil },
+		mkdirAll:      os.MkdirAll,
+		readFile:      os.ReadFile,
+		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) {
+			return nil, nil
+		},
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			launched = true
+			return fakeSessionLauncher{url: "ws://new-browser"}
+		},
+		newBrowser: func(controlURL string) (sessionBrowser, error) {
+			if controlURL == "ws://new-browser" {
+				return launchedBrowser, nil
+			}
+			return nil, fmt.Errorf("unexpected controlURL %s", controlURL)
+		},
+	}
+	if err := session.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if !launched {
+		t.Fatal("newLauncher should be called when DevToolsActivePort is invalid")
+	}
+	if !session.ownsBrowser {
+		t.Fatal("session.ownsBrowser = false, want true")
+	}
+}
+
+func TestBrowserSessionOpenFallsBackWhenDevToolsActivePortIsMissing(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	page := &fakeSessionPage{account: "writer"}
+	browser := &fakeSessionBrowser{page: page}
+	launcherCalled := false
+	var gotControlURLs []string
+	session := &rodBrowserSession{
+		opts:          SessionOptions{Account: "writer", ProfileDir: profileDir},
+		userConfigDir: func() (string, error) { return tempDir, nil },
+		mkdirAll:      os.MkdirAll,
+		readFile:      os.ReadFile,
+		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) {
+			return []string{"ws://127.0.0.1:9222/devtools/browser/live-browser"}, nil
+		},
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			launcherCalled = true
+			return fakeSessionLauncher{url: "ws://new-browser"}
+		},
+		newBrowser: func(controlURL string) (sessionBrowser, error) {
+			gotControlURLs = append(gotControlURLs, controlURL)
+			if strings.Contains(controlURL, "live-browser") {
+				return browser, nil
+			}
+			return nil, fmt.Errorf("unexpected controlURL %s", controlURL)
+		},
+	}
+	if err := session.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if launcherCalled {
+		t.Fatal("newLauncher should not be called when fallback reuse succeeds without DevToolsActivePort")
+	}
+	if len(gotControlURLs) != 1 || gotControlURLs[0] != "ws://127.0.0.1:9222/devtools/browser/live-browser" {
+		t.Fatalf("controlURLs = %#v", gotControlURLs)
+	}
+	if session.ownsBrowser {
+		t.Fatal("session.ownsBrowser = true, want false")
+	}
+}
+
+func TestBrowserSessionOpenClosesFallbackProbePageWhenAccountDoesNotMatch(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("50691\n/devtools/browser/stale-browser\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	wrongAccountPage := &fakeSessionPage{account: "Walker"}
+	wrongAccountBrowser := &fakeSessionBrowser{page: wrongAccountPage}
+	launchedBrowser := &fakeSessionBrowser{page: &fakeSessionPage{account: "writer"}}
+	session := &rodBrowserSession{
+		opts:          SessionOptions{Account: "writer", ProfileDir: profileDir},
+		userConfigDir: func() (string, error) { return tempDir, nil },
+		mkdirAll:      os.MkdirAll,
+		readFile:      os.ReadFile,
+		writeFile:     func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) {
+			return []string{"ws://127.0.0.1:9222/devtools/browser/live-browser"}, nil
+		},
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			return fakeSessionLauncher{url: "ws://new-browser"}
+		},
+		newBrowser: func(controlURL string) (sessionBrowser, error) {
+			if strings.Contains(controlURL, "stale-browser") {
+				return nil, errors.New("dial tcp 127.0.0.1:50691: connect: connection refused")
+			}
+			if strings.Contains(controlURL, "live-browser") {
+				return wrongAccountBrowser, nil
+			}
+			if controlURL == "ws://new-browser" {
+				return launchedBrowser, nil
+			}
+			return nil, fmt.Errorf("unexpected controlURL %s", controlURL)
+		},
+	}
+	if err := session.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if wrongAccountPage.closeCalls != 1 {
+		t.Fatalf("closeCalls = %d, want 1", wrongAccountPage.closeCalls)
 	}
 }
 

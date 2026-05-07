@@ -38,11 +38,11 @@ func TestRunPublishXHSParsesStandardMediaFlags(t *testing.T) {
 	var got app.PublishOptions
 	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
 		got = opts
-		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeDraft, MediaKind: xhs.MediaKindStandard, DraftSaved: true}}, nil
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true}}, nil
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"publish-xhs", "--account", "creator-a", "--title", "标题", "--content", "正文", "--images", "cover.jpg,detail.jpg", "--mode", "draft", "--tags", "效率,AI", "--headless=false", "--profile-dir", "/tmp/xhs-profile"}, &stdout, &stderr)
+	code := run([]string{"publish-xhs", "--account", "creator-a", "--title", "标题", "--content", "正文", "--images", "cover.jpg,detail.jpg", "--mode", "only-self", "--tags", "效率,AI", "--headless=false", "--profile-dir", "/tmp/xhs-profile"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
@@ -54,7 +54,7 @@ func TestRunPublishXHSParsesStandardMediaFlags(t *testing.T) {
 		Title:      "标题",
 		Content:    "正文",
 		Tags:       []string{"效率", "AI"},
-		Mode:       string(xhs.PublishModeDraft),
+		Mode:       string(xhs.PublishModeOnlySelf),
 		ImagePaths: []string{"cover.jpg", "detail.jpg"},
 		ChromePath: defaultOptions().ChromePath,
 		Headless:   false,
@@ -93,7 +93,7 @@ func TestRunPublishXHSPrintsOnlySelfVisiblePublished(t *testing.T) {
 	originalPublishXHS := publishXHS
 	defer func() { publishXHS = originalPublishXHS }()
 	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
-		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeDraft, MediaKind: xhs.MediaKindStandard, DraftSaved: true}}, nil
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true}}, nil
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -142,7 +142,7 @@ func TestRunPublishXHSPrintsLiveMediaKind(t *testing.T) {
 	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
 		return app.PublishResult{
 			Request: xhs.PublishRequest{Account: opts.Account},
-			Result:  xhs.PublishResult{Mode: xhs.PublishModeDraft, MediaKind: xhs.MediaKindLive, DraftSaved: true, AttachedCount: 2, AttachedItems: []string{"p01-cover", "p02-bullets"}},
+			Result:  xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindLive, OnlySelfPublished: true, AttachedCount: 2, AttachedItems: []string{"p01-cover", "p02-bullets"}},
 		}, nil
 	}
 
@@ -214,7 +214,7 @@ func TestRunPublishXHSRejectsInvalidMode(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("run() = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "mode must be draft or schedule") {
+	if !strings.Contains(stderr.String(), "mode must be only-self or schedule") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

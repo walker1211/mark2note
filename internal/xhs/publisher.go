@@ -21,8 +21,8 @@ type PublishPage interface {
 	UploadImages(ctx context.Context, paths []string) error
 	FillTitle(ctx context.Context, title string) error
 	FillContent(ctx context.Context, content string, tags []string) error
-	SaveDraft(ctx context.Context) error
-	ConfirmDraftSaved(ctx context.Context) error
+	PublishOnlySelf(ctx context.Context) error
+	ConfirmOnlySelfPublished(ctx context.Context) error
 	SetSchedule(ctx context.Context, at time.Time) error
 	SubmitScheduled(ctx context.Context) error
 	ConfirmScheduledSubmitted(ctx context.Context) error
@@ -30,7 +30,7 @@ type PublishPage interface {
 
 type Publisher struct{}
 
-func (Publisher) PublishStandardDraft(ctx context.Context, page PublishPage, request PublishRequest) error {
+func (Publisher) PublishStandardOnlySelf(ctx context.Context, page PublishPage, request PublishRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -46,10 +46,10 @@ func (Publisher) PublishStandardDraft(ctx context.Context, page PublishPage, req
 	if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
 	}
-	if err := page.SaveDraft(ctx); err != nil {
+	if err := page.PublishOnlySelf(ctx); err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
-	if err := page.ConfirmDraftSaved(ctx); err != nil {
+	if err := page.ConfirmOnlySelfPublished(ctx); err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
 	return nil
@@ -73,6 +73,16 @@ var (
 		`div.tiptap.ProseMirror[contenteditable="true"]`,
 		`div.ProseMirror[contenteditable="true"]`,
 		`div[contenteditable="true"][role="textbox"]`,
+	}
+	permissionTriggerSelectors = []string{
+		`.permission-card-select`,
+		`.d-select-main`,
+		`.d-select`,
+	}
+	permissionOptionSelectors = []string{
+		`.name`,
+		`.custom-option`,
+		`.d-grid-item`,
 	}
 )
 
@@ -127,6 +137,7 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 		return err
 	}
 	text := strings.TrimSpace(content)
+	trimmedTags := make([]string, 0, len(tags))
 	if len(tags) > 0 {
 		tagParts := make([]string, 0, len(tags))
 		for _, tag := range tags {
@@ -134,18 +145,30 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 			if trimmed == "" {
 				continue
 			}
+			trimmedTags = append(trimmedTags, trimmed)
 			tagParts = append(tagParts, "#"+trimmed)
 		}
 		if len(tagParts) > 0 {
 			text = text + "\n" + strings.Join(tagParts, " ")
 		}
 	}
-	return rodTry(func() {
+	if err := rodTry(func() {
 		field.MustInput(text)
-	})
+	}); err != nil {
+		return err
+	}
+	if len(trimmedTags) == 0 {
+		return nil
+	}
+	for _, tag := range trimmedTags {
+		if err := p.selectRecommendedTopic(tag); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (p *rodPage) SaveDraft(ctx context.Context) error {
+func (p *rodPage) PublishOnlySelf(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -172,16 +195,19 @@ func (p *rodPage) SaveDraft(ctx context.Context) error {
 	return nil
 }
 
-func (p *rodPage) ConfirmDraftSaved(ctx context.Context) error {
+func (p *rodPage) ConfirmOnlySelfPublished(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	defaultXHSLogger("only-self publish wait confirmation")
-	if err := p.waitForBodyText(ctx, `发布成功|提交成功|保存成功|笔记保存成功|笔记发布成功`, 15*time.Second); err != nil {
-		p.debugPublishConfirmationState()
-		return fmt.Errorf("only-self publish confirmation not observed")
+	if err := p.waitForBodyText(ctx, `发布成功|提交成功|笔记发布成功`, 15*time.Second); err == nil {
+		return nil
 	}
-	return nil
+	if err := p.waitForPublishedRedirect(ctx, 5*time.Second); err == nil {
+		return nil
+	}
+	p.debugPublishConfirmationState()
+	return fmt.Errorf("only-self publish confirmation not observed")
 }
 
 func (Publisher) PublishStandardScheduled(ctx context.Context, page PublishPage, request PublishRequest) error {
@@ -274,65 +300,216 @@ func (p *rodPage) clickByText(selector string, pattern string) (bool, error) {
 }
 
 func (p *rodPage) openPermissionDropdown() error {
-	opened := false
-	err := rodTry(func() {
-		opened = p.page.MustEval(`() => {
-			const isVisible = (node) => {
-				if (!node) return false;
-				const rect = node.getBoundingClientRect();
-				const style = window.getComputedStyle(node);
-				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-			};
-			const settings = document.querySelector('.publish-page-content-settings, .publish-page-content-settings-content');
-			if (settings) {
-				settings.scrollIntoView({ block: 'center', behavior: 'instant' });
-			}
-			if (document.activeElement && typeof document.activeElement.blur === 'function') {
-				document.activeElement.blur();
-			}
-			document.body && document.body.click();
-			const trigger = document.querySelector('.permission-card-wrapper .d-select-wrapper.permission-card-select') || document.querySelector('.permission-card-select');
-			if (!isVisible(trigger)) {
-				return false;
-			}
-			trigger.scrollIntoView({ block: 'center', behavior: 'instant' });
-			trigger.click();
-			return true;
-		}`).Bool()
-		if opened {
-			p.page.MustWaitStable()
-		}
-	})
-	if err != nil {
-		return err
+	if p.isOnlySelfPermissionSelected() {
+		return nil
 	}
-	if !opened {
+	if p.isPermissionDropdownVisible() {
+		return nil
+	}
+	trigger, err := p.findPermissionTrigger()
+	if err != nil {
 		p.debugPermissionState()
 		return fmt.Errorf("permission dropdown trigger not found")
 	}
-	if err := p.waitForPermissionDropdown(5 * time.Second); err != nil {
+	if err := rodTry(func() {
+		trigger.MustScrollIntoView().MustWaitVisible().MustClick()
+		p.page.MustWaitStable()
+	}); err != nil {
+		return err
+	}
+	if p.isOnlySelfPermissionSelected() || p.isPermissionDropdownVisible() {
+		return nil
+	}
+	if err := p.openPermissionDropdownFallback(trigger); err != nil {
+		return err
+	}
+	if err := p.waitForPermissionDropdown(2 * time.Second); err != nil {
 		p.debugPermissionState()
 		return err
 	}
 	return nil
 }
 
+func (p *rodPage) isPermissionDropdownVisible() bool {
+	visible := false
+	_ = rodTry(func() {
+		visible = p.page.MustEval(`() => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const overlayVisible = Array.from(document.querySelectorAll('.d-popover.d-dropdown, .d-dropdown, [role="listbox"], [data-popper-placement]')).some((node) => {
+				if (!isVisible(node)) {
+					return false;
+				}
+				const text = normalize(node.innerText || node.textContent || '');
+				return /仅自己可见|公开可见/.test(text) || node.matches('[role="listbox"], [data-popper-placement]');
+			});
+			if (overlayVisible) {
+				return true;
+			}
+			const visibleTexts = Array.from(document.querySelectorAll('div, span, label, button')).filter(isVisible).map((node) => normalize(node.innerText || node.textContent || ''));
+			return visibleTexts.includes('公开可见') && visibleTexts.includes('仅自己可见');
+		}`).Bool()
+	})
+	return visible
+}
+
+func (p *rodPage) isOnlySelfPermissionSelected() bool {
+	selected := false
+	_ = rodTry(func() {
+		selected = p.page.MustEval(`() => {
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const nodes = Array.from(document.querySelectorAll('.permission-card-wrapper .d-select-description, .permission-card-wrapper .name, .permission-card-wrapper .d-text, .permission-card-select .d-select-description')).filter(isVisible);
+			return nodes.some((node) => (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim() === '仅自己可见');
+		}`).Bool()
+	})
+	return selected
+}
+
+func (p *rodPage) findPermissionTrigger() (*rod.Element, error) {
+	card, err := p.permissionCard()
+	if err != nil {
+		return nil, err
+	}
+	for _, selector := range permissionTriggerSelectors {
+		var element *rod.Element
+		if err := rodTry(func() {
+			elements := card.MustElements(selector)
+			for _, candidate := range elements {
+				if !candidate.MustVisible() {
+					continue
+				}
+				element = candidate
+				return
+			}
+		}); err != nil {
+			return nil, err
+		}
+		if element != nil {
+			return element, nil
+		}
+	}
+	var element *rod.Element
+	if err := rodTry(func() {
+		elements := card.MustElements("div, span, label, button")
+		for _, candidate := range elements {
+			if !candidate.MustVisible() {
+				continue
+			}
+			text := strings.TrimSpace(candidate.MustText())
+			if text != "公开可见" && text != "仅自己可见" {
+				continue
+			}
+			element = candidate
+			return
+		}
+	}); err != nil {
+		return nil, err
+	}
+	if element != nil {
+		return element, nil
+	}
+	return nil, fmt.Errorf("permission dropdown trigger not found")
+}
+
+func (p *rodPage) permissionCard() (*rod.Element, error) {
+	var card *rod.Element
+	if err := rodTry(func() {
+		cards := p.page.MustElements(".permission-card-wrapper")
+		for _, candidate := range cards {
+			if !candidate.MustVisible() {
+				continue
+			}
+			card = candidate
+			return
+		}
+	}); err != nil {
+		return nil, err
+	}
+	if card == nil {
+		return nil, fmt.Errorf("permission card not found")
+	}
+	return card, nil
+}
+
+func (p *rodPage) openPermissionDropdownFallback(trigger *rod.Element) error {
+	return rodTry(func() {
+		trigger.MustEval(`() => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const isDropdownVisible = () => {
+				const overlayVisible = Array.from(document.querySelectorAll('.d-popover.d-dropdown, .d-dropdown, [role="listbox"], [data-popper-placement]')).some((node) => {
+					if (!isVisible(node)) {
+						return false;
+					}
+					const text = normalize(node.innerText || node.textContent || '');
+					return /仅自己可见|公开可见/.test(text) || node.matches('[role="listbox"], [data-popper-placement]');
+				});
+				if (overlayVisible) {
+					return true;
+				}
+				const visibleTexts = Array.from(document.querySelectorAll('div, span, label, button')).filter(isVisible).map((node) => normalize(node.innerText || node.textContent || ''));
+				return visibleTexts.includes('公开可见') && visibleTexts.includes('仅自己可见');
+			};
+			const firePointer = (node, type) => {
+				if (typeof PointerEvent === 'function') {
+					node.dispatchEvent(new PointerEvent(type, {
+						bubbles: true,
+						cancelable: true,
+						view: window,
+						button: 0,
+						pointerType: 'mouse',
+						isPrimary: true,
+					}));
+				}
+			};
+			const fireMouseEvent = (node, type) => {
+				node.dispatchEvent(new MouseEvent(type, {
+					bubbles: true,
+					cancelable: true,
+					view: window,
+					button: 0,
+				}));
+			};
+			const node = this;
+			node.scrollIntoView({ block: 'center', behavior: 'instant' });
+			firePointer(node, 'pointerdown');
+			if (!isDropdownVisible()) {
+				fireMouseEvent(node, 'mousedown');
+			}
+			if (!isDropdownVisible()) {
+				firePointer(node, 'pointerup');
+				fireMouseEvent(node, 'mouseup');
+			}
+			if (!isDropdownVisible()) {
+				fireMouseEvent(node, 'click');
+			}
+			if (!isDropdownVisible() && typeof node.focus === 'function') {
+				node.focus();
+			}
+		}`)
+		p.page.MustWaitStable()
+	})
+}
+
 func (p *rodPage) waitForPermissionDropdown(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		visible := false
-		_ = rodTry(func() {
-			visible = p.page.MustEval(`() => {
-				const isVisible = (node) => {
-					if (!node) return false;
-					const rect = node.getBoundingClientRect();
-					const style = window.getComputedStyle(node);
-					return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-				};
-				return Array.from(document.querySelectorAll('.d-popover.d-dropdown, .d-dropdown')).some(isVisible);
-			}`).Bool()
-		})
-		if visible {
+		if p.isPermissionDropdownVisible() || p.isOnlySelfPermissionSelected() {
 			return nil
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -341,44 +518,91 @@ func (p *rodPage) waitForPermissionDropdown(timeout time.Duration) error {
 }
 
 func (p *rodPage) selectPermissionOption(text string) error {
-	clicked := false
-	err := rodTry(func() {
-		clicked = p.page.MustEval(`(targetText) => {
-			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
-			const isVisible = (node) => {
-				if (!node) return false;
-				const rect = node.getBoundingClientRect();
-				const style = window.getComputedStyle(node);
-				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-			};
-			const dropdowns = Array.from(document.querySelectorAll('.d-popover.d-dropdown, .d-dropdown')).filter(isVisible);
-			for (const dropdown of dropdowns) {
-				const options = Array.from(dropdown.querySelectorAll('.custom-option, .d-grid-item, .name'));
-				for (const option of options) {
-					const current = normalize(option.innerText || option.textContent || '');
-					if (current !== targetText) {
-						continue;
-					}
-					const clickable = option.closest('.custom-option') || option.closest('.d-grid-item') || option;
-					if (!isVisible(clickable)) {
-						continue;
-					}
-					clickable.scrollIntoView({ block: 'center', behavior: 'instant' });
-					clickable.click();
-					return true;
-				}
-			}
-			return false;
-		}`, text).Bool()
-		if clicked {
-			p.page.MustWaitStable()
-		}
-	})
+	dropdown, err := p.visiblePermissionDropdown()
 	if err != nil {
+		if p.isOnlySelfPermissionSelected() {
+			return nil
+		}
 		return err
 	}
-	if !clicked {
-		return fmt.Errorf("permission option %q not found in visible dropdown", text)
+	for _, selector := range permissionOptionSelectors {
+		var found bool
+		if err := rodTry(func() {
+			elements := dropdown.MustElements(selector)
+			for _, candidate := range elements {
+				if !candidate.MustVisible() {
+					continue
+				}
+				current := strings.TrimSpace(candidate.MustText())
+				if current != text {
+					continue
+				}
+				clickable := p.permissionOptionClickable(candidate, text)
+				if clickable == nil {
+					continue
+				}
+				clickable.MustScrollIntoView().MustWaitVisible().MustClick()
+				p.page.MustWaitStable()
+				found = true
+				return
+			}
+		}); err != nil {
+			return err
+		}
+		if found {
+			if p.isOnlySelfPermissionSelected() {
+				return nil
+			}
+			break
+		}
+	}
+	if p.isOnlySelfPermissionSelected() {
+		return nil
+	}
+	return fmt.Errorf("permission option %q not found in visible dropdown", text)
+}
+
+func (p *rodPage) visiblePermissionDropdown() (*rod.Element, error) {
+	var dropdown *rod.Element
+	if err := rodTry(func() {
+		elements := p.page.MustElements(".d-popover.d-dropdown, .d-dropdown, [role='listbox'], [data-popper-placement]")
+		for _, candidate := range elements {
+			if !candidate.MustVisible() {
+				continue
+			}
+			text := strings.TrimSpace(candidate.MustText())
+			if !strings.Contains(text, "公开可见") && !strings.Contains(text, "仅自己可见") {
+				continue
+			}
+			dropdown = candidate
+			return
+		}
+	}); err != nil {
+		return nil, err
+	}
+	if dropdown == nil {
+		return nil, fmt.Errorf("permission dropdown not found")
+	}
+	return dropdown, nil
+}
+
+func (p *rodPage) permissionOptionClickable(candidate *rod.Element, text string) *rod.Element {
+	current := candidate
+	for i := 0; i < 4 && current != nil; i++ {
+		if current.MustVisible() {
+			currentText := strings.TrimSpace(current.MustText())
+			if currentText == text || strings.Contains(currentText, text) {
+				return current
+			}
+		}
+		parent, err := current.Parent()
+		if err != nil || parent == nil {
+			break
+		}
+		current = parent
+	}
+	if candidate.MustVisible() {
+		return candidate
 	}
 	return nil
 }
@@ -441,6 +665,94 @@ func (p *rodPage) waitForBodyText(ctx context.Context, pattern string, timeout t
 		time.Sleep(300 * time.Millisecond)
 	}
 	return fmt.Errorf("body text did not match %q", pattern)
+}
+
+func (p *rodPage) waitForPublishedRedirect(ctx context.Context, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		published := false
+		if err := rodTry(func() {
+			published = p.page.MustEval(`() => {
+				const href = window.location.href || '';
+				if (href.includes('published=true')) {
+					return true;
+				}
+				const text = document.body ? document.body.innerText : '';
+				return /上传视频|上传图文|写长文/.test(text) && !/暂存离开|仅自己可见|公开可见/.test(text);
+			}`).Bool()
+		}); err == nil && published {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return fmt.Errorf("published redirect not observed")
+}
+
+func (p *rodPage) selectRecommendedTopic(tag string) error {
+	clicked := false
+	err := rodTry(func() {
+		clicked = p.page.MustEval(`(rawTag) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const fireMouseEvent = (node, type) => {
+				node.dispatchEvent(new MouseEvent(type, {
+					bubbles: true,
+					cancelable: true,
+					view: window,
+					button: 0,
+				}));
+			};
+			const target = '#' + normalize(rawTag);
+			const options = Array.from(document.querySelectorAll('.recommend-topic-wrapper .tag-group .tag')).filter(isVisible);
+			for (const option of options) {
+				const text = normalize(option.innerText || option.textContent || '');
+				if (text !== target) {
+					continue;
+				}
+				option.scrollIntoView({ block: 'center', behavior: 'instant' });
+				fireMouseEvent(option, 'mousedown');
+				fireMouseEvent(option, 'mouseup');
+				option.click();
+				return true;
+			}
+			return false;
+		}`, tag).Bool()
+		if clicked {
+			p.page.MustWaitStable()
+		}
+	})
+	if err != nil {
+		return err
+	}
+	if !clicked {
+		return fmt.Errorf("recommended topic %q not found", tag)
+	}
+	closed := false
+	err = rodTry(func() {
+		closed = p.page.MustEval(`() => {
+			const root = document.querySelector('#tippy-1');
+			const items = document.querySelector('#creator-editor-topic-container');
+			if (!root || !items) {
+				return true;
+			}
+			return window.getComputedStyle(root).visibility === 'hidden' || window.getComputedStyle(items).display === 'none';
+		}`).Bool()
+	})
+	if err != nil {
+		return err
+	}
+	if !closed {
+		return fmt.Errorf("topic popup did not close after selecting %q", tag)
+	}
+	return nil
 }
 
 func (p *rodPage) waitForUploadInput(ctx context.Context, timeout time.Duration) (*rod.Element, error) {
