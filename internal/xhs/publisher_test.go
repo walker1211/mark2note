@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/launcher/flags"
 )
 
 var (
@@ -42,11 +43,21 @@ func skipSlowBrowserTest(t *testing.T) {
 	}
 }
 
+func TestSharedBrowserLauncherDisablesSandboxForCI(t *testing.T) {
+	if !newTestBrowserLauncher().Has(flags.NoSandbox) {
+		t.Fatal("shared browser launcher should disable Chromium sandbox for GitHub-hosted Linux runners")
+	}
+}
+
+func newTestBrowserLauncher() *launcher.Launcher {
+	return launcher.New().Headless(true).NoSandbox(true)
+}
+
 func testBrowser(t *testing.T) *rod.Browser {
 	t.Helper()
 	skipSlowBrowserTest(t)
 	testBrowserOnce.Do(func() {
-		testBrowserLauncher = launcher.New().Headless(true)
+		testBrowserLauncher = newTestBrowserLauncher()
 		controlURL := ""
 		testBrowserErr = rodTry(func() {
 			controlURL = testBrowserLauncher.MustLaunch()
