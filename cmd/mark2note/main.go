@@ -594,13 +594,11 @@ var buildPublishTitle = func(cfg *config.Config, markdown string, title string, 
 }
 
 var enrichPosterManifest = func(markdown string, sources []string) (poster.Manifest, poster.EnrichReport, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
 	providers, err := poster.ProvidersForSources(sources, nil)
 	if err != nil {
 		return poster.Manifest{}, poster.EnrichReport{}, err
 	}
-	return poster.EnrichMarkdown(ctx, markdown, poster.EnrichOptions{Providers: providers})
+	return poster.EnrichMarkdown(context.Background(), markdown, poster.EnrichOptions{Providers: providers})
 }
 
 func newPreviewService(opts Options) app.Service {

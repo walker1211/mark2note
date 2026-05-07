@@ -29,6 +29,7 @@ type Candidate struct {
 
 type Provider interface {
 	Name() string
+	// Search must be safe for concurrent calls on the same provider instance.
 	Search(ctx context.Context, title string) ([]Candidate, error)
 }
 

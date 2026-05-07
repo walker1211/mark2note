@@ -235,17 +235,13 @@ func (s Service) hydratePosters(opts Options, d deck.Deck, markdown string) (dec
 
 func (s Service) enrichPosterManifest(markdown string, sources []string) (poster.Manifest, poster.EnrichReport, error) {
 	if s.EnrichPosters != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-		defer cancel()
-		return s.EnrichPosters(ctx, markdown, sources)
+		return s.EnrichPosters(context.Background(), markdown, sources)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
 	providers, err := poster.ProvidersForSources(sources, nil)
 	if err != nil {
 		return poster.Manifest{}, poster.EnrichReport{}, err
 	}
-	return poster.EnrichMarkdown(ctx, markdown, poster.EnrichOptions{Providers: providers})
+	return poster.EnrichMarkdown(context.Background(), markdown, poster.EnrichOptions{Providers: providers})
 }
 
 func appendPosterWarnings(warnings []string, report poster.EnrichReport) []string {

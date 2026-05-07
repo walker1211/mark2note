@@ -3,21 +3,23 @@ package poster
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 type fakeProvider struct {
 	name   string
 	result map[string][]Candidate
 	err    error
-	seen   []string
 }
 
 func (p *fakeProvider) Name() string { return p.name }
 
 func (p *fakeProvider) Search(_ context.Context, title string) ([]Candidate, error) {
-	p.seen = append(p.seen, title)
 	if p.err != nil {
 		return nil, p.err
 	}
@@ -90,4 +92,127 @@ func TestEnrichMarkdownReportsMissingTitles(t *testing.T) {
 	if !reflect.DeepEqual(report.Missing, []string{"朋友游戏"}) {
 		t.Fatalf("missing = %#v", report.Missing)
 	}
+}
+
+func TestEnrichMarkdownStartsTenTitleSearchesByDefault(t *testing.T) {
+	provider := newBlockingProvider()
+	markdown := titlesMarkdown(12)
+	done := make(chan error, 1)
+
+	go func() {
+		_, _, err := EnrichMarkdown(context.Background(), markdown, EnrichOptions{Providers: []Provider{provider}})
+		done <- err
+	}()
+
+	for i := 0; i < 10; i++ {
+		select {
+		case <-provider.started:
+		case <-time.After(300 * time.Millisecond):
+			provider.releaseAll()
+			t.Fatalf("started %d title searches, want 10 concurrent searches by default", i)
+		}
+	}
+	if got := provider.maxActive(); got != 10 {
+		provider.releaseAll()
+		t.Fatalf("max active searches = %d, want 10", got)
+	}
+
+	provider.releaseAll()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("EnrichMarkdown() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("EnrichMarkdown() did not finish after releasing provider")
+	}
+}
+
+func TestEnrichMarkdownTimesOutOneTitleWithoutCancelingOthers(t *testing.T) {
+	provider := timeoutProvider{}
+	markdown := "推荐《快作品一》《慢作品》《快作品二》。"
+
+	manifest, report, err := EnrichMarkdown(context.Background(), markdown, EnrichOptions{Providers: []Provider{provider}, Concurrency: 2, TitleTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("EnrichMarkdown() error = %v", err)
+	}
+	if _, ok := manifest.Find("快作品一"); !ok {
+		t.Fatalf("快作品一 asset missing: %#v", manifest)
+	}
+	if _, ok := manifest.Find("快作品二"); !ok {
+		t.Fatalf("快作品二 asset missing: %#v", manifest)
+	}
+	if !reflect.DeepEqual(report.Missing, []string{"慢作品"}) {
+		t.Fatalf("missing = %#v, want 慢作品 only", report.Missing)
+	}
+	if len(report.Warnings) != 1 {
+		t.Fatalf("warnings = %#v, want one timeout warning", report.Warnings)
+	}
+}
+
+func titlesMarkdown(n int) string {
+	var b strings.Builder
+	b.WriteString("# 片单\n\n")
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "- **作品%02d**：介绍。\n", i)
+	}
+	return b.String()
+}
+
+type blockingProvider struct {
+	started chan string
+	release chan struct{}
+	once    sync.Once
+	mu      sync.Mutex
+	active  int
+	max     int
+}
+
+func newBlockingProvider() *blockingProvider {
+	return &blockingProvider{started: make(chan string, 20), release: make(chan struct{})}
+}
+
+func (p *blockingProvider) Name() string { return "blocking" }
+
+func (p *blockingProvider) Search(ctx context.Context, title string) ([]Candidate, error) {
+	p.mu.Lock()
+	p.active++
+	if p.active > p.max {
+		p.max = p.active
+	}
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.active--
+		p.mu.Unlock()
+	}()
+	p.started <- title
+	select {
+	case <-p.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return []Candidate{{Title: title, ImageURL: "https://img.example/" + title + ".jpg", Source: p.Name(), Confidence: "high"}}, nil
+}
+
+func (p *blockingProvider) maxActive() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.max
+}
+
+func (p *blockingProvider) releaseAll() {
+	p.once.Do(func() { close(p.release) })
+}
+
+type timeoutProvider struct{}
+
+func (p timeoutProvider) Name() string { return "timeout" }
+
+func (p timeoutProvider) Search(ctx context.Context, title string) ([]Candidate, error) {
+	if title == "慢作品" {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return []Candidate{{Title: title, ImageURL: "https://img.example/" + title + ".jpg", Source: p.Name(), Confidence: "high"}}, nil
 }

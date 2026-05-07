@@ -222,6 +222,30 @@ func TestServiceGeneratePreviewAutoPostersHydratesBeforeRendering(t *testing.T) 
 	}
 }
 
+func TestServiceGeneratePreviewAutoPostersDoesNotAddGlobalDeadline(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{Output: config.OutputCfg{Dir: root}}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题\n\n推荐《冰果》。"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+		EnrichPosters: func(ctx context.Context, _ string, _ []string) (poster.Manifest, poster.EnrichReport, error) {
+			if deadline, ok := ctx.Deadline(); ok {
+				t.Fatalf("enrich context deadline = %v, want no global deadline", deadline)
+			}
+			return poster.Manifest{Posters: map[string]poster.PosterAsset{}}, poster.EnrichReport{Titles: []string{"冰果"}}, nil
+		},
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, AutoPosters: true})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+}
+
 func TestServiceGeneratePreviewAssetManifestOverridesAutoPosters(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "posters.yaml")

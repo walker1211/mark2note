@@ -100,13 +100,20 @@ func pageCandidates(page deck.Page) []pageCandidate {
 	var candidates []pageCandidate
 	content := page.Content
 	if content.Compare != nil {
-		leftText, rightText := "", ""
-		if len(content.Compare.Rows) > 0 {
-			leftText = content.Compare.Rows[0].Left
-			rightText = content.Compare.Rows[0].Right
+		for _, title := range titlesFromText(content.Compare.LeftLabel) {
+			candidates = append(candidates, pageCandidate{Title: title, Text: content.Compare.LeftLabel})
 		}
-		candidates = append(candidates, pageCandidate{Title: content.Compare.LeftLabel, Text: firstNonEmpty(leftText, content.Compare.LeftLabel)})
-		candidates = append(candidates, pageCandidate{Title: content.Compare.RightLabel, Text: firstNonEmpty(rightText, content.Compare.RightLabel)})
+		for _, title := range titlesFromText(content.Compare.RightLabel) {
+			candidates = append(candidates, pageCandidate{Title: title, Text: content.Compare.RightLabel})
+		}
+		for _, row := range content.Compare.Rows {
+			for _, title := range titlesFromText(row.Left) {
+				candidates = append(candidates, pageCandidate{Title: title, Text: row.Left})
+			}
+			for _, title := range titlesFromText(row.Right) {
+				candidates = append(candidates, pageCandidate{Title: title, Text: row.Right})
+			}
+		}
 	}
 	for _, item := range content.Items {
 		for _, title := range titlesFromText(item) {
@@ -138,10 +145,9 @@ func pageCandidateTitles(page deck.Page) []string {
 func titlesFromText(text string) []string {
 	matches := angleTitleRe.FindAllStringSubmatch(text, -1)
 	if len(matches) == 0 {
-		lead := strings.TrimSpace(text)
-		if idx := strings.IndexAny(lead, "：:"); idx > 0 {
-			return []string{lead[:idx]}
-		}
+		matches = boldTitleRe.FindAllStringSubmatch(text, -1)
+	}
+	if len(matches) == 0 {
 		return nil
 	}
 	titles := make([]string, 0, len(matches))

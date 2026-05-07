@@ -107,6 +107,70 @@ func TestHydrateDeckPreservesAllCompareRowsWhenConverting(t *testing.T) {
 	}
 }
 
+func TestHydrateDeckUsesBoldTitlesInsteadOfColonLead(t *testing.T) {
+	d := deck.Deck{Pages: []deck.Page{
+		{
+			Name:    "p04-gallery-steps",
+			Variant: "gallery-steps",
+			Meta:    deck.PageMeta{Badge: "动画", Counter: "4/4", Theme: "default", CTA: "继续"},
+			Content: deck.PageContent{Title: "怎么选", Steps: []string{
+				"想轻一点、好入口：先看 **冰果**、**药屋少女的呢喃**。",
+				"想看逻辑拆解和说服：把 **虚构推理**、**奇巧计程车** 放到同一组。",
+			}},
+		},
+	}}
+	manifest := Manifest{Posters: map[string]PosterAsset{
+		"冰果":      {Src: "https://example.com/hyouka.jpg"},
+		"药屋少女的呢喃": {Src: "https://example.com/apothecary.jpg"},
+		"虚构推理":    {Src: "https://example.com/kyokou.jpg"},
+		"奇巧计程车":   {Src: "https://example.com/oddtaxi.jpg"},
+	}}
+
+	got, report, err := HydrateDeck(d, manifest, HydrateOptions{})
+	if err != nil {
+		t.Fatalf("HydrateDeck() error = %v", err)
+	}
+	if len(got.Pages[0].Content.Images) != 2 {
+		t.Fatalf("images = %#v, want two", got.Pages[0].Content.Images)
+	}
+	if got.Pages[0].Content.Images[0].Caption != "《冰果》" || got.Pages[0].Content.Images[1].Caption != "《药屋少女的呢喃》" {
+		t.Fatalf("images = %#v", got.Pages[0].Content.Images)
+	}
+	if len(report.Missing) != 0 {
+		t.Fatalf("missing = %#v, want none", report.Missing)
+	}
+}
+
+func TestHydrateDeckDoesNotReportGenericCompareLabels(t *testing.T) {
+	d := deck.Deck{Pages: []deck.Page{
+		{
+			Name:    "p08-compare",
+			Variant: "compare",
+			Meta:    deck.PageMeta{Badge: "动画", Counter: "8/12", Theme: "default", CTA: "继续"},
+			Content: deck.PageContent{
+				Title: "怎么选",
+				Compare: &deck.CompareBlock{
+					LeftLabel:  "你现在想看",
+					RightLabel: "可以先放进清单",
+					Rows:       []deck.CompareRow{{Left: "《冰果》：轻一点。", Right: "《药屋少女的呢喃》：也好入口。"}},
+				},
+			},
+		},
+	}}
+	manifest := Manifest{Posters: map[string]PosterAsset{"冰果": {Src: "https://example.com/hyouka.jpg"}, "药屋少女的呢喃": {Src: "https://example.com/apothecary.jpg"}}}
+
+	got, report, err := HydrateDeck(d, manifest, HydrateOptions{})
+	if err != nil {
+		t.Fatalf("HydrateDeck() error = %v", err)
+	}
+	if len(got.Pages[0].Content.Images) != 2 {
+		t.Fatalf("images = %#v, want two", got.Pages[0].Content.Images)
+	}
+	if len(report.Missing) != 0 {
+		t.Fatalf("missing = %#v, want none", report.Missing)
+	}
+}
+
 func TestHydrateDeckLeavesPageUnchangedWhenTwoPostersAreNotAvailable(t *testing.T) {
 	d := deck.Deck{Pages: []deck.Page{
 		{

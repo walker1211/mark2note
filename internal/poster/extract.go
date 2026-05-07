@@ -9,6 +9,7 @@ import (
 
 var (
 	angleTitleRe = regexp.MustCompile(`《([^》]+)》`)
+	boldTitleRe  = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
 	boldLeadRe   = regexp.MustCompile(`(?m)^\s*[-*]\s+\*\*([^*\n]+)\*\*\s*[：:]`)
 )
 
