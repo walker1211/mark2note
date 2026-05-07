@@ -52,13 +52,15 @@
       <div class="cta-bar cta-strong"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
     {{else if eq .Page.Variant "image-caption"}}
       <div class="title-lg{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
-      {{if .Page.Content.Images}}
-      <div class="image-frame{{animClass .RenderMode.Animated .RenderMode.Preset.Image}}" style="margin-top:42px; height:760px;"><img src="{{imageSrc (index .Page.Content.Images 0).Src}}" alt="{{(index .Page.Content.Images 0).Alt}}" /></div>
-      {{end}}
-      {{if .Page.Content.Body}}
-      <div class="caption{{animClass .RenderMode.Animated .RenderMode.Preset.Body}}">{{renderRichText .Rich.Body}}</div>
-      {{end}}
-      <div class="cta-bar"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
+      <div class="image-caption-layout">
+        {{if .Page.Content.Images}}
+        <div class="image-frame image-caption-image{{animClass .RenderMode.Animated .RenderMode.Preset.Image}}"><img src="{{imageSrc (index .Page.Content.Images 0).Src}}" alt="{{(index .Page.Content.Images 0).Alt}}" /></div>
+        {{end}}
+        {{if .Page.Content.Body}}
+        <div class="caption{{animClass .RenderMode.Animated .RenderMode.Preset.Body}}">{{renderRichText .Rich.Body}}</div>
+        {{end}}
+        <div class="cta-bar image-caption-cta"><span class="pill{{animClass .RenderMode.Animated .RenderMode.Preset.CTA}}">{{renderRichText .Rich.CTA}}</span></div>
+      </div>
     {{else if eq .Page.Variant "bullets"}}
       <div class="title-lg{{animClass .RenderMode.Animated .RenderMode.Preset.Title}}">{{renderRichText .Rich.Title}}</div>
       <div class="bullets">

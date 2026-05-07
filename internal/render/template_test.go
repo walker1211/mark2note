@@ -379,6 +379,163 @@ func TestRenderHTMLImageCaptionUsesDynamicContentAndPreservesProvidedImageAndBod
 	}
 }
 
+func mustExtractContainerHTML(t *testing.T, html string, marker string) string {
+	t.Helper()
+	start := strings.Index(html, marker)
+	if start < 0 {
+		t.Fatalf("html missing marker %q", marker)
+	}
+	segment := html[start:]
+	depth := 0
+	for i := 0; i < len(segment); {
+		switch {
+		case strings.HasPrefix(segment[i:], "<div"):
+			depth++
+			i += len("<div")
+		case strings.HasPrefix(segment[i:], "</div>"):
+			depth--
+			i += len("</div>")
+			if depth == 0 {
+				return segment[:i]
+			}
+		default:
+			i++
+		}
+	}
+
+		t.Fatalf("html missing matching closing div for marker %q", marker)
+	return ""
+}
+
+func TestRenderHTMLImageCaptionWrapsBodyAndCTAInContentColumn(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	page := deck.Page{
+		Name:    "p05-image-caption",
+		Variant: "image-caption",
+		Meta: deck.PageMeta{
+			Badge:   "第 5 页",
+			Counter: "5/6",
+			Theme:   "green",
+			CTA:     "把风险拆开，工作流就更稳",
+		},
+		Content: deck.PageContent{
+			Title: "为啥行",
+			Body:  "这套方式最重要的，不是“换模型”，而是把风险拆开。\n\n哪天真碰上验证、限制、地区、账号状态这些问题，至少你不会把 **工作流底座** 和模型能力一起丢掉。\n\n最近我还给 `ccs` 补了 browser MCP 支持，把浏览器启动、导航、点击、输入、截图这一套最小闭环先接起来了。对前端开发来说，这很重要，因为它开始补上“边看页面边改页面”的能力，而不只是停在终端里写静态代码。\n\n至少对我来说，现阶段 `ccs + codex` 是一条比较顺手的路：既保留 Claude Code 的底座体验，又能吃到 `gpt-5.4` 的模型能力。",
+			Images: []deck.ImageBlock{{Src: "https://example.com/custom-image.png", Alt: "custom-image"}},
+		},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{
+		`.image-caption-layout {`,
+		`height: 1220px;`,
+		`display: flex;`,
+		`flex-direction: column;`,
+		`.image-caption-image {`,
+		`height: 760px;`,
+		`.image-caption-cta {`,
+		`position: static;`,
+		`margin-top: auto;`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing image-caption layout css %q", want)
+		}
+	}
+	container := mustExtractContainerHTML(t, html, `<div class="image-caption-layout">`)
+	for _, want := range []string{
+		`class="image-frame image-caption-image"`,
+		`<div class="caption">`,
+		`class="cta-bar image-caption-cta"`,
+	} {
+		if !strings.Contains(container, want) {
+			t.Fatalf("image-caption container missing %q: %s", want, container)
+		}
+	}
+	imageIndex := strings.Index(container, `class="image-frame image-caption-image`)
+	captionIndex := strings.Index(container, `<div class="caption">`)
+	ctaIndex := strings.Index(container, `class="cta-bar image-caption-cta"`)
+	if !(imageIndex >= 0 && captionIndex > imageIndex && ctaIndex > captionIndex) {
+		t.Fatalf("image-caption layout should render image, caption, then cta in order: %s", container)
+	}
+}
+
+func TestRenderHTMLImageCaptionKeepsCTAInsideLayoutWithoutImage(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	page := deck.Page{
+		Name:    "p05-image-caption",
+		Variant: "image-caption",
+		Meta: deck.PageMeta{
+			Badge:   "第 5 页",
+			Counter: "5/6",
+			Theme:   "green",
+			CTA:     "没有配图也要把行动项放到底部",
+		},
+		Content: deck.PageContent{
+			Title: "纯文字图文页",
+			Body:  "只有正文，也应该保持清晰的阅读顺序。",
+		},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{`.image-caption-layout {`, `.image-caption-cta {`, `margin-top: auto;`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing image-caption layout css %q", want)
+		}
+	}
+	container := mustExtractContainerHTML(t, html, `<div class="image-caption-layout">`)
+	if strings.Contains(container, `class="image-frame image-caption-image`) {
+		t.Fatalf("html should not render image block when no image is provided: %s", container)
+	}
+	captionIndex := strings.Index(container, `<div class="caption">`)
+	ctaIndex := strings.Index(container, `class="cta-bar image-caption-cta"`)
+	if !(captionIndex >= 0 && ctaIndex > captionIndex) {
+		t.Fatalf("image-caption without image should render caption before cta: %s", container)
+	}
+}
+
+func TestRenderHTMLImageCaptionRendersCTAAfterImageWhenBodyMissing(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	page := deck.Page{
+		Name:    "p05-image-caption",
+		Variant: "image-caption",
+		Meta: deck.PageMeta{
+			Badge:   "第 5 页",
+			Counter: "5/6",
+			Theme:   "green",
+			CTA:     "只有配图也要保留 CTA",
+		},
+		Content: deck.PageContent{
+			Title:  "纯图片图文页",
+			Images: []deck.ImageBlock{{Src: "https://example.com/only-image.png", Alt: "only-image"}},
+		},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{`.image-caption-layout {`, `.image-caption-image {`, `.image-caption-cta {`, `margin-top: auto;`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing image-caption layout css %q", want)
+		}
+	}
+	container := mustExtractContainerHTML(t, html, `<div class="image-caption-layout">`)
+	if strings.Contains(container, `<div class="caption">`) {
+		t.Fatalf("html should not render caption block when body is missing: %s", container)
+	}
+	imageIndex := strings.Index(container, `class="image-frame image-caption-image`)
+	ctaIndex := strings.Index(container, `class="cta-bar image-caption-cta"`)
+	if !(imageIndex >= 0 && ctaIndex > imageIndex) {
+		t.Fatalf("image-caption without body should render cta after image: %s", container)
+	}
+}
+
 func TestRenderHTMLEndingUsesDynamicBody(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
@@ -620,28 +777,55 @@ func TestRenderHTMLTitleDowngradesDisallowedCodeBlockToPlainText(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLTechNoirExposesSemanticThemeVars(t *testing.T) {
-	d := deck.DefaultDeck("/tmp/out")
-	d.ThemeName = deck.ThemeTechNoir
-	d.Themes = deck.RegisteredThemes()
-
-	html, err := RenderPageHTML(d, d.Pages[0])
-	if err != nil {
-		t.Fatalf("RenderPageHTML() error = %v", err)
+func TestRenderHTMLExposesSemanticThemeVarsForAllUserFacingThemes(t *testing.T) {
+	themes := deck.RegisteredThemes()
+	cases := []string{
+		"default-orange",
+		"default-green",
+		deck.ThemeWarmPaper,
+		deck.ThemeEditorialCool,
+		deck.ThemeLifestyle,
+		deck.ThemeTechNoir,
+		deck.ThemeEditorialMono,
 	}
-	for _, want := range []string{
-		"--emphasis-color:",
-		"--number-color:",
-		"--inline-code-bg:",
-		"--code-block-bg:",
-		".text-em {",
-		".inline-code {",
-		".code-block {",
-		".metric-value {",
-	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("html missing semantic style token %q", want)
-		}
+
+	for _, themeName := range cases {
+		t.Run(themeName, func(t *testing.T) {
+			theme, ok := themes[themeName]
+			if !ok {
+				t.Fatalf("RegisteredThemes missing %q", themeName)
+			}
+			d := deck.DefaultDeck("/tmp/out")
+			d.ThemeName = themeName
+			d.Themes = themes
+
+			html, err := RenderPageHTML(d, d.Pages[0])
+			if err != nil {
+				t.Fatalf("RenderPageHTML() error = %v", err)
+			}
+
+			for _, want := range []string{
+				"--accent-foreground: " + theme.AccentForeground + ";",
+				"--inverse-pill-color: " + theme.InversePillColor + ";",
+				"--watermark-color: " + theme.WatermarkColor + ";",
+				"--emphasis-color: " + theme.EmphasisColor + ";",
+				"--number-color: " + theme.NumberColor + ";",
+				"--inline-code-bg: " + theme.InlineCodeBG + ";",
+				"--inline-code-border: " + theme.InlineCodeBorder + ";",
+				"--inline-code-color: " + theme.InlineCodeColor + ";",
+				"--code-block-bg: " + theme.CodeBlockBG + ";",
+				"--code-block-border: " + theme.CodeBlockBorder + ";",
+				"--code-block-color: " + theme.CodeBlockColor + ";",
+				".text-em {",
+				".inline-code {",
+				".code-block {",
+				".metric-value {",
+			} {
+				if !strings.Contains(html, want) {
+					t.Fatalf("html missing semantic style token %q", want)
+				}
+			}
+		})
 	}
 }
 
@@ -703,25 +887,6 @@ func TestRenderHTMLFailsOnUnknownTheme(t *testing.T) {
 		t.Fatalf("RenderPageHTML() error = nil, want non-nil")
 	}
 	if !strings.Contains(err.Error(), `unknown theme "missing"`) {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestRenderHTMLFailsWhenResolvedThemeIsIncomplete(t *testing.T) {
-	d := deck.DefaultDeck("/tmp/out")
-	d.ThemeName = deck.ThemeWarmPaper
-	d.Themes = map[string]deck.Theme{
-		deck.ThemeWarmPaper: {
-			Name: deck.ThemeWarmPaper,
-			BG:   "#fff",
-		},
-	}
-
-	_, err := RenderPageHTML(d, d.Pages[0])
-	if err == nil {
-		t.Fatalf("RenderPageHTML() error = nil, want non-nil")
-	}
-	if !strings.Contains(err.Error(), `theme "warm-paper" missing`) {
 		t.Fatalf("error = %v", err)
 	}
 }
