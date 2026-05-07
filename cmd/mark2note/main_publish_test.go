@@ -365,6 +365,54 @@ func TestRunAutoPublishXHSRewritesLongTitleWithAI(t *testing.T) {
 	}
 }
 
+func TestRunAutoPublishXHSKeepsTitleWithinXHSLengthLimit(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 让OpenClaw用上gpt-5.3-codex-spark\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		topicGenerationEnabled := true
+		titleGenerationEnabled := false
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:         "walker",
+			TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+			TitleGeneration: config.XHSTitleGenerationCfg{Enabled: &titleGenerationEnabled, MaxRunes: 20},
+		}}}, nil
+	}
+	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+		t.Fatal("buildPublishTitle called for title within XHS length limit")
+		return "", nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		if title != "让OpenClaw用上gpt-5.3-codex-spark" {
+			t.Fatalf("topic title = %q, want original title", title)
+		}
+		return []string{"OpenClaw", "gpt", "codex-spark"}, nil
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if got.Title != "让OpenClaw用上gpt-5.3-codex-spark" {
+		t.Fatalf("Title = %q, want original title", got.Title)
+	}
+}
+
 func TestRunAutoPublishXHSRejectsLongTitleWhenTitleGenerationDisabled(t *testing.T) {
 	originalReadFile := readFile
 	originalLoadConfig := loadConfig

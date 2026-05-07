@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/walker1211/mark2note/internal/ai"
 	"github.com/walker1211/mark2note/internal/app"
@@ -789,6 +788,18 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 	return publishOpts, nil
 }
 
+func xhsTitleLength(title string) int {
+	units := 0
+	for _, r := range title {
+		if r <= 127 {
+			units++
+			continue
+		}
+		units += 2
+	}
+	return (units + 1) / 2
+}
+
 func buildAutoPublishXHSTitle(cfg config.Config, markdown string, title string) (string, error) {
 	title = xhs.NormalizePublishTitle(title)
 	maxRunes := cfg.XHS.Publish.TitleGeneration.MaxRunes
@@ -798,7 +809,7 @@ func buildAutoPublishXHSTitle(cfg config.Config, markdown string, title string) 
 	if maxRunes < 0 {
 		return "", fmt.Errorf("xhs publish title max_runes must be > 0")
 	}
-	if utf8.RuneCountInString(title) <= maxRunes {
+	if xhsTitleLength(title) <= maxRunes {
 		return title, nil
 	}
 	if cfg.XHS.Publish.TitleGeneration.Enabled == nil || !*cfg.XHS.Publish.TitleGeneration.Enabled {
@@ -812,7 +823,7 @@ func buildAutoPublishXHSTitle(cfg config.Config, markdown string, title string) 
 	if rewritten == "" {
 		return "", fmt.Errorf("generate xhs publish title: empty title returned")
 	}
-	if utf8.RuneCountInString(rewritten) > maxRunes {
+	if xhsTitleLength(rewritten) > maxRunes {
 		return "", fmt.Errorf("generate xhs publish title: title still exceeds %d characters", maxRunes)
 	}
 	return rewritten, nil
