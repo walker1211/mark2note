@@ -69,6 +69,15 @@ go build -o ./mark2note ./cmd/mark2note
 ./mark2note --from-deck ./output/preview/deck.json
 ```
 
+如果喜欢当前分页和布局，只想换主题色，可以从已有 `deck.json` 重新生成，并用 `--theme` 覆盖主题：
+
+```bash
+./mark2note \
+  --from-deck ./output/preview/deck.json \
+  --theme plum-ink \
+  --out ./output/preview-plum-ink
+```
+
 这个流程仍然支持后续导入相册和 Live 输出：
 
 ```bash
@@ -76,7 +85,7 @@ go build -o ./mark2note ./cmd/mark2note
 ./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
 ```
 
-不传 `--out` 时，会按原 deck 所在目录名加时间戳生成新的输出目录。如果同目录存在 `render-meta.json`，会恢复旧运行的主题、视口、作者和水印。`--prompt-extra` 只适用于 `--input`，不能和 `--from-deck` 一起使用。
+不传 `--out` 时，会按原 deck 所在目录名加时间戳生成新的输出目录。如果同目录存在 `render-meta.json`，会恢复旧运行的主题、视口、作者和水印。`--theme` 可以单次覆盖恢复出的旧主题。`--prompt-extra` 只适用于 `--input`，不能和 `--from-deck` 一起使用。
 
 ## 作品封面图
 
@@ -175,7 +184,7 @@ posters:
 - `xhs.publish.schedule_at`：`mode: schedule` 时的默认定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析；主渲染命令可用 `--xhs-schedule-at` 单次覆盖
 - `xhs.publish.topic_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 未传 `--xhs-tags` 时是否调用 AI 生成 3-6 个小红书话题，默认开启
 - `xhs.publish.title_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 标题超过 `max_runes` 时是否调用 AI 改写标题，默认开启
-- `xhs.publish.title_generation.max_runes`：自动发布标题长度上限，默认 `20`；按 Unicode 字符计数，中文、英文、数字、空格和标点通常都算 1 个字符
+- `xhs.publish.title_generation.max_runes`：自动发布标题长度上限，默认 `20`；按小红书近似口径计数，半角英文、数字和标点约 0.5 个字符，中文等非 ASCII 字符约 1 个字符
 - `xhs.publish.chrome_args`：小红书发布浏览器使用的额外 Chrome 启动参数
 
 补充说明：
@@ -248,6 +257,7 @@ ai:
 ./mark2note --input ./article.md --theme warm-paper --author "Your Name"
 ./mark2note --input ./article.md --theme plum-ink
 ./mark2note --input ./article.md --theme sage-mist
+./mark2note --from-deck ./output/preview/deck.json --theme plum-ink --out ./output/preview-plum-ink
 ./mark2note --input ./article.md --prompt-extra "封面更抓眼，整体更像经验复盘"
 ./mark2note --input ./article.md --auto-posters --prepare-xhs
 ./mark2note --input ./article.md --auto-posters --prepare-xhs --xhs-mode schedule --xhs-schedule-at "2026-05-07 07:00:00"

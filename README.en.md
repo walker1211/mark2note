@@ -69,6 +69,15 @@ Successful renders write `deck.json` and `render-meta.json` to the output direct
 ./mark2note --from-deck ./output/preview/deck.json
 ```
 
+To keep the saved layout and only change the theme, rerender from `deck.json` with `--theme`:
+
+```bash
+./mark2note \
+  --from-deck ./output/preview/deck.json \
+  --theme plum-ink \
+  --out ./output/preview-plum-ink
+```
+
 The rerender path reuses the same post-render flows:
 
 ```bash
@@ -76,7 +85,7 @@ The rerender path reuses the same post-render flows:
 ./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
 ```
 
-Without `--out`, mark2note creates a new timestamped directory from the original deck directory name. If a sibling `render-meta.json` exists, it restores theme, viewport, author, and watermark. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
+Without `--out`, mark2note creates a new timestamped directory from the original deck directory name. If a sibling `render-meta.json` exists, it restores theme, viewport, author, and watermark. `--theme` can override the restored theme for one run. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
 
 ## Work poster covers
 
@@ -175,7 +184,7 @@ Key fields:
 - `xhs.publish.schedule_at`: default scheduled publish time for `mode: schedule`, using `YYYY-MM-DD HH:MM:SS` and parsed in Asia/Shanghai; main render commands can override it for one run with `--xhs-schedule-at`
 - `xhs.publish.topic_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to generate 3-6 Xiaohongshu topics when `--xhs-tags` is omitted, on by default
 - `xhs.publish.title_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to rewrite titles that exceed `max_runes`, on by default
-- `xhs.publish.title_generation.max_runes`: auto-publish title limit, default `20`; counted as Unicode characters, so Chinese characters, English letters, digits, spaces, and punctuation generally each count as 1
+- `xhs.publish.title_generation.max_runes`: auto-publish title limit, default `20`; counted with an approximate Xiaohongshu-style length, where half-width ASCII letters, digits, and punctuation count as about 0.5 characters, and non-ASCII characters count as about 1
 - `xhs.publish.chrome_args`: extra Chrome launch arguments used only by Xiaohongshu publishing
 
 Additional notes:
@@ -248,6 +257,7 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ./mark2note --input ./article.md --theme warm-paper --author "Your Name"
 ./mark2note --input ./article.md --theme plum-ink
 ./mark2note --input ./article.md --theme sage-mist
+./mark2note --from-deck ./output/preview/deck.json --theme plum-ink --out ./output/preview-plum-ink
 ./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
 ./mark2note --input ./article.md --auto-posters --prepare-xhs
 ./mark2note --input ./article.md --auto-posters --prepare-xhs --xhs-mode schedule --xhs-schedule-at "2026-05-07 07:00:00"
