@@ -49,6 +49,8 @@ xhs:
     mode: only-self
     declare_original: true
     allow_content_copy: false
+    topic_generation:
+      enabled: true
     # Extra Chrome launch args for Xiaohongshu publishing; entries may omit leading "--".
     chrome_args:
       - no-first-run

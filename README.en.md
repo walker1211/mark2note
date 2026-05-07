@@ -118,6 +118,7 @@ Key fields:
 - `xhs.publish.browser_path`: default browser executable path for `publish-xhs` and `--publish-xhs`; CLI `--chrome` can override it for one run
 - `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs` and `--publish-xhs`
 - `xhs.publish.mode`: default publish mode for `publish-xhs` and `--publish-xhs`, supporting `only-self` and `schedule`
+- `xhs.publish.topic_generation.enabled`: whether `--publish-xhs` calls AI to generate 3-6 Xiaohongshu topics when `--xhs-tags` is omitted, on by default
 - `xhs.publish.chrome_args`: extra Chrome launch arguments used only by Xiaohongshu publishing
 
 Additional notes:
@@ -143,8 +144,9 @@ Additional notes:
 - `--config` can explicitly select another config file
 - `--prompt-extra` appends one-off natural-language guidance for the Markdown -> deck JSON stage, such as pacing, tone, or structure
 - `--prompt-extra` only affects deck generation; it does not directly change HTML rendering, PNG capture, Animated / Live export, or `publish-xhs` behavior
-- `--publish-xhs` publishes to Xiaohongshu after the main render flow successfully generates standard PNG files; the title comes from the Markdown H1 and the body contains only 3-6 parsed topic hashtags
-- `--xhs-tags` manually overrides parsed topics, for example `--xhs-tags "AI agent,data safety,engineering reflection"`; it is valid only with `--publish-xhs`
+- `--publish-xhs` publishes to Xiaohongshu after the main render flow successfully generates standard PNG files; the title comes from the Markdown H1 and the body contains only 3-6 topic hashtags
+- When `--xhs-tags` is omitted, `--publish-xhs` uses the same `ai.command` / `ai.args` to generate topics according to `xhs.publish.topic_generation.enabled`; AI command failures, invalid JSON, or no valid topics skip publishing and return an error instead of falling back to local rule-based inference
+- `--xhs-tags` manually overrides AI topics, for example `--xhs-tags "AI agent,data safety,engineering reflection"`; it is valid only with `--publish-xhs` and skips AI topic generation
 - When `xhs.publish.chrome_args` is omitted, Xiaohongshu publishing uses `disable-background-networking`, `disable-component-update`, `no-first-run`, and `no-default-browser-check`; set `chrome_args: []` to launch without extra args for debugging
 - `xhs.publish.chrome_args` entries may include or omit the leading `--`, and `name=value` arguments are supported
 

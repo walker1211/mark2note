@@ -74,11 +74,13 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 	originalPublishXHS := publishXHS
 	originalReadFile := readFile
 	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
 	defer func() {
 		generatePreview = originalGeneratePreview
 		publishXHS = originalPublishXHS
 		readFile = originalReadFile
 		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
 	}()
 
 	outDir := t.TempDir()
@@ -103,6 +105,7 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 	headless := false
 	declareOriginal := true
 	allowContentCopy := false
+	topicGenerationEnabled := true
 	loadConfig = func(path string) (*config.Config, error) {
 		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
 			Account:          "walker",
@@ -113,7 +116,11 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 			DeclareOriginal:  &declareOriginal,
 			AllowContentCopy: &allowContentCopy,
 			ChromeArgs:       []string{"no-first-run", "no-default-browser-check"},
+			TopicGeneration:  config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
 		}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		return []string{"AI代理", "数据安全", "工程反思"}, nil
 	}
 
 	var got app.PublishOptions
@@ -126,7 +133,7 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"--input", "article.md", "--publish-xhs", "--xhs-tags", "AI代理,数据安全,工程反思"}, &stdout, &stderr)
+	code := run([]string{"--input", "article.md", "--publish-xhs"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
@@ -139,8 +146,8 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 	if got.Title != "一个AI代理删库之后我开始关心刹车" {
 		t.Fatalf("Title = %q", got.Title)
 	}
-	if got.Content != "#AI代理 #数据安全 #工程反思" {
-		t.Fatalf("Content = %q", got.Content)
+	if got.Content != "" {
+		t.Fatalf("Content = %q, want empty", got.Content)
 	}
 	wantTags := []string{"AI代理", "数据安全", "工程反思"}
 	if !reflect.DeepEqual(got.Tags, wantTags) {
@@ -156,6 +163,130 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, missing %q", stdout.String(), want)
 		}
+	}
+}
+
+func TestRunAutoPublishXHSUsesManualTagsWithoutTopicGeneration(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 标题\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		enabled := false
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker", TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &enabled}}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		t.Fatal("buildPublishTopics called with manual tags")
+		return nil, nil
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml", XHSTags: []string{"AI代理", "数据安全"}}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	want := []string{"AI代理", "数据安全"}
+	if !reflect.DeepEqual(got.Tags, want) || got.Content != "" {
+		t.Fatalf("publish topics = %#v content=%q", got.Tags, got.Content)
+	}
+}
+
+func TestRunAutoPublishXHSRejectsDisabledTopicGenerationWithoutManualTags(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 标题\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		enabled := false
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker", TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &enabled}}}}, nil
+	}
+
+	_, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err == nil || !strings.Contains(err.Error(), "topic generation is disabled") {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v, want disabled topic generation error", err)
+	}
+}
+
+func TestRunAutoPublishXHSRejectsAITopicGenerationFailure(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 标题\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		enabled := true
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker", TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &enabled}}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		return nil, fmt.Errorf("ai failed")
+	}
+
+	_, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err == nil || !strings.Contains(err.Error(), "generate xhs publish topics") {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v, want AI topic generation error", err)
+	}
+}
+
+func TestRunAutoPublishXHSRejectsEmptyAITopics(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 标题\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		enabled := true
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker", TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &enabled}}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		return []string{"1061", "#"}, nil
+	}
+
+	_, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err == nil || !strings.Contains(err.Error(), "no valid topics") {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v, want empty AI topics error", err)
 	}
 }
 

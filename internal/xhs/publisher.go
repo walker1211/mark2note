@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/input"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 var (
@@ -132,7 +134,7 @@ func (p *rodPage) FillTitle(ctx context.Context, title string) error {
 		return err
 	}
 	return rodTry(func() {
-		field.MustInput(title)
+		field.MustInput(NormalizePublishTitle(title))
 	})
 }
 
@@ -144,51 +146,165 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 	if err != nil {
 		return err
 	}
-	text, trimmedTags := composePublishContent(content, tags)
-	if err := rodTry(func() {
-		field.MustInput(text)
-	}); err != nil {
-		return err
-	}
-	if len(trimmedTags) == 0 {
-		return nil
-	}
-	for _, tag := range trimmedTags {
-		if err := p.selectRecommendedTopic(tag); err != nil {
+	text, topicTags := composePublishContent(content, tags)
+	if text != "" {
+		if err := rodTry(func() {
+			field.MustInput(text)
+		}); err != nil {
 			return err
+		}
+	}
+	if text != "" && len(topicTags) > 0 {
+		if err := rodTry(func() {
+			field.MustInput("\n")
+		}); err != nil {
+			return err
+		}
+	}
+	for _, tag := range topicTags {
+		if err := p.inputTopicByKeyboard(field, tag); err != nil {
+			return fmt.Errorf("input topic %q: %w", tag, err)
 		}
 	}
 	return nil
 }
 
+func (p *rodPage) inputTopicByKeyboard(field *rod.Element, tag string) error {
+	if err := rodTry(func() {
+		field.MustClick()
+	}); err != nil {
+		return fmt.Errorf("click editor: %w", err)
+	}
+	if err := p.typeTopicTrigger(); err != nil {
+		return fmt.Errorf("type topic trigger: %w", err)
+	}
+	if err := p.waitForTopicSuggestion("", 2*time.Second); err != nil {
+		return err
+	}
+	if err := rodTry(func() {
+		p.page.MustInsertText(tag)
+	}); err != nil {
+		return fmt.Errorf("type topic text: %w", err)
+	}
+	if err := p.waitForTopicSuggestion(tag, 2*time.Second); err != nil {
+		return err
+	}
+
+	var lastErr error
+	for i := 0; i < 2; i++ {
+		if err := p.pressSpaceKey(); err != nil {
+			return fmt.Errorf("press space: %w", err)
+		}
+		if err := p.waitForTopicConfirmation(tag, 1200*time.Millisecond); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if i == 0 && p.waitForTopicSuggestion(tag, 300*time.Millisecond) != nil {
+			break
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("topic %q suggestion disappeared before Xiaohongshu converted it into a highlighted topic", tag)
+}
+
+func (p *rodPage) typeTopicTrigger() error {
+	if err := (&proto.InputDispatchKeyEvent{
+		Type:                  proto.InputDispatchKeyEventTypeKeyDown,
+		Modifiers:             input.ModifierShift,
+		WindowsVirtualKeyCode: 51,
+		Code:                  "Digit3",
+		Key:                   "#",
+		Text:                  "#",
+		UnmodifiedText:        "#",
+	}).Call(p.page); err != nil {
+		return err
+	}
+	return (&proto.InputDispatchKeyEvent{
+		Type:                  proto.InputDispatchKeyEventTypeKeyUp,
+		Modifiers:             input.ModifierShift,
+		WindowsVirtualKeyCode: 51,
+		Code:                  "Digit3",
+		Key:                   "#",
+	}).Call(p.page)
+}
+
+func (p *rodPage) pressSpaceKey() error {
+	if err := p.page.Keyboard.Press(input.Space); err != nil {
+		return err
+	}
+	time.Sleep(80 * time.Millisecond)
+	return p.page.Keyboard.Release(input.Space)
+}
+
+func (p *rodPage) waitForTopicSuggestion(tag string, timeout time.Duration) error {
+	want := "#" + tag
+	if tag == "" {
+		want = "#"
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		matched := false
+		if err := rodTry(func() {
+			matched = p.page.MustEval(`(want) => {
+				const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+				const editors = Array.from(document.querySelectorAll('div.tiptap.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"], div[contenteditable="true"][role="textbox"]'));
+				return editors.some((editor) => Array.from(editor.querySelectorAll('.suggestion')).some((node) => normalize(node.textContent) === want));
+			}`, want).Bool()
+		}); err == nil && matched {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("topic %q did not enter Xiaohongshu suggestion mode", tag)
+}
+
+func (p *rodPage) waitForTopicConfirmation(tag string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		confirmed := false
+		if err := rodTry(func() {
+			confirmed = p.page.MustEval(`(tag) => {
+				const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+				const editors = Array.from(document.querySelectorAll('div.tiptap.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"], div[contenteditable="true"][role="textbox"]'));
+				return editors.some((editor) => Array.from(editor.querySelectorAll('a.tiptap-topic[data-topic]')).some((node) => {
+					const text = normalize(node.innerText || node.textContent || '').replace(/\[话题\]#$/, '');
+					if (text !== '#' + tag) return false;
+					try {
+						const data = JSON.parse(node.getAttribute('data-topic') || '{}');
+						return data.name === tag;
+					} catch (_) {
+						return true;
+					}
+				}));
+			}`, tag).Bool()
+		}); err == nil && confirmed {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("topic %q was typed as plain text but Xiaohongshu did not convert it into a highlighted topic", tag)
+}
+
 func composePublishContent(content string, tags []string) (string, []string) {
 	text := strings.TrimSpace(content)
-	trimmedTags := make([]string, 0, len(tags))
+	topicTags := make([]string, 0, len(tags))
 	existingTags := existingHashtagTokens(text)
-	tagParts := make([]string, 0, len(tags))
 	for _, tag := range tags {
 		trimmed := strings.TrimSpace(tag)
 		if trimmed == "" {
 			continue
 		}
 		trimmed = strings.TrimPrefix(trimmed, "#")
-		if trimmed == "" {
+		if trimmed == "" || existingTags[trimmed] {
 			continue
 		}
-		trimmedTags = append(trimmedTags, trimmed)
-		if !existingTags[trimmed] {
-			tagParts = append(tagParts, "#"+trimmed)
-			existingTags[trimmed] = true
-		}
+		topicTags = append(topicTags, trimmed)
+		existingTags[trimmed] = true
 	}
-	if len(tagParts) > 0 {
-		if text == "" {
-			text = strings.Join(tagParts, " ")
-		} else {
-			text = text + "\n" + strings.Join(tagParts, " ")
-		}
-	}
-	return text, trimmedTags
+	return text, topicTags
 }
 
 func existingHashtagTokens(text string) map[string]bool {
@@ -238,10 +354,7 @@ func (p *rodPage) ConfirmOnlySelfPublished(ctx context.Context) error {
 		return err
 	}
 	defaultXHSLogger("only-self publish wait confirmation")
-	if err := p.waitForBodyText(ctx, `发布成功|提交成功|笔记发布成功`, 15*time.Second); err == nil {
-		return nil
-	}
-	if err := p.waitForPublishedRedirect(ctx, 5*time.Second); err == nil {
+	if err := p.waitForPublishConfirmation(ctx, `发布成功|提交成功|笔记发布成功`, 15*time.Second); err == nil {
 		return nil
 	}
 	p.debugPublishConfirmationState()
@@ -338,10 +451,7 @@ func (p *rodPage) ConfirmScheduledSubmitted(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := p.waitForBodyText(ctx, `发布成功|提交成功|预约成功`, 15*time.Second); err == nil {
-		return nil
-	}
-	if err := p.waitForPublishedRedirect(ctx, 5*time.Second); err == nil {
+	if err := p.waitForPublishConfirmation(ctx, `发布成功|提交成功|预约成功`, 15*time.Second); err == nil {
 		return nil
 	}
 	return fmt.Errorf("scheduled publish confirmation not observed")
@@ -707,34 +817,73 @@ func (p *rodPage) permissionOptionClickable(candidate *rod.Element, text string)
 }
 
 func (p *rodPage) setCheckboxState(labelNeedle string, checked bool) error {
+	if applied, err := p.clickVisibleCheckboxControl(labelNeedle, checked); err != nil {
+		return err
+	} else if applied {
+		return nil
+	}
+
 	applied := false
 	err := rodTry(func() {
 		applied = p.page.MustEval(`(labelNeedle, checked) => {
 			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
 			const wantChecked = checked === true || checked === 'true';
-			const nodes = Array.from(document.querySelectorAll("input[type='checkbox']"));
-			for (const node of nodes) {
-				let current = node;
-				let label = '';
-				for (let i = 0; i < 8 && current; i++) {
+			const isVisible = (node) => {
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const labelFor = (input) => {
+				const explicitLabel = input.closest('label');
+				const explicitText = normalize(explicitLabel && (explicitLabel.innerText || explicitLabel.textContent || ''));
+				if (explicitText) return explicitText;
+				const nextText = normalize(input.nextElementSibling && (input.nextElementSibling.innerText || input.nextElementSibling.textContent || ''));
+				if (nextText) return nextText;
+				const previousText = normalize(input.previousElementSibling && (input.previousElementSibling.innerText || input.previousElementSibling.textContent || ''));
+				if (previousText) return previousText;
+				let current = input.parentElement;
+				for (let i = 0; i < 8 && current && current !== document.body && current !== document.documentElement; i++) {
 					const text = normalize(current.innerText || current.textContent || '');
-					if (text) {
-						label = text;
-						break;
+					if (text) return text;
+					current = current.parentElement;
+				}
+				return '';
+			};
+			const setNativeChecked = (node) => {
+				const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked');
+				if (descriptor && descriptor.set) {
+					descriptor.set.call(node, wantChecked);
+				} else {
+					node.checked = wantChecked;
+				}
+				node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 }));
+				node.dispatchEvent(new Event('input', { bubbles: true }));
+				node.dispatchEvent(new Event('change', { bubbles: true }));
+			};
+			const findClickable = (input) => {
+				if (input.nextElementSibling && isVisible(input.nextElementSibling)) return input.nextElementSibling;
+				if (input.previousElementSibling && isVisible(input.previousElementSibling)) return input.previousElementSibling;
+				let current = input;
+				for (let i = 0; i < 8 && current; i++) {
+					if (isVisible(current) && /checkbox|d-checkbox|original|原创|声明|同意|允许/.test((current.className || '') + ' ' + normalize(current.innerText || current.textContent || ''))) {
+						return current;
 					}
 					current = current.parentElement;
 				}
+				return input;
+			};
+			const nodes = Array.from(document.querySelectorAll("input[type='checkbox']"));
+			for (const node of nodes) {
+				const label = labelFor(node);
 				if (!label.includes(labelNeedle)) {
 					continue;
 				}
 				node.scrollIntoView({ block: 'center', behavior: 'instant' });
 				if (!!node.checked !== wantChecked) {
-					node.click();
+					findClickable(node).click();
 				}
 				if (!!node.checked !== wantChecked) {
-					node.checked = wantChecked;
-					node.dispatchEvent(new Event('input', { bubbles: true }));
-					node.dispatchEvent(new Event('change', { bubbles: true }));
+					setNativeChecked(node);
 				}
 				return !!node.checked === wantChecked;
 			}
@@ -751,18 +900,142 @@ func (p *rodPage) setCheckboxState(labelNeedle string, checked bool) error {
 	return nil
 }
 
+func (p *rodPage) clickVisibleCheckboxControl(labelNeedle string, checked bool) (bool, error) {
+	const attr = "data-mark2note-checkbox-target"
+	status := ""
+	err := rodTry(func() {
+		status = p.page.MustEval(`(labelNeedle, checked, attr) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const wantChecked = checked === true || checked === 'true';
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			document.querySelectorAll('[' + attr + ']').forEach((node) => node.removeAttribute(attr));
+			const labelFor = (input) => {
+				const explicitLabel = input.closest('label');
+				const explicitText = normalize(explicitLabel && (explicitLabel.innerText || explicitLabel.textContent || ''));
+				if (explicitText) return explicitText;
+				const nextText = normalize(input.nextElementSibling && (input.nextElementSibling.innerText || input.nextElementSibling.textContent || ''));
+				if (nextText) return nextText;
+				const previousText = normalize(input.previousElementSibling && (input.previousElementSibling.innerText || input.previousElementSibling.textContent || ''));
+				if (previousText) return previousText;
+				let current = input.parentElement;
+				for (let i = 0; i < 8 && current && current !== document.body && current !== document.documentElement; i++) {
+					const text = normalize(current.innerText || current.textContent || '');
+					if (text) return text;
+					current = current.parentElement;
+				}
+				return '';
+			};
+			const targetFor = (input) => {
+				if (isVisible(input.nextElementSibling)) return input.nextElementSibling;
+				if (isVisible(input.previousElementSibling)) return input.previousElementSibling;
+				let current = input.parentElement;
+				for (let i = 0; i < 8 && current; i++) {
+					if (isVisible(current)) return current;
+					current = current.parentElement;
+				}
+				return input;
+			};
+			const nodes = Array.from(document.querySelectorAll("input[type='checkbox']"));
+			for (const node of nodes) {
+				if (!labelFor(node).includes(labelNeedle)) continue;
+				if (!!node.checked === wantChecked) return 'already';
+				const target = targetFor(node);
+				target.setAttribute(attr, 'true');
+				return 'click';
+			}
+			return 'missing';
+		}`, labelNeedle, checked, attr).String()
+	})
+	if err != nil {
+		return false, err
+	}
+	if status == "already" {
+		return true, nil
+	}
+	if status != "click" {
+		return false, nil
+	}
+	if err := rodTry(func() {
+		p.page.MustElement("[" + attr + `="true"]`).MustScrollIntoView().MustWaitVisible().MustClick()
+		p.page.MustWaitStable()
+	}); err != nil {
+		return false, err
+	}
+	if p.checkboxStateMatches(labelNeedle, checked) {
+		return true, nil
+	}
+	if isOriginalDeclarationNeedle(labelNeedle) && p.hasOriginalDeclarationPrompt() {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (p *rodPage) checkboxStateMatches(labelNeedle string, checked bool) bool {
+	matched := false
+	_ = rodTry(func() {
+		matched = p.page.MustEval(`(labelNeedle, checked) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const wantChecked = checked === true || checked === 'true';
+			const labelFor = (input) => {
+				const explicitLabel = input.closest('label');
+				const explicitText = normalize(explicitLabel && (explicitLabel.innerText || explicitLabel.textContent || ''));
+				if (explicitText) return explicitText;
+				const nextText = normalize(input.nextElementSibling && (input.nextElementSibling.innerText || input.nextElementSibling.textContent || ''));
+				if (nextText) return nextText;
+				const previousText = normalize(input.previousElementSibling && (input.previousElementSibling.innerText || input.previousElementSibling.textContent || ''));
+				if (previousText) return previousText;
+				let current = input.parentElement;
+				for (let i = 0; i < 8 && current && current !== document.body && current !== document.documentElement; i++) {
+					const text = normalize(current.innerText || current.textContent || '');
+					if (text) return text;
+					current = current.parentElement;
+				}
+				return '';
+			};
+			const nodes = Array.from(document.querySelectorAll("input[type='checkbox']"));
+			for (const node of nodes) {
+				if (labelFor(node).includes(labelNeedle)) {
+					return !!node.checked === wantChecked;
+				}
+			}
+			return false;
+		}`, labelNeedle, checked).Bool()
+	})
+	return matched
+}
+
+func (p *rodPage) hasOriginalDeclarationPrompt() bool {
+	matched := false
+	_ = rodTry(func() {
+		matched = p.page.MustEval(`() => {
+			const text = document.body ? document.body.innerText : '';
+			return /笔记完成原创声明后|我已阅读并同意/.test(text);
+		}`).Bool()
+	})
+	return matched
+}
+
+func isOriginalDeclarationNeedle(labelNeedle string) bool {
+	return strings.Contains(labelNeedle, "原创") || strings.Contains(labelNeedle, "声明")
+}
+
 func (p *rodPage) applyOriginalDeclaration(enabled bool) error {
 	if !enabled {
 		return nil
 	}
-	entryClicked, err := p.clickVisibleNodeByText(".d-checkbox-main-label, .d-checkbox-label, .original-entry, div, span, label, button", "^声明原创$|^原创声明$|^原创$")
-	if err != nil {
-		return err
+	if p.isOriginalDeclared() {
+		return nil
 	}
-	if !entryClicked {
-		if err := p.setCheckboxState("声明原创", true); err != nil {
-			if err := p.setCheckboxState("原创", true); err != nil {
-				return err
+	if err := p.setCheckboxState("声明原创", true); err != nil {
+		if err := p.setCheckboxState("原创", true); err != nil {
+			if _, clickErr := p.clickVisibleNodeByText(".d-checkbox-main-label, .d-checkbox-label, .original-entry, div, span, label, button", "^声明原创$|^原创声明$|^原创$"); clickErr != nil {
+				p.debugOriginalDeclarationState()
+				return clickErr
 			}
 		}
 	}
@@ -771,14 +1044,49 @@ func (p *rodPage) applyOriginalDeclaration(enabled bool) error {
 			return err
 		}
 	}
-	clicked, err := p.clickByText("button", "声明原创")
-	if err != nil {
+	if clicked, err := p.clickByText("button", "声明原创"); err != nil {
 		return err
+	} else if clicked {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if p.isOriginalDeclared() {
+				return nil
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
-	if !clicked {
-		return nil
+	if !p.isOriginalDeclared() {
+		p.debugOriginalDeclarationState()
+		return fmt.Errorf("original declaration was requested but not selected")
 	}
 	return nil
+}
+
+func (p *rodPage) isOriginalDeclared() bool {
+	declared := false
+	_ = rodTry(func() {
+		declared = p.page.MustEval(`() => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const nodes = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+			for (const node of nodes) {
+				let current = node;
+				let label = '';
+				for (let i = 0; i < 8 && current; i++) {
+					const text = normalize(current.innerText || current.textContent || '');
+					if (text) {
+						label = text;
+						break;
+					}
+					current = current.parentElement;
+				}
+				if (/声明原创|原创声明|原创/.test(label) && node.checked === true) {
+					return true;
+				}
+			}
+			return Array.from(document.querySelectorAll('.checked, .is-checked, .d-checkbox-checked, [aria-checked="true"]')).some((node) => /声明原创|原创声明|原创/.test(normalize(node.innerText || node.textContent || '')));
+		}`).Bool()
+	})
+	return declared
 }
 
 func (p *rodPage) applyContentCopyPreference(allow bool) error {
@@ -793,26 +1101,6 @@ func (p *rodPage) setOnlySelfVisible() error {
 		return err
 	}
 	return nil
-}
-
-func (p *rodPage) waitForBodyText(ctx context.Context, pattern string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		matched := false
-		if err := rodTry(func() {
-			matched = p.page.MustEval(`(pattern) => {
-				const text = document.body ? document.body.innerText : '';
-				return new RegExp(pattern).test(text);
-			}`, pattern).Bool()
-		}); err == nil && matched {
-			return nil
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	return fmt.Errorf("body text did not match %q", pattern)
 }
 
 func (p *rodPage) isPublishSuccessState() bool {
@@ -838,110 +1126,27 @@ func (p *rodPage) isPublishSuccessState() bool {
 	return success
 }
 
-func (p *rodPage) waitForPublishedRedirect(ctx context.Context, timeout time.Duration) error {
+func (p *rodPage) waitForPublishConfirmation(ctx context.Context, pattern string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		matched := false
+		if err := rodTry(func() {
+			matched = p.page.MustEval(`(pattern) => {
+				const text = document.body ? document.body.innerText : '';
+				return new RegExp(pattern).test(text);
+			}`, pattern).Bool()
+		}); err == nil && matched {
+			return nil
 		}
 		if p.isPublishSuccessState() {
 			return nil
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return fmt.Errorf("published redirect not observed")
-}
-
-func (p *rodPage) selectRecommendedTopic(tag string) error {
-	clicked := false
-	err := rodTry(func() {
-		clicked = p.page.MustEval(`(rawTag) => {
-			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
-			const isVisible = (node) => {
-				if (!node) return false;
-				const rect = node.getBoundingClientRect();
-				const style = window.getComputedStyle(node);
-				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-			};
-			const fireMouseEvent = (node, type) => {
-				node.dispatchEvent(new MouseEvent(type, {
-					bubbles: true,
-					cancelable: true,
-					view: window,
-					button: 0,
-				}));
-			};
-			const target = '#' + normalize(rawTag);
-			const options = Array.from(document.querySelectorAll('.recommend-topic-wrapper .tag-group .tag')).filter(isVisible);
-			for (const option of options) {
-				const text = normalize(option.innerText || option.textContent || '');
-				if (text !== target) {
-					continue;
-				}
-				option.scrollIntoView({ block: 'center', behavior: 'instant' });
-				fireMouseEvent(option, 'mousedown');
-				fireMouseEvent(option, 'mouseup');
-				option.click();
-				return true;
-			}
-			return false;
-		}`, tag).Bool()
-		if clicked {
-			p.page.MustWaitStable()
-		}
-	})
-	if err != nil {
-		return err
-	}
-	if !clicked {
-		return fmt.Errorf("recommended topic %q not found", tag)
-	}
-	closed := false
-	err = rodTry(func() {
-		closed = p.page.MustEval(`() => {
-			const isVisible = (node) => {
-				if (!node) return false;
-				const rect = node.getBoundingClientRect();
-				const style = window.getComputedStyle(node);
-				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-			};
-			const roots = Array.from(document.querySelectorAll('#tippy-1, [data-tippy-root], .tippy-box, .tippy-content')).filter(isVisible);
-			const items = Array.from(document.querySelectorAll('#creator-editor-topic-container, [id^="creator-editor-topic-container"]')).filter(isVisible);
-			return roots.length === 0 || items.length === 0;
-		}`).Bool()
-	})
-	if err != nil {
-		return err
-	}
-	if !closed {
-		clickedBody, clickErr := p.clickVisibleNodeByText("body", ".*")
-		if clickErr != nil {
-			return clickErr
-		}
-		if clickedBody {
-			err = rodTry(func() {
-				closed = p.page.MustEval(`() => {
-					const isVisible = (node) => {
-						if (!node) return false;
-						const rect = node.getBoundingClientRect();
-						const style = window.getComputedStyle(node);
-						return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-					};
-					const roots = Array.from(document.querySelectorAll('#tippy-1, [data-tippy-root], .tippy-box, .tippy-content')).filter(isVisible);
-					const items = Array.from(document.querySelectorAll('#creator-editor-topic-container, [id^="creator-editor-topic-container"]')).filter(isVisible);
-					return roots.length === 0 || items.length === 0;
-				}`).Bool()
-			})
-			if err != nil {
-				return err
-			}
-		}
-	}
-	if !closed {
-		return fmt.Errorf("topic popup did not close after selecting %q", tag)
-	}
-	p.page.MustWaitStable()
-	return nil
+	return fmt.Errorf("publish confirmation not observed")
 }
 
 func (p *rodPage) waitForUploadInput(ctx context.Context, timeout time.Duration) (*rod.Element, error) {
@@ -979,6 +1184,31 @@ func (p *rodPage) debugUploadInputState() {
 			return body.replace(/\s+/g, ' ').trim().slice(0, 500);
 		}`).String()
 		defaultXHSLogger("upload input missing body=%s", text)
+	})
+}
+
+func (p *rodPage) debugOriginalDeclarationState() {
+	_ = rodTry(func() {
+		text := p.page.MustEval(`() => {
+			const body = document.body ? document.body.innerText : '';
+			return body.replace(/\s+/g, ' ').trim().slice(0, 1500);
+		}`).String()
+		defaultXHSLogger("original declaration state body=%s", text)
+	})
+	_ = rodTry(func() {
+		nodes := p.page.MustEval(`() => JSON.stringify(Array.from(document.querySelectorAll('input[type="checkbox"], .d-checkbox, .d-checkbox-main-label, .d-checkbox-label, .original-entry, label, button')).map((el) => {
+			const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+			const rect = el.getBoundingClientRect();
+			const style = window.getComputedStyle(el);
+			return {
+				tag: el.tagName,
+				text,
+				className: el.className || '',
+				checked: el.checked === true,
+				visible: rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden',
+			};
+		}).filter((item) => /原创|声明|同意|阅读/.test(item.text) || item.tag === 'INPUT'))`).String()
+		defaultXHSLogger("original declaration candidates=%s", nodes)
 	})
 }
 
@@ -1069,9 +1299,14 @@ func (p *rodPage) waitForEditorReady(ctx context.Context, timeout time.Duration)
 
 func (p *rodPage) elementBySelectors(selectors []string) (*rod.Element, error) {
 	for _, selector := range selectors {
+		if err := rodTry(func() {
+			p.page.Timeout(2 * time.Second).MustElement(selector)
+		}); err != nil {
+			continue
+		}
 		var element *rod.Element
 		if err := rodTry(func() {
-			element = p.page.Timeout(2 * time.Second).MustElement(selector)
+			element = p.page.MustElement(selector)
 		}); err == nil {
 			return element, nil
 		}

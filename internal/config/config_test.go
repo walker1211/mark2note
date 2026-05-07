@@ -448,6 +448,26 @@ func TestLoadKeepsExplicitXHSPublishConfig(t *testing.T) {
 	if !reflect.DeepEqual(cfg.XHS.Publish.ChromeArgs, wantChromeArgs) {
 		t.Fatalf("ChromeArgs = %#v, want %#v", cfg.XHS.Publish.ChromeArgs, wantChromeArgs)
 	}
+	if cfg.XHS.Publish.TopicGeneration.Enabled == nil || !*cfg.XHS.Publish.TopicGeneration.Enabled {
+		t.Fatalf("TopicGeneration.Enabled = %#v, want default true", cfg.XHS.Publish.TopicGeneration.Enabled)
+	}
+}
+
+func TestLoadKeepsExplicitDisabledXHSTopicGeneration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "xhs:\n  publish:\n    topic_generation:\n      enabled: false\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.TopicGeneration.Enabled == nil || *cfg.XHS.Publish.TopicGeneration.Enabled {
+		t.Fatalf("TopicGeneration.Enabled = %#v, want false", cfg.XHS.Publish.TopicGeneration.Enabled)
+	}
 }
 
 func TestLoadKeepsExplicitEmptyXHSPublishChromeArgs(t *testing.T) {

@@ -119,25 +119,24 @@ func (f *fakePublishPage) applyContentCopyPreference(allow bool) error {
 	return f.applyContentCopyErr
 }
 
-func TestComposePublishContentDoesNotDuplicateExistingTags(t *testing.T) {
+func TestComposePublishContentSkipsExistingTags(t *testing.T) {
 	text, tags := composePublishContent("#AI代理 #数据安全 #工程反思", []string{"AI代理", "数据安全", "工程反思"})
 
 	if text != "#AI代理 #数据安全 #工程反思" {
 		t.Fatalf("text = %q", text)
 	}
-	wantTags := []string{"AI代理", "数据安全", "工程反思"}
-	if !reflect.DeepEqual(tags, wantTags) {
-		t.Fatalf("tags = %#v, want %#v", tags, wantTags)
+	if len(tags) != 0 {
+		t.Fatalf("tags = %#v, want empty", tags)
 	}
 }
 
-func TestComposePublishContentAppendsMissingTags(t *testing.T) {
+func TestComposePublishContentKeepsTagsSeparateFromBody(t *testing.T) {
 	text, tags := composePublishContent("正文 #AI代理", []string{"AI代理", "数据安全"})
 
-	if text != "正文 #AI代理\n#数据安全" {
+	if text != "正文 #AI代理" {
 		t.Fatalf("text = %q", text)
 	}
-	wantTags := []string{"AI代理", "数据安全"}
+	wantTags := []string{"数据安全"}
 	if !reflect.DeepEqual(tags, wantTags) {
 		t.Fatalf("tags = %#v, want %#v", tags, wantTags)
 	}
@@ -146,10 +145,10 @@ func TestComposePublishContentAppendsMissingTags(t *testing.T) {
 func TestComposePublishContentMatchesExistingTagsExactly(t *testing.T) {
 	text, tags := composePublishContent("正文 #AI代理", []string{"AI", "AI代理"})
 
-	if text != "正文 #AI代理\n#AI" {
+	if text != "正文 #AI代理" {
 		t.Fatalf("text = %q", text)
 	}
-	wantTags := []string{"AI", "AI代理"}
+	wantTags := []string{"AI"}
 	if !reflect.DeepEqual(tags, wantTags) {
 		t.Fatalf("tags = %#v, want %#v", tags, wantTags)
 	}
@@ -183,6 +182,128 @@ func TestPublisherUploadsStandardImagesBeforeTextFill(t *testing.T) {
 func TestUploadInputSelectorsIncludeCreatorUploadInput(t *testing.T) {
 	if !reflect.DeepEqual(uploadInputSelectors, []string{"input.upload-input", `input[type="file"][accept*="image"]`, `input[type="file"][multiple]`, `input[type="file"]`, `input[type="file"][multiple][accept*=".jpg"]`, `input[type="file"][accept*=".jpg"]`}) {
 		t.Fatalf("uploadInputSelectors = %#v", uploadInputSelectors)
+	}
+}
+
+func TestFillTitlePreservesLongTitle(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body><input placeholder="填写标题会有更多赞哦"></body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	want := "一二三四五六七八九十一二三四五六七八九十超长"
+	rodPage := &rodPage{page: page}
+	if err := rodPage.FillTitle(context.Background(), want); err != nil {
+		t.Fatalf("FillTitle() error = %v", err)
+	}
+	got := page.MustElement(`input[placeholder="填写标题会有更多赞哦"]`).MustProperty("value").String()
+	if got != want {
+		t.Fatalf("title input = %q, want %q", got, want)
+	}
+}
+
+func TestElementBySelectorsDoesNotReturnElementWithShortTimeout(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body><input class="target"></body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	el, err := rodPage.elementBySelectors([]string{".target"})
+	if err != nil {
+		t.Fatalf("elementBySelectors() error = %v", err)
+	}
+	time.Sleep(3 * time.Second)
+	if err := rodTry(func() { el.MustInput("ok") }); err != nil {
+		t.Fatalf("selected element should not inherit short timeout: %v", err)
+	}
+	got := page.MustElement(".target").MustProperty("value").String()
+	if got != "ok" {
+		t.Fatalf("input value = %q, want ok", got)
+	}
+}
+
+func TestWaitForTopicConfirmationRejectsPlainTextTopic(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body><div contenteditable="true" role="textbox" class="tiptap ProseMirror">#AI编程</div></body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.waitForTopicConfirmation("AI编程", 100*time.Millisecond); err == nil {
+		t.Fatal("waitForTopicConfirmation() error = nil, want highlighted-topic error")
+	}
+}
+
+func TestWaitForTopicSuggestionAcceptsSuggestionNode(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body><div contenteditable="true" role="textbox" class="tiptap ProseMirror"><p><span class="suggestion">#AI编程</span></p></div></body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.waitForTopicSuggestion("AI编程", 100*time.Millisecond); err != nil {
+		t.Fatalf("waitForTopicSuggestion() error = %v", err)
 	}
 }
 
@@ -782,7 +903,7 @@ func TestSelectPermissionOptionIgnoresMatchingTextOutsideDropdown(t *testing.T) 
 	}
 }
 
-func TestFillContentSelectsRecommendedTopicAndClosesPopup(t *testing.T) {
+func TestFillContentRejectsPlainTextTopicWithoutHighlight(t *testing.T) {
 	l := launcher.New().Headless(true)
 	controlURL := l.MustLaunch()
 	defer l.Kill()
@@ -801,183 +922,99 @@ func TestFillContentSelectsRecommendedTopicAndClosesPopup(t *testing.T) {
     <div class="tiptap-container">
       <div contenteditable="true" role="textbox" class="tiptap ProseMirror" tabindex="0"></div>
     </div>
-    <div class="recommend-topic-wrapper">
-      <div class="tag-group">
-        <span class="tag">#没想法随便发</span>
-      </div>
-    </div>
-    <div data-tippy-root id="tippy-1" style="visibility:hidden; position:absolute; inset:0 auto auto 0; margin:0; transform:translate3d(0,0,0)">
-      <div class="tippy-box" data-state="hidden" role="tooltip">
-        <div class="tippy-content" data-state="hidden">
-          <div id="creator-editor-topic-container" class="items" style="display:none">
-            <div class="empty"><div>无结果</div></div>
-          </div>
-        </div>
-      </div>
-    </div>
     <script>
       const editor = document.querySelector('.tiptap.ProseMirror');
-      const popupRoot = document.querySelector('#tippy-1');
-      const popupBox = document.querySelector('.tippy-box');
-      const popupContent = document.querySelector('.tippy-content');
-      const popupItems = document.querySelector('#creator-editor-topic-container');
-      const recommendation = document.querySelector('.recommend-topic-wrapper .tag');
-      const rawTag = '#没想法随便发';
-      const topicMarker = rawTag + '[话题]#';
-      const setPopupVisible = (visible) => {
-        popupRoot.style.visibility = visible ? 'visible' : 'hidden';
-        popupBox.dataset.state = visible ? 'visible' : 'hidden';
-        popupContent.dataset.state = visible ? 'visible' : 'hidden';
-        popupItems.style.display = visible ? 'block' : 'none';
-      };
-      editor.addEventListener('input', () => {
-        const text = editor.textContent || '';
-        if (text.includes(rawTag) && !text.includes(topicMarker)) {
-          editor.textContent = text.replace(rawTag, topicMarker);
-          setPopupVisible(true);
-        }
+      window.spaceConfirmedTopics = [];
+      window.topicTriggerKeySeen = false;
+      editor.addEventListener('keydown', (event) => {
+        if (event.code === 'Digit3' && event.shiftKey) window.topicTriggerKeySeen = true;
       });
-      recommendation.addEventListener('mousedown', () => {
-        const text = editor.textContent || '';
-        editor.textContent = text.replace(topicMarker, rawTag);
-        setPopupVisible(false);
+      editor.addEventListener('keyup', (event) => {
+        if (event.code !== 'Space' || !window.topicTriggerKeySeen) return;
+        const match = (editor.textContent || '').match(/#([^#\s]+)\s*$/);
+        if (match) window.spaceConfirmedTopics.push(match[1]);
       });
-      recommendation.addEventListener('click', (event) => event.preventDefault());
     </script>
   </body>
 </html>`
-	dataURL := "data:text/html," + url.PathEscape(html)
-	page.MustNavigate(dataURL)
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
 	page.MustWaitLoad()
 	page.MustElement("body")
 
 	rodPage := &rodPage{page: page}
-	if err := rodPage.FillContent(context.Background(), "测试正文", []string{"没想法随便发"}); err != nil {
+	err := rodPage.FillContent(context.Background(), "测试正文", []string{"AI编程"})
+	if err == nil || !strings.Contains(err.Error(), "did not enter Xiaohongshu suggestion mode") {
+		t.Fatalf("FillContent() error = %v", err)
+	}
+}
+
+func TestFillContentAcceptsHighlightedTopicNode(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+	<html>
+	  <head><meta charset="utf-8"></head>
+	  <body>
+	    <div class="tiptap-container">
+	      <div contenteditable="true" role="textbox" class="tiptap ProseMirror" tabindex="0"></div>
+	    </div>
+	    <script>
+	      const editor = document.querySelector('.tiptap.ProseMirror');
+	      let pendingTopic = '';
+	      let spaceCount = 0;
+	      editor.addEventListener('beforeinput', (event) => {
+	        if (event.inputType !== 'insertText' || !event.data) return;
+	        if (event.data === '#') {
+	          event.preventDefault();
+	          pendingTopic = '';
+	          spaceCount = 0;
+	          editor.innerHTML = '<p><span class="suggestion is-empty">#</span></p>';
+	          return;
+	        }
+	        const suggestion = editor.querySelector('.suggestion');
+	        if (suggestion && event.data !== ' ') {
+	          event.preventDefault();
+	          pendingTopic += event.data;
+	          suggestion.className = 'suggestion';
+	          suggestion.textContent = '#' + pendingTopic;
+	          return;
+	        }
+	        if (suggestion && event.data === ' ') {
+	          event.preventDefault();
+	        }
+	      });
+	      editor.addEventListener('keyup', (event) => {
+	        const suggestion = editor.querySelector('.suggestion');
+	        if (!suggestion || event.code !== 'Space') return;
+	        spaceCount++;
+	        if (spaceCount < 2) return;
+	        const data = JSON.stringify({id: 'topic-id', link: 'https://www.xiaohongshu.com/page/topics/topic-id?naviHidden=yes', name: pendingTopic});
+	        editor.innerHTML = '<p><a class="tiptap-topic" data-topic=' + JSON.stringify(data) + ' contenteditable="false">#' + pendingTopic + '<span class="content-hide">[话题]#</span></a>&nbsp;</p>';
+	      });
+	    </script>
+	  </body>
+	</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.FillContent(context.Background(), "", []string{"AI编程"}); err != nil {
 		t.Fatalf("FillContent() error = %v", err)
 	}
 
-	bodyText := page.MustEval(`() => document.querySelector('.tiptap.ProseMirror')?.textContent || ''`).String()
-	if strings.Contains(bodyText, "[话题]#") {
-		t.Fatalf("editor text = %q, want popup marker removed", bodyText)
-	}
-	if !strings.Contains(bodyText, "#没想法随便发") {
-		t.Fatalf("editor text = %q, want selected topic", bodyText)
-	}
-	popupVisible := page.MustEval(`() => {
-		const root = document.querySelector('#tippy-1');
-		const items = document.querySelector('#creator-editor-topic-container');
-		return !!root && !!items && window.getComputedStyle(root).visibility !== 'hidden' && window.getComputedStyle(items).display !== 'none';
-	}`).Bool()
-	if popupVisible {
-		t.Fatal("topic popup should be closed after selecting recommended topic")
-	}
-}
-
-func TestSelectRecommendedTopicDismissesPopupByClickingBody(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
-
-	html := `<!doctype html>
-<html>
-  <head><meta charset="utf-8"></head>
-  <body>
-    <div class="recommend-topic-wrapper"><div class="tag-group"><div class="tag">#测试话题</div></div></div>
-    <div id="tippy-1" style="visibility: visible;"><div class="tippy-box" data-state="visible"><div class="tippy-content" data-state="visible"></div></div></div>
-    <div id="creator-editor-topic-container" style="display: block;"></div>
-    <script>
-      const hidePopup = () => {
-        document.getElementById('tippy-1').style.visibility = 'hidden';
-        document.querySelector('.tippy-box').setAttribute('data-state', 'hidden');
-        document.querySelector('.tippy-content').setAttribute('data-state', 'hidden');
-        document.getElementById('creator-editor-topic-container').style.display = 'none';
-      };
-      document.querySelector('.tag').addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      });
-      document.body.addEventListener('click', hidePopup);
-      document.body.addEventListener('mousedown', hidePopup);
-      document.body.addEventListener('mouseup', hidePopup);
-    </script>
-  </body>
-</html>`
-	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
-	page.MustWaitLoad()
-	page.MustElement("body")
-
-	rodPage := &rodPage{page: page}
-	if err := rodPage.selectRecommendedTopic("测试话题"); err != nil {
-		t.Fatalf("selectRecommendedTopic() error = %v", err)
-	}
-	popupVisible := page.MustEval(`() => {
-		const root = document.querySelector('#tippy-1');
-		const items = document.querySelector('#creator-editor-topic-container');
-		return !!root && !!items && window.getComputedStyle(root).visibility !== 'hidden' && window.getComputedStyle(items).display !== 'none';
-	}`).Bool()
-	if popupVisible {
-		t.Fatal("topic popup should require explicit body click to dismiss")
-	}
-}
-
-func TestSelectRecommendedTopicDismissesDynamicPopupRootByClickingBody(t *testing.T) {
-	l := launcher.New().Headless(true)
-	controlURL := l.MustLaunch()
-	defer l.Kill()
-	defer l.Cleanup()
-
-	browser := rod.New().ControlURL(controlURL).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("about:blank")
-	defer page.MustClose()
-
-	html := `<!doctype html>
-<html>
-  <head><meta charset="utf-8"></head>
-  <body>
-    <div class="recommend-topic-wrapper"><div class="tag-group"><div class="tag">#测试话题</div></div></div>
-    <div data-tippy-root="1" id="dynamic-root"><div class="tippy-box" data-state="visible"><div class="tippy-content" data-state="visible"></div></div></div>
-    <div id="creator-editor-topic-container-dynamic" style="display: block;"></div>
-    <script>
-      const hidePopup = () => {
-        document.getElementById('dynamic-root').style.visibility = 'hidden';
-        document.querySelector('.tippy-box').setAttribute('data-state', 'hidden');
-        document.querySelector('.tippy-content').setAttribute('data-state', 'hidden');
-        document.getElementById('creator-editor-topic-container-dynamic').style.display = 'none';
-      };
-      document.querySelector('.tag').addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      });
-      document.body.addEventListener('click', hidePopup);
-      document.body.addEventListener('mousedown', hidePopup);
-      document.body.addEventListener('mouseup', hidePopup);
-    </script>
-  </body>
-</html>`
-	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
-	page.MustWaitLoad()
-	page.MustElement("body")
-
-	rodPage := &rodPage{page: page}
-	if err := rodPage.selectRecommendedTopic("测试话题"); err != nil {
-		t.Fatalf("selectRecommendedTopic() error = %v", err)
-	}
-	popupVisible := page.MustEval(`() => {
-		const root = document.getElementById('dynamic-root');
-		const items = document.getElementById('creator-editor-topic-container-dynamic');
-		return !!root && !!items && window.getComputedStyle(root).visibility !== 'hidden' && window.getComputedStyle(items).display !== 'none';
-	}`).Bool()
-	if popupVisible {
-		t.Fatal("dynamic topic popup should be dismissed after selecting topic")
+	htmlOut := page.MustEval(`() => document.querySelector('.tiptap.ProseMirror')?.innerHTML || ''`).String()
+	if !strings.Contains(htmlOut, `class="tiptap-topic"`) || !strings.Contains(htmlOut, `data-topic=`) {
+		t.Fatalf("editor html = %q, want highlighted topic node", htmlOut)
 	}
 }
 
@@ -1227,6 +1264,114 @@ func TestApplyOriginalDeclarationClicksEntryBeforeConfirmingModal(t *testing.T) 
 	}
 }
 
+func TestApplyOriginalDeclarationUsesVisibleSwitchAndConfirmsPrompt(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+	<html>
+	  <head><meta charset="utf-8"></head>
+	  <body>
+	    <div class="creator-original-card" id="original-card">
+	      <div class="title">原创声明</div>
+	      <input id="original" type="checkbox" style="position:absolute;opacity:0;width:0;height:0;">
+	      <span id="original-switch" style="display:flex;width:20px;height:20px;"></span>
+	    </div>
+	    <template id="original-prompt-template">
+	      <div class="d-modal-content">
+	        <p>笔记完成原创声明后，将获得以下权益</p>
+	        <div class="agreement-row"><input id="agreement" type="checkbox" style="position:absolute;opacity:0;width:0;height:0;">
+	        <span id="agreement-switch" style="display:inline-flex;width:20px;height:20px;"></span>
+	        <span>我已阅读并同意《原创声明须知》，如滥用声明，平台将驳回并予以相关处置</span></div>
+	        <button id="confirm-original">声明原创</button>
+	      </div>
+	    </template>
+	    <script>
+	      document.getElementById('original-switch').addEventListener('click', () => {
+	        if (!document.querySelector('.d-modal-content')) {
+	          document.body.appendChild(document.getElementById('original-prompt-template').content.cloneNode(true));
+	          document.getElementById('agreement-switch').addEventListener('click', () => {
+	            document.getElementById('agreement').checked = true;
+	          });
+	          document.getElementById('confirm-original').addEventListener('click', () => {
+	            if (document.getElementById('agreement').checked) {
+	              document.getElementById('original').checked = true;
+	              document.body.insertAdjacentHTML('beforeend', '<span>已声明原创</span>');
+	            }
+	          });
+	        }
+	      });
+	    </script>
+	  </body>
+	</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
+	}
+	if !page.MustElement("#original").MustProperty("checked").Bool() {
+		t.Fatal("original checkbox should be checked after prompt confirmation")
+	}
+	if !page.MustElement("#agreement").MustProperty("checked").Bool() {
+		t.Fatal("agreement checkbox should be checked")
+	}
+}
+
+func TestApplyOriginalDeclarationClicksWrapperWithHiddenInput(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="d-grid d-checkbox d-checkbox-main-label original-entry" id="original-wrapper">
+      <span class="d-checkbox-simulator" id="original-simulator"></span>
+      <input id="original" type="checkbox" style="position:absolute;opacity:0;width:0;height:0;" onclick="event.preventDefault(); return false;">
+      <span class="d-checkbox-label">声明原创</span>
+    </div>
+    <script>
+      document.getElementById('original-wrapper').addEventListener('click', () => {
+        document.getElementById('original').checked = true;
+        document.getElementById('original-simulator').classList.add('checked');
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
+	}
+	if !page.MustElement("#original").MustProperty("checked").Bool() {
+		t.Fatal("original checkbox should be checked")
+	}
+	checkedClass := page.MustEval(`() => document.getElementById('original-simulator').classList.contains('checked')`).Bool()
+	if !checkedClass {
+		t.Fatal("original wrapper should receive checked class")
+	}
+}
+
 func TestSetCheckboxStateClicksVisibleWrapper(t *testing.T) {
 	l := launcher.New().Headless(true)
 	controlURL := l.MustLaunch()
@@ -1370,7 +1515,11 @@ func TestConfirmOnlySelfPublishedAcceptsCleanPublishPageWithoutToast(t *testing.
 	page.MustWaitLoad()
 
 	rodPage := &rodPage{page: page}
+	started := time.Now()
 	if err := rodPage.ConfirmOnlySelfPublished(context.Background()); err != nil {
 		t.Fatalf("ConfirmOnlySelfPublished() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("ConfirmOnlySelfPublished() took %v, want under 2s", elapsed)
 	}
 }

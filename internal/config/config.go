@@ -103,14 +103,19 @@ type XHSCfg struct {
 }
 
 type XHSPublishCfg struct {
-	Account          string   `yaml:"account"`
-	Headless         *bool    `yaml:"headless"`
-	BrowserPath      string   `yaml:"browser_path"`
-	ProfileDir       string   `yaml:"profile_dir"`
-	Mode             string   `yaml:"mode"`
-	DeclareOriginal  *bool    `yaml:"declare_original"`
-	AllowContentCopy *bool    `yaml:"allow_content_copy"`
-	ChromeArgs       []string `yaml:"chrome_args"`
+	Account          string                `yaml:"account"`
+	Headless         *bool                 `yaml:"headless"`
+	BrowserPath      string                `yaml:"browser_path"`
+	ProfileDir       string                `yaml:"profile_dir"`
+	Mode             string                `yaml:"mode"`
+	DeclareOriginal  *bool                 `yaml:"declare_original"`
+	AllowContentCopy *bool                 `yaml:"allow_content_copy"`
+	ChromeArgs       []string              `yaml:"chrome_args"`
+	TopicGeneration  XHSTopicGenerationCfg `yaml:"topic_generation"`
+}
+
+type XHSTopicGenerationCfg struct {
+	Enabled *bool `yaml:"enabled"`
 }
 
 var DefaultXHSPublishChromeArgs = []string{
@@ -257,6 +262,10 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.XHS.Publish.ChromeArgs == nil {
 		cfg.XHS.Publish.ChromeArgs = append([]string(nil), DefaultXHSPublishChromeArgs...)
+	}
+	if cfg.XHS.Publish.TopicGeneration.Enabled == nil {
+		enabled := true
+		cfg.XHS.Publish.TopicGeneration.Enabled = &enabled
 	}
 	return &cfg, nil
 }

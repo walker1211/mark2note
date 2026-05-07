@@ -118,6 +118,7 @@ go build -o ./mark2note ./cmd/mark2note
 - `xhs.publish.browser_path`：`publish-xhs` 和 `--publish-xhs` 默认浏览器可执行文件路径；命令行 `--chrome` 可单次覆盖
 - `xhs.publish.profile_dir`：`publish-xhs` 和 `--publish-xhs` 默认浏览器 profile 目录
 - `xhs.publish.mode`：`publish-xhs` 和 `--publish-xhs` 默认发布模式，支持 `only-self`、`schedule`
+- `xhs.publish.topic_generation.enabled`：`--publish-xhs` 未传 `--xhs-tags` 时是否调用 AI 生成 3-6 个小红书话题，默认开启
 - `xhs.publish.chrome_args`：小红书发布浏览器使用的额外 Chrome 启动参数
 
 补充说明：
@@ -143,8 +144,9 @@ go build -o ./mark2note ./cmd/mark2note
 - `--config` 可显式指定其他配置文件
 - `--prompt-extra` 支持单次追加自然语言引导，用来控制 Markdown -> deck JSON 阶段的分页、标题语气和内容组织方向
 - `--prompt-extra` 只影响 deck 生成，不直接改变 HTML 渲染、PNG 截图、Animated / Live 导出或 `publish-xhs` 发布逻辑
-- `--publish-xhs` 会在主渲染流程成功生成普通 PNG 后发布到小红书；标题来自 Markdown 一级标题，小红书正文只包含解析出的 3-6 个话题
-- `--xhs-tags` 可手动覆盖自动解析话题，例如 `--xhs-tags "AI代理,数据安全,工程反思"`；它只能和 `--publish-xhs` 一起使用
+- `--publish-xhs` 会在主渲染流程成功生成普通 PNG 后发布到小红书；标题来自 Markdown 一级标题，小红书正文只包含 3-6 个话题
+- 未传 `--xhs-tags` 时，`--publish-xhs` 会按 `xhs.publish.topic_generation.enabled` 调用同一套 `ai.command` / `ai.args` 生成话题；AI 调用失败、JSON 不合法或没有有效话题时会跳过发布并报错，不再回退到本地规则推理
+- `--xhs-tags` 可手动覆盖 AI 话题，例如 `--xhs-tags "AI代理,数据安全,工程反思"`；它只能和 `--publish-xhs` 一起使用，且传入后不会调用 AI 生成话题
 - `xhs.publish.chrome_args` 不配置时，小红书发布默认使用 `disable-background-networking`、`disable-component-update`、`no-first-run`、`no-default-browser-check`；调试时可写 `chrome_args: []` 表示不加额外参数
 - `xhs.publish.chrome_args` 每项可以带或不带开头的 `--`，也支持 `name=value` 形式
 

@@ -72,8 +72,8 @@ func (r PublishRequest) Validate(now time.Time) error {
 	if strings.TrimSpace(r.Title) == "" {
 		return fmt.Errorf("title is required")
 	}
-	if strings.TrimSpace(r.Content) == "" {
-		return fmt.Errorf("content is required")
+	if strings.TrimSpace(r.Content) == "" && len(trimmedNonEmpty(r.Tags)) == 0 {
+		return fmt.Errorf("content or tags are required")
 	}
 	switch r.Mode {
 	case PublishModeOnlySelf:

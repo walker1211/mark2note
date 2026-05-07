@@ -120,15 +120,19 @@ func TestPublishRequestValidateRequiresAccount(t *testing.T) {
 	}
 }
 
-func TestPublishRequestValidateRequiresTitleAndContent(t *testing.T) {
+func TestPublishRequestValidateRequiresTitleAndContentOrTags(t *testing.T) {
 	now := shanghaiTime(2026, 4, 10, 12, 0, 0)
 	missingTitle := PublishRequest{Account: "creator-a", Content: "正文", Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
 	if err := missingTitle.Validate(now); err == nil || !strings.Contains(err.Error(), "title is required") {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	missingContent := PublishRequest{Account: "creator-a", Title: "标题", Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
-	if err := missingContent.Validate(now); err == nil || !strings.Contains(err.Error(), "content is required") {
+	if err := missingContent.Validate(now); err == nil || !strings.Contains(err.Error(), "content or tags are required") {
 		t.Fatalf("Validate() error = %v", err)
+	}
+	withTags := PublishRequest{Account: "creator-a", Title: "标题", Tags: []string{"AI编程"}, Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
+	if err := withTags.Validate(now); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
 	}
 }
 
