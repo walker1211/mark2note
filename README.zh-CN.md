@@ -90,6 +90,17 @@ go build -o ./mark2note ./cmd/mark2note
   --prompt-extra "面向小红书发布，表达克制清爽，避免血腥、暴力和惊悚视觉"
 ```
 
+如果要单次生成定时发布元数据，可以在主命令上覆盖小红书发布模式和时间：
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs \
+  --xhs-mode schedule \
+  --xhs-schedule-at "2026-05-07 07:00:00"
+```
+
 这个命令只生成 HTML/PNG 和 `<out>/xhs-publish-meta.json`，不会发布。确认 PNG 没问题后再运行：
 
 ```bash
@@ -160,8 +171,8 @@ posters:
 - `xhs.publish.headless`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认是否无头运行浏览器
 - `xhs.publish.browser_path`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认浏览器可执行文件路径；命令行 `--chrome` 可单次覆盖
 - `xhs.publish.profile_dir`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认浏览器 profile 目录
-- `xhs.publish.mode`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认发布模式，支持 `only-self`、`schedule`
-- `xhs.publish.schedule_at`：`mode: schedule` 时的默认定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析
+- `xhs.publish.mode`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认发布模式，支持 `only-self`、`schedule`；主渲染命令可用 `--xhs-mode` 单次覆盖
+- `xhs.publish.schedule_at`：`mode: schedule` 时的默认定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析；主渲染命令可用 `--xhs-schedule-at` 单次覆盖
 - `xhs.publish.topic_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 未传 `--xhs-tags` 时是否调用 AI 生成 3-6 个小红书话题，默认开启
 - `xhs.publish.title_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 标题超过 `max_runes` 时是否调用 AI 改写标题，默认开启
 - `xhs.publish.title_generation.max_runes`：自动发布标题长度上限，默认 `20`；按 Unicode 字符计数，中文、英文、数字、空格和标点通常都算 1 个字符
@@ -199,6 +210,7 @@ posters:
 - 自动发布标题超过 `xhs.publish.title_generation.max_runes` 时，会按 `xhs.publish.title_generation.enabled` 调用同一套 `ai.command` / `ai.args` 改写标题；代码只校验长度，不再本地截断
 - 未传 `--xhs-tags` 时，`--publish-xhs` / `--prepare-xhs` 会按 `xhs.publish.topic_generation.enabled` 调用同一套 `ai.command` / `ai.args` 生成话题；AI 调用失败、JSON 不合法或没有有效话题时会跳过发布准备 / 发布并报错，不再回退到本地规则推理
 - `--xhs-tags` 可手动覆盖 AI 话题，例如 `--xhs-tags "AI代理,数据安全,工程反思"`；它只能和 `--publish-xhs` 或 `--prepare-xhs` 一起使用，且传入后不会调用 AI 生成话题
+- `--xhs-mode` / `--xhs-schedule-at` 可单次覆盖自动链路的小红书发布模式和定时时间，只能和 `--publish-xhs` 或 `--prepare-xhs` 一起使用
 - `xhs.publish.chrome_args` 不配置时，小红书发布默认使用 `disable-background-networking`、`disable-component-update`、`no-first-run`、`no-default-browser-check`；调试时可写 `chrome_args: []` 表示不加额外参数
 - `xhs.publish.chrome_args` 每项可以带或不带开头的 `--`，也支持 `name=value` 形式
 
@@ -238,6 +250,7 @@ ai:
 ./mark2note --input ./article.md --theme sage-mist
 ./mark2note --input ./article.md --prompt-extra "封面更抓眼，整体更像经验复盘"
 ./mark2note --input ./article.md --auto-posters --prepare-xhs
+./mark2note --input ./article.md --auto-posters --prepare-xhs --xhs-mode schedule --xhs-schedule-at "2026-05-07 07:00:00"
 ./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
 ./mark2note enrich-posters --input ./article.md --out ./posters.yaml
 ./mark2note --input ./article.md --asset-manifest ./posters.yaml --prepare-xhs
@@ -273,7 +286,7 @@ ai:
 ./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
 ```
 
-`--prepare-xhs` 会复用 `xhs.publish` 的账号、浏览器路径、浏览器 profile、无头模式、发布模式、原创声明和正文复制配置，生成并校验标题、话题和图片列表，然后写入 `<out>/xhs-publish-meta.json`。它不会打开浏览器，也不会发布。
+`--prepare-xhs` 会复用 `xhs.publish` 的账号、浏览器路径、浏览器 profile、无头模式、发布模式、原创声明和正文复制配置，生成并校验标题、话题和图片列表，然后写入 `<out>/xhs-publish-meta.json`。它不会打开浏览器，也不会发布。若需要单次定时发布元数据，可加 `--xhs-mode schedule --xhs-schedule-at "2026-05-07 07:00:00"`。
 
 ### 渲染后自动发布 `--publish-xhs`
 

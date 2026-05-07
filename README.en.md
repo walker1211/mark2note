@@ -90,6 +90,17 @@ List-style articles, book lists, manga lists, and drama recommendations can rend
   --prompt-extra "make it suitable for Xiaohongshu: restrained, clean, and non-graphic"
 ```
 
+To generate scheduled publish metadata for a single run, override the Xiaohongshu publish mode and schedule time on the main command:
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs \
+  --xhs-mode schedule \
+  --xhs-schedule-at "2026-05-07 07:00:00"
+```
+
 This writes HTML/PNG plus `<out>/xhs-publish-meta.json`, but does not publish. After reviewing the PNG files, replay the metadata:
 
 ```bash
@@ -160,8 +171,8 @@ Key fields:
 - `xhs.publish.headless`: default browser headless mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
 - `xhs.publish.browser_path`: default browser executable path for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`; CLI `--chrome` can override it for one run
 - `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
-- `xhs.publish.mode`: default publish mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`, supporting `only-self` and `schedule`
-- `xhs.publish.schedule_at`: default scheduled publish time for `mode: schedule`, using `YYYY-MM-DD HH:MM:SS` and parsed in Asia/Shanghai
+- `xhs.publish.mode`: default publish mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`, supporting `only-self` and `schedule`; main render commands can override it for one run with `--xhs-mode`
+- `xhs.publish.schedule_at`: default scheduled publish time for `mode: schedule`, using `YYYY-MM-DD HH:MM:SS` and parsed in Asia/Shanghai; main render commands can override it for one run with `--xhs-schedule-at`
 - `xhs.publish.topic_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to generate 3-6 Xiaohongshu topics when `--xhs-tags` is omitted, on by default
 - `xhs.publish.title_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to rewrite titles that exceed `max_runes`, on by default
 - `xhs.publish.title_generation.max_runes`: auto-publish title limit, default `20`; counted as Unicode characters, so Chinese characters, English letters, digits, spaces, and punctuation generally each count as 1
@@ -199,6 +210,7 @@ Additional notes:
 - When the auto-publish title exceeds `xhs.publish.title_generation.max_runes`, `--publish-xhs` / `--prepare-xhs` uses the same `ai.command` / `ai.args` to rewrite it according to `xhs.publish.title_generation.enabled`; code validates the length but does not truncate it locally
 - When `--xhs-tags` is omitted, `--publish-xhs` / `--prepare-xhs` uses the same `ai.command` / `ai.args` to generate topics according to `xhs.publish.topic_generation.enabled`; AI command failures, invalid JSON, or no valid topics skip preparation / publishing and return an error instead of falling back to local rule-based inference
 - `--xhs-tags` manually overrides AI topics, for example `--xhs-tags "AI agent,data safety,engineering reflection"`; it is valid only with `--publish-xhs` or `--prepare-xhs` and skips AI topic generation
+- `--xhs-mode` / `--xhs-schedule-at` override the automatic Xiaohongshu publish mode and schedule time for one run; they are valid only with `--publish-xhs` or `--prepare-xhs`
 - When `xhs.publish.chrome_args` is omitted, Xiaohongshu publishing uses `disable-background-networking`, `disable-component-update`, `no-first-run`, and `no-default-browser-check`; set `chrome_args: []` to launch without extra args for debugging
 - `xhs.publish.chrome_args` entries may include or omit the leading `--`, and `name=value` arguments are supported
 
@@ -238,6 +250,7 @@ Note: adjust the arguments to match your local AI CLI setup, as long as `mark2no
 ./mark2note --input ./article.md --theme sage-mist
 ./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
 ./mark2note --input ./article.md --auto-posters --prepare-xhs
+./mark2note --input ./article.md --auto-posters --prepare-xhs --xhs-mode schedule --xhs-schedule-at "2026-05-07 07:00:00"
 ./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
 ./mark2note enrich-posters --input ./article.md --out ./posters.yaml
 ./mark2note --input ./article.md --asset-manifest ./posters.yaml --prepare-xhs
@@ -273,7 +286,7 @@ The safer workflow is to generate PNG files and publish metadata first, review t
 ./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
 ```
 
-`--prepare-xhs` reuses `xhs.publish` defaults for account, browser path, browser profile, headless mode, publish mode, originality declaration, and content-copy preference. It generates and validates the title, topics, and image list, then writes `<out>/xhs-publish-meta.json`. It does not open the browser or publish.
+`--prepare-xhs` reuses `xhs.publish` defaults for account, browser path, browser profile, headless mode, publish mode, originality declaration, and content-copy preference. It generates and validates the title, topics, and image list, then writes `<out>/xhs-publish-meta.json`. It does not open the browser or publish. For scheduled metadata on a single run, add `--xhs-mode schedule --xhs-schedule-at "2026-05-07 07:00:00"`.
 
 ### Auto-publish after render with `--publish-xhs`
 
