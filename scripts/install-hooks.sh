@@ -14,6 +14,10 @@ cat > "$hook_path" <<'HOOK'
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${SKIP_CI_LOCAL_ON_PRE_PUSH:-}" == "1" ]]; then
+  exit 0
+fi
+
 repo_root=$(git rev-parse --show-toplevel)
 "$repo_root/scripts/ci-local.sh" clean
 HOOK

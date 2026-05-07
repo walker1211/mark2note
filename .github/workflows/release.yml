@@ -45,9 +45,9 @@ jobs:
             artifact_name: mark2note_Linux_x86_64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -66,7 +66,7 @@ jobs:
           tar -C "${artifact_dir}" -czf "dist/${ARTIFACT_NAME}.tar.gz" mark2note README.md README.zh-CN.md README.en.md LICENSE configs
 
       - name: Upload packaged archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: dist/${{ matrix.artifact_name }}.tar.gz
@@ -78,7 +78,7 @@ jobs:
 
     steps:
       - name: Download packaged archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
 
