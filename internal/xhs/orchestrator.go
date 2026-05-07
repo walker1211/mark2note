@@ -61,7 +61,9 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (Pub
 			result.BrowserKept = true
 			return result, err
 		}
-		result.OnlySelfPublished = true
+		if !request.StopBeforeSubmit {
+			result.OnlySelfPublished = true
+		}
 	case PublishModeSchedule:
 		if err := o.publishScheduled(ctx, page, request); err != nil {
 			result.BrowserKept = true
@@ -70,6 +72,11 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (Pub
 	default:
 		result.BrowserKept = true
 		return result, fmt.Errorf("unsupported publish mode: %s", request.Mode)
+	}
+	if request.StopBeforeSubmit {
+		result.StoppedBeforeSubmit = true
+		result.BrowserKept = true
+		return result, nil
 	}
 	if err := o.session.Close(); err != nil {
 		return result, err
@@ -87,6 +94,9 @@ func (o *Orchestrator) publishOnlySelf(ctx context.Context, page PublishPage, re
 		}
 		if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
 			return fmt.Errorf("%w: %v", ErrFillFailed, err)
+		}
+		if request.StopBeforeSubmit {
+			return prepareOnlySelfBeforeSubmit(page, request)
 		}
 		if err := page.PublishOnlySelf(ctx, request); err != nil {
 			return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
@@ -113,8 +123,14 @@ func (o *Orchestrator) publishScheduled(ctx context.Context, page PublishPage, r
 		if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
 			return fmt.Errorf("%w: %v", ErrFillFailed, err)
 		}
+		if err := runScheduledPreSubmitHooks(page, request); err != nil {
+			return err
+		}
 		if err := page.SetSchedule(ctx, *request.ScheduleTime); err != nil {
 			return fmt.Errorf("%w: %v", ErrScheduleFailed, err)
+		}
+		if request.StopBeforeSubmit {
+			return nil
 		}
 		if err := page.SubmitScheduled(ctx); err != nil {
 			return fmt.Errorf("%w: %v", ErrSubmitFailed, err)

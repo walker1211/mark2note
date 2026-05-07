@@ -38,6 +38,11 @@ type scheduledPreSubmitPage interface {
 	applyContentCopyPreference(bool) error
 }
 
+type onlySelfPreSubmitPage interface {
+	scheduledPreSubmitPage
+	setOnlySelfVisible() error
+}
+
 type Publisher struct{}
 
 func (Publisher) PublishStandardOnlySelf(ctx context.Context, page PublishPage, request PublishRequest) error {
@@ -55,6 +60,9 @@ func (Publisher) PublishStandardOnlySelf(ctx context.Context, page PublishPage, 
 	}
 	if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
+	}
+	if request.StopBeforeSubmit {
+		return prepareOnlySelfBeforeSubmit(page, request)
 	}
 	if err := page.PublishOnlySelf(ctx, request); err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
@@ -93,6 +101,12 @@ var (
 		`.name`,
 		`.custom-option`,
 		`.d-grid-item`,
+	}
+	scheduleDateInputSelectors = []string{
+		`.custom-date-picker-44 input.d-text`,
+		`.d-datepicker-wrapper input.d-text`,
+		`.d-datepicker input.d-text`,
+		`input[placeholder*="选择发布时间"]`,
 	}
 )
 
@@ -386,6 +400,9 @@ func (Publisher) PublishStandardScheduled(ctx context.Context, page PublishPage,
 	if err := page.SetSchedule(ctx, *request.ScheduleTime); err != nil {
 		return fmt.Errorf("%w: %v", ErrScheduleFailed, err)
 	}
+	if request.StopBeforeSubmit {
+		return nil
+	}
 	if err := page.SubmitScheduled(ctx); err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
@@ -393,6 +410,23 @@ func (Publisher) PublishStandardScheduled(ctx context.Context, page PublishPage,
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
 	return nil
+}
+
+func prepareOnlySelfBeforeSubmit(page PublishPage, request PublishRequest) error {
+	preSubmitPage, ok := page.(onlySelfPreSubmitPage)
+	if !ok {
+		return fmt.Errorf("only-self pre-submit controls are not available")
+	}
+	if err := preSubmitPage.dismissEditorOverlays(); err != nil {
+		return err
+	}
+	if err := preSubmitPage.applyOriginalDeclaration(request.DeclareOriginal); err != nil {
+		return err
+	}
+	if err := preSubmitPage.applyContentCopyPreference(request.AllowContentCopy); err != nil {
+		return err
+	}
+	return preSubmitPage.setOnlySelfVisible()
 }
 
 func runScheduledPreSubmitHooks(page PublishPage, request PublishRequest) error {
@@ -416,21 +450,169 @@ func (p *rodPage) SetSchedule(ctx context.Context, at time.Time) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	formatted := at.In(shanghaiLocation()).Format("2006-01-02 15:04:05")
-	return rodTry(func() {
-		p.page.MustElementR("label,button,div,span", "定时发布|发布时间").MustClick()
-		input := p.page.MustElement(`input[placeholder*="选择发布时间"]`)
-		input.MustEval(`(value) => {
-			this.focus();
-			this.value = '';
-			this.dispatchEvent(new Event('input', { bubbles: true }));
-			this.dispatchEvent(new Event('change', { bubbles: true }));
-			this.value = value;
-			this.dispatchEvent(new Event('input', { bubbles: true }));
-			this.dispatchEvent(new Event('change', { bubbles: true }));
-		}`, formatted)
+	formatted := at.In(shanghaiLocation()).Format("2006-01-02 15:04")
+	if err := p.openScheduleDatePicker(ctx); err != nil {
+		return err
+	}
+	field, err := p.waitForScheduleDateInput(ctx, 3*time.Second)
+	if err != nil {
+		return err
+	}
+	if err := rodTry(func() {
+		field.MustScrollIntoView().MustWaitVisible().MustClick()
+		field.MustSelectAllText().MustInput(formatted).MustType(input.Enter)
 		p.page.MustWaitStable()
+	}); err != nil {
+		return err
+	}
+	return p.waitForScheduleTimeCommit(ctx, field, formatted, 2*time.Second)
+}
+
+func (p *rodPage) openScheduleDatePicker(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if clicked, err := p.clickScheduleSwitchByText(); err != nil {
+		return err
+	} else if clicked {
+		return nil
+	}
+	if applied, err := p.clickVisibleCheckboxControl("定时发布", true); err != nil {
+		return err
+	} else if applied {
+		return nil
+	}
+	return fmt.Errorf("schedule switch not found")
+}
+
+func (p *rodPage) clickScheduleSwitchByText() (bool, error) {
+	const attr = "data-mark2note-schedule-switch"
+	status := ""
+	err := rodTry(func() {
+		status = p.page.MustEval(`(attr) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			document.querySelectorAll('[' + attr + ']').forEach((node) => node.removeAttribute(attr));
+			const cards = Array.from(document.querySelectorAll('.custom-switch-wrapper, .custom-switch-card'));
+			for (const card of cards) {
+				if (!isVisible(card)) continue;
+				const text = normalize(card.innerText || card.textContent || '');
+				if (!text.includes('定时发布')) continue;
+				const input = card.querySelector('input[type="checkbox"]');
+				const checkedNode = card.querySelector('.d-switch-simulator, .d-switch, [aria-checked]');
+				const className = checkedNode && typeof checkedNode.className === 'string' ? checkedNode.className : '';
+				if ((input && input.checked) || /\bchecked\b/.test(className) || (checkedNode && checkedNode.getAttribute('aria-checked') === 'true')) {
+					return 'already';
+				}
+				const target = card.querySelector('.custom-switch-switch, .d-switch, .d-switch-simulator, input[type="checkbox"]') || card;
+				if (!isVisible(target)) continue;
+				target.setAttribute(attr, 'true');
+				return 'click';
+			}
+			return 'missing';
+		}`, attr).String()
 	})
+	if err != nil {
+		return false, err
+	}
+	if status == "already" {
+		return true, nil
+	}
+	if status != "click" {
+		return false, nil
+	}
+	if err := rodTry(func() {
+		p.page.MustElement("[" + attr + `="true"]`).MustScrollIntoView().MustWaitVisible().MustClick()
+		p.page.MustWaitStable()
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (p *rodPage) waitForScheduleDateInput(ctx context.Context, timeout time.Duration) (*rod.Element, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if field, err := p.findScheduleDateInput(); err == nil {
+			return field, nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("schedule date input not found for selectors: %s", strings.Join(scheduleDateInputSelectors, ", "))
+}
+
+func (p *rodPage) findScheduleDateInput() (*rod.Element, error) {
+	const attr = "data-mark2note-schedule-input"
+	for _, selector := range scheduleDateInputSelectors {
+		matched := false
+		if err := rodTry(func() {
+			matched = p.page.MustEval(`(selector, attr) => {
+				const isVisible = (node) => {
+					if (!node) return false;
+					const rect = node.getBoundingClientRect();
+					const style = window.getComputedStyle(node);
+					return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+				};
+				document.querySelectorAll('[' + attr + ']').forEach((node) => node.removeAttribute(attr));
+				const nodes = Array.from(document.querySelectorAll(selector));
+				for (const node of nodes) {
+					if (!isVisible(node) || node.disabled) continue;
+					node.setAttribute(attr, 'true');
+					return true;
+				}
+				return false;
+			}`, selector, attr).Bool()
+		}); err != nil || !matched {
+			continue
+		}
+		var field *rod.Element
+		if err := rodTry(func() {
+			field = p.page.MustElement("[" + attr + `="true"]`)
+		}); err == nil {
+			return field, nil
+		}
+	}
+	return nil, fmt.Errorf("schedule date input not found")
+}
+
+func (p *rodPage) waitForScheduleTimeCommit(ctx context.Context, field *rod.Element, formatted string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if p.isScheduleTimeCommitted(field, formatted) {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("schedule time %q was not committed", formatted)
+}
+
+func (p *rodPage) isScheduleTimeCommitted(field *rod.Element, formatted string) bool {
+	committed := false
+	_ = rodTry(func() {
+		committed = field.MustEval(`(formatted) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const input = this;
+			if ((input.value || '').trim() !== formatted) return false;
+			const wrapper = input.closest('.custom-date-picker-44, .d-datepicker-wrapper, .d-datepicker-input-filter') || input.parentElement;
+			if (!wrapper) return true;
+			const shadow = wrapper.querySelector('.d-datepicker-input-filter-shadow');
+			if (shadow) return normalize(shadow.innerText || shadow.textContent || '') === formatted;
+			const text = normalize(wrapper.innerText || wrapper.textContent || '');
+			return text === '' || text.includes(formatted);
+		}`, formatted).Bool()
+	})
+	return committed
 }
 
 func (p *rodPage) SubmitScheduled(ctx context.Context) error {

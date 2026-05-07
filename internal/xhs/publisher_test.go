@@ -34,6 +34,8 @@ type fakePublishPage struct {
 	applyContentCopyErr error
 	originalApplied     bool
 	contentCopyAllowed  bool
+	onlySelfVisible     bool
+	setOnlySelfErr      error
 	orderCounter        *int
 	firstActionOrder    int
 }
@@ -117,6 +119,13 @@ func (f *fakePublishPage) applyContentCopyPreference(allow bool) error {
 	f.recordActionOrder()
 	f.contentCopyAllowed = allow
 	return f.applyContentCopyErr
+}
+
+func (f *fakePublishPage) setOnlySelfVisible() error {
+	f.calls = append(f.calls, "set-only-self")
+	f.recordActionOrder()
+	f.onlySelfVisible = true
+	return f.setOnlySelfErr
 }
 
 func TestComposePublishContentSkipsExistingTags(t *testing.T) {
@@ -355,6 +364,24 @@ func TestPublisherPreservesUploadInputMissingError(t *testing.T) {
 	}
 }
 
+func TestPublisherOnlySelfStopBeforeSubmitAppliesPreSubmitHooks(t *testing.T) {
+	page := &fakePublishPage{}
+	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}, StopBeforeSubmit: true, DeclareOriginal: true, AllowContentCopy: false}
+	if err := (Publisher{}).PublishStandardOnlySelf(context.Background(), page, request); err != nil {
+		t.Fatalf("PublishStandardOnlySelf() error = %v", err)
+	}
+	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-only-self"}
+	if !reflect.DeepEqual(page.calls, wantCalls) {
+		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
+	}
+	if !page.onlySelfVisible {
+		t.Fatal("expected only-self visibility to be applied before stopping")
+	}
+	if !page.originalApplied {
+		t.Fatal("expected original declaration to be applied before stopping")
+	}
+}
+
 func TestPublisherSetsScheduleTimeBeforeSubmit(t *testing.T) {
 	page := &fakePublishPage{}
 	scheduledAt := time.Date(2026, 4, 11, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
@@ -397,6 +424,264 @@ func TestPublisherScheduledFlowAppliesPreSubmitHooks(t *testing.T) {
 	}
 	if page.contentCopyAllowed {
 		t.Fatal("expected content copy hook to disable copy")
+	}
+}
+
+func TestSetScheduleUsesRealSwitchAndDatePickerInput(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="custom-switch-wrapper"><span class="has-tips">原创声明</span></div>
+    <div class="custom-switch-wrapper"><span class="has-tips">允许合拍</span></div>
+    <div class="custom-switch-wrapper"><span class="has-tips">允许正文复制</span></div>
+    <div class="custom-switch-wrapper schedule-switch">
+      <div class="custom-switch-card">
+        <span class="has-tips">定时发布</span>
+        <div class="custom-switch-switch">
+          <div class="d-switch d-clickable d-switch-default d-inline-block">
+            <div class="d-switch-box">
+              <div class="d-switch-top">
+                <span class="d-switch-simulator unchecked --color-bg-fill">
+                  <input type="checkbox" value="true">
+                  <span class="d-switch-indicator"></span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="schedule-slot"></div>
+    <script>
+      const wrapper = document.querySelector('.schedule-switch');
+      const switchNode = wrapper.querySelector('.custom-switch-switch');
+      const simulator = wrapper.querySelector('.d-switch-simulator');
+      const checkbox = simulator.querySelector('input');
+      const slot = document.querySelector('#schedule-slot');
+      function renderDatePicker() {
+        slot.innerHTML = ` + "`" + `<div class="d-datepicker-wrapper d-inline-block custom-date-picker-44">
+          <div class="d-datepicker --color-text-title --color-bg-fill">
+            <div class="d-grid d-datepicker-main d-datepicker-main-suffix-indicator --color-text-title">
+              <div class="d-datepicker-content">
+                <div class="d-datepicker-input-filter show">
+                  <input class="d-text" value="2026-05-01 22:26">
+                  <div class="d-text d-text-nowrap d-datepicker-input-filter-shadow">2026-05-01 22:26</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>` + "`" + `;
+        const input = slot.querySelector('input.d-text');
+        const shadow = slot.querySelector('.d-datepicker-input-filter-shadow');
+        input.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter') return;
+          window.scheduleEnterSeen = true;
+          shadow.textContent = input.value;
+        });
+      }
+      switchNode.addEventListener('mousedown', (event) => {
+        if (!event.isTrusted) return;
+        window.scheduleSwitchTrustedClickSeen = true;
+        checkbox.checked = true;
+        simulator.className = 'd-switch-simulator checked --color-bg-primary';
+        renderDatePicker();
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page.Timeout(10 * time.Second)}
+	scheduledAt := time.Date(2026, 5, 1, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	if err := rodPage.SetSchedule(context.Background(), scheduledAt); err != nil {
+		state := page.MustEval(`() => JSON.stringify({
+			checked: document.querySelector('.schedule-switch input[type="checkbox"]')?.checked === true,
+			value: document.querySelector('.custom-date-picker-44 input.d-text')?.value || '',
+			shadow: document.querySelector('.custom-date-picker-44 .d-datepicker-input-filter-shadow')?.textContent || '',
+			trusted: window.scheduleSwitchTrustedClickSeen === true,
+			enter: window.scheduleEnterSeen === true,
+		})`).String()
+		t.Fatalf("SetSchedule() error = %v, state = %s", err, state)
+	}
+
+	checked := page.MustEval(`() => document.querySelector('.schedule-switch input[type="checkbox"]').checked`).Bool()
+	if !checked {
+		t.Fatal("schedule switch should be checked")
+	}
+	if trusted := page.MustEval(`() => window.scheduleSwitchTrustedClickSeen === true`).Bool(); !trusted {
+		t.Fatal("schedule switch should be opened by a trusted click")
+	}
+	value := page.MustElement(`.custom-date-picker-44 input.d-text`).MustProperty("value").String()
+	if value != "2026-05-01 20:30" {
+		t.Fatalf("schedule input value = %q, want %q", value, "2026-05-01 20:30")
+	}
+	shadowText := strings.TrimSpace(page.MustElement(`.custom-date-picker-44 .d-datepicker-input-filter-shadow`).MustText())
+	if shadowText != "2026-05-01 20:30" {
+		t.Fatalf("schedule shadow text = %q, want %q", shadowText, "2026-05-01 20:30")
+	}
+	if enterSeen := page.MustEval(`() => window.scheduleEnterSeen === true`).Bool(); !enterSeen {
+		t.Fatal("schedule datepicker should be committed with Enter")
+	}
+}
+
+func TestSetScheduleIgnoresHiddenDatePickerTemplate(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="d-datepicker-wrapper d-inline-block custom-date-picker-44 hidden-template" style="display:none">
+      <div class="d-datepicker-input-filter show">
+        <input class="d-text" value="hidden stale">
+        <div class="d-text d-datepicker-input-filter-shadow">hidden stale</div>
+      </div>
+    </div>
+    <div class="custom-switch-wrapper schedule-switch">
+      <div class="custom-switch-card">
+        <span class="has-tips">定时发布</span>
+        <div class="custom-switch-switch"><span class="d-switch-simulator unchecked --color-bg-fill"><input type="checkbox" value="true"><span class="d-switch-indicator"></span></span></div>
+      </div>
+    </div>
+    <div id="schedule-slot"></div>
+    <script>
+      const wrapper = document.querySelector('.schedule-switch');
+      const switchNode = wrapper.querySelector('.custom-switch-switch');
+      const simulator = wrapper.querySelector('.d-switch-simulator');
+      const checkbox = simulator.querySelector('input');
+      const slot = document.querySelector('#schedule-slot');
+      switchNode.addEventListener('mousedown', (event) => {
+        if (!event.isTrusted) return;
+        checkbox.checked = true;
+        simulator.className = 'd-switch-simulator checked --color-bg-primary';
+        slot.innerHTML = ` + "`" + `<div class="d-datepicker-wrapper d-inline-block custom-date-picker-44 active-picker">
+          <div class="d-datepicker-input-filter show">
+            <input class="d-text" value="2026-05-01 22:26">
+            <div class="d-text d-datepicker-input-filter-shadow">2026-05-01 22:26</div>
+          </div>
+        </div>` + "`" + `;
+        const input = slot.querySelector('input.d-text');
+        const shadow = slot.querySelector('.d-datepicker-input-filter-shadow');
+        input.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter') return;
+          shadow.textContent = input.value;
+        });
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page.Timeout(6 * time.Second)}
+	scheduledAt := time.Date(2026, 5, 1, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	if err := rodPage.SetSchedule(context.Background(), scheduledAt); err != nil {
+		t.Fatalf("SetSchedule() error = %v", err)
+	}
+	value := page.MustElement(`.active-picker input.d-text`).MustProperty("value").String()
+	if value != "2026-05-01 20:30" {
+		t.Fatalf("active schedule input value = %q, want %q", value, "2026-05-01 20:30")
+	}
+}
+
+func TestSetScheduleRejectsUncommittedVisibleDatePicker(t *testing.T) {
+	l := launcher.New().Headless(true)
+	controlURL := l.MustLaunch()
+	defer l.Kill()
+	defer l.Cleanup()
+
+	browser := rod.New().ControlURL(controlURL).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("about:blank")
+	defer page.MustClose()
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="d-datepicker-wrapper unrelated-picker"><div>2026-05-01 20:30</div></div>
+    <div class="custom-switch-wrapper schedule-switch">
+      <div class="custom-switch-card">
+        <span class="has-tips">定时发布</span>
+        <div class="custom-switch-switch"><span class="d-switch-simulator unchecked --color-bg-fill"><input type="checkbox" value="true"><span class="d-switch-indicator"></span></span></div>
+      </div>
+    </div>
+    <div id="schedule-slot"></div>
+    <script>
+      const wrapper = document.querySelector('.schedule-switch');
+      const switchNode = wrapper.querySelector('.custom-switch-switch');
+      const simulator = wrapper.querySelector('.d-switch-simulator');
+      const checkbox = simulator.querySelector('input');
+      const slot = document.querySelector('#schedule-slot');
+      switchNode.addEventListener('mousedown', (event) => {
+        if (!event.isTrusted) return;
+        checkbox.checked = true;
+        simulator.className = 'd-switch-simulator checked --color-bg-primary';
+        slot.innerHTML = ` + "`" + `<div class="d-datepicker-wrapper d-inline-block custom-date-picker-44 active-picker">
+          <div class="d-datepicker-input-filter show">
+            <input class="d-text" value="2026-05-01 22:26">
+            <div class="d-text d-datepicker-input-filter-shadow">2026-05-01 22:26</div>
+          </div>
+        </div>` + "`" + `;
+        const input = slot.querySelector('input.d-text');
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') window.scheduleEnterSeen = true;
+        });
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page.Timeout(6 * time.Second)}
+	scheduledAt := time.Date(2026, 5, 1, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	if err := rodPage.SetSchedule(context.Background(), scheduledAt); err == nil {
+		state := page.MustEval(`() => JSON.stringify({
+			value: document.querySelector('.active-picker input.d-text')?.value || '',
+			shadow: document.querySelector('.active-picker .d-datepicker-input-filter-shadow')?.textContent || '',
+			enter: window.scheduleEnterSeen === true,
+		})`).String()
+		t.Fatalf("SetSchedule() error = nil, want uncommitted visible datepicker failure; state = %s", state)
+	}
+}
+
+func TestPublisherScheduledStopBeforeSubmitSkipsSubmit(t *testing.T) {
+	page := &fakePublishPage{}
+	scheduledAt := time.Date(2026, 4, 11, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}, ScheduleTime: &scheduledAt, StopBeforeSubmit: true}
+	if err := (Publisher{}).PublishStandardScheduled(context.Background(), page, request); err != nil {
+		t.Fatalf("PublishStandardScheduled() error = %v", err)
+	}
+	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-schedule"}
+	if !reflect.DeepEqual(page.calls, wantCalls) {
+		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
 	}
 }
 

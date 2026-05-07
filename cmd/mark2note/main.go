@@ -196,7 +196,7 @@ Flags:
   --content-file <file>    content file path
   --tags <csv>             comma-separated tags
   --mode <name>            publish mode: only-self or schedule (default from xhs.publish.mode or only-self)
-  --schedule-at <time>     schedule time in YYYY-MM-DD HH:MM:SS (Asia/Shanghai)
+  --schedule-at <time>     schedule time in YYYY-MM-DD HH:MM:SS (Asia/Shanghai; default from xhs.publish.schedule_at)
   --images <csv>           comma-separated image paths
   --live-report <file>     live delivery report path
   --live-pages <csv>       ordered live page subset; requires --live-report
@@ -205,13 +205,14 @@ Flags:
   --profile-dir <dir>      browser profile directory (default from xhs.publish.profile_dir)
   --declare-original       declare original content before submit (default from xhs.publish.declare_original)
   --allow-content-copy     keep allow content copy enabled (default from xhs.publish.allow_content_copy)
+  --stop-before-submit     prepare the Xiaohongshu editor, then stop before final submit; use --headless=false for manual inspection
 
 Rules:
   - --meta replays persisted metadata and must be used standalone
   - without --meta, exactly one of --title / --title-file is required
   - without --meta, content may come from --content / --content-file or be omitted when --tags are provided
   - exactly one media source is required: --images or --live-report
-  - --schedule-at is required when --mode schedule
+  - --mode schedule requires --schedule-at or xhs.publish.schedule_at
   - --live-pages is accepted only with --live-report`
 }
 
@@ -475,6 +476,7 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	fs.StringVar(&opts.ProfileDir, "profile-dir", opts.ProfileDir, "browser profile directory")
 	fs.BoolVar(&opts.DeclareOriginal, "declare-original", opts.DeclareOriginal, "declare original content before submit")
 	fs.BoolVar(&opts.AllowContentCopy, "allow-content-copy", opts.AllowContentCopy, "leave allow content copy enabled")
+	fs.BoolVar(&opts.StopBeforeSubmit, "stop-before-submit", opts.StopBeforeSubmit, "prepare editor then stop before final submit")
 
 	if err := fs.Parse(args); err != nil {
 		return publishXHSCLIOptions{}, err
@@ -540,6 +542,9 @@ func mergePublishXHSDefaults(cli publishXHSCLIOptions, cfg *config.Config) app.P
 	if !cli.ModeChanged && strings.TrimSpace(defaults.Mode) != "" {
 		opts.Mode = strings.TrimSpace(defaults.Mode)
 	}
+	if strings.TrimSpace(opts.Mode) == string(xhs.PublishModeSchedule) && strings.TrimSpace(opts.ScheduleAt) == "" && strings.TrimSpace(defaults.ScheduleAt) != "" {
+		opts.ScheduleAt = strings.TrimSpace(defaults.ScheduleAt)
+	}
 	if !cli.DeclareOriginalChanged && defaults.DeclareOriginal != nil {
 		opts.DeclareOriginal = *defaults.DeclareOriginal
 	}
@@ -557,7 +562,7 @@ func validatePublishXHSOptions(opts app.PublishOptions) error {
 		return fmt.Errorf("--account is required\n\n%s", publishXHSUsageText())
 	}
 	if strings.TrimSpace(opts.Mode) == string(xhs.PublishModeSchedule) && strings.TrimSpace(opts.ScheduleAt) == "" {
-		return fmt.Errorf("--schedule-at is required when --mode schedule\n\n%s", publishXHSUsageText())
+		return fmt.Errorf("--mode schedule requires --schedule-at or xhs.publish.schedule_at\n\n%s", publishXHSUsageText())
 	}
 	if len(opts.LivePages) > 0 && strings.TrimSpace(opts.LiveReportPath) == "" {
 		return fmt.Errorf("--live-pages requires --live-report\n\n%s", publishXHSUsageText())
@@ -1114,6 +1119,16 @@ func printPublishXHSError(stderr io.Writer, err error) {
 }
 
 func printPublishXHSResult(stdout io.Writer, result app.PublishResult) int {
+	if result.Result.StoppedBeforeSubmit {
+		fmt.Fprintln(stdout, "xiaohongshu publish prepared; stopped before submit")
+		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)
+		fmt.Fprintf(stdout, "mode: %s\n", result.Request.Mode)
+		fmt.Fprintf(stdout, "media: %s\n", result.Result.MediaKind)
+		if result.Request.ScheduleTime != nil {
+			fmt.Fprintf(stdout, "schedule at: %s\n", result.Request.ScheduleTime.In(xhsShanghaiLocation()).Format("2006-01-02 15:04:05"))
+		}
+		return 0
+	}
 	if result.Result.OnlySelfPublished {
 		fmt.Fprintln(stdout, "xiaohongshu only-self-visible published")
 		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)

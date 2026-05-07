@@ -161,6 +161,7 @@ posters:
 - `xhs.publish.browser_path`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认浏览器可执行文件路径；命令行 `--chrome` 可单次覆盖
 - `xhs.publish.profile_dir`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认浏览器 profile 目录
 - `xhs.publish.mode`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认发布模式，支持 `only-self`、`schedule`
+- `xhs.publish.schedule_at`：`mode: schedule` 时的默认定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析
 - `xhs.publish.topic_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 未传 `--xhs-tags` 时是否调用 AI 生成 3-6 个小红书话题，默认开启
 - `xhs.publish.title_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 标题超过 `max_runes` 时是否调用 AI 改写标题，默认开启
 - `xhs.publish.title_generation.max_runes`：自动发布标题长度上限，默认 `20`；按 Unicode 字符计数，中文、英文、数字、空格和标点通常都算 1 个字符
@@ -341,13 +342,14 @@ mark2note publish-xhs --help
 - `--content-file <file>`：从文件读取正文；与 `--content` 二选一
 - `--tags <csv>`：逗号分隔标签列表
 - `--mode <name>`：发布模式，支持 `only-self`、`schedule`；未显式传入时，回退到 `xhs.publish.mode`，否则默认 `only-self`
-- `--schedule-at <time>`：定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析；仅 `--mode schedule` 时必填
+- `--schedule-at <time>`：定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析；未显式传入时可回退到 `xhs.publish.schedule_at`
 - `--images <csv>`：逗号分隔图片路径列表，用于普通图文发布
 - `--live-report <file>`：Live 交付报告路径，用于从 Live 导出结果里提取可发布素材
 - `--live-pages <csv>`：只发布指定顺序的 Live 页面子集；必须和 `--live-report` 一起使用
 - `--chrome <path>`：Chrome 可执行文件路径；未显式传入时先回退到 `xhs.publish.browser_path`
 - `--headless`：是否无头运行浏览器；默认值是 `true`，但可被 `xhs.publish.headless` 覆盖
 - `--profile-dir <dir>`：浏览器 profile 目录；未显式传入时先回退到 `xhs.publish.profile_dir`
+- `--stop-before-submit`：完成上传、填标题正文、设置定时等准备动作后停止，不点击最终发布/定时发布按钮；浏览器会保留用于人工检查。需要人工查看页面时，请同时传 `--headless=false`，或在配置中设置 `xhs.publish.headless: false`
 
 ### `--profile-dir` 是做什么的
 
@@ -381,6 +383,7 @@ xhs:
     browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
     mode: only-self
+    schedule_at: ""
 ```
 
 示例命令：
@@ -400,7 +403,7 @@ xhs:
 - 不使用 `--meta` 时，必须且只能提供其一：`--title` / `--title-file`
 - 不使用 `--meta` 时，正文可以来自 `--content` / `--content-file`；两者不能同时提供；如果提供了 `--tags`，正文可以省略
 - 媒体来源必须二选一：`--images` 或 `--live-report`
-- `--mode schedule` 时必须提供 `--schedule-at`
+- `--mode schedule` 时必须提供 `--schedule-at` 或配置 `xhs.publish.schedule_at`
 - `--live-pages` 只能与 `--live-report` 一起使用
 
 ### 元数据重放

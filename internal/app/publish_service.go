@@ -29,6 +29,7 @@ type PublishOptions struct {
 	ChromeArgs       []string
 	DeclareOriginal  bool
 	AllowContentCopy bool
+	StopBeforeSubmit bool
 }
 
 type PublishRuntimeOptions struct {
@@ -102,6 +103,7 @@ func buildPublishRequest(opts PublishOptions, title string, content string, mode
 		ScheduleTime:     scheduleTime,
 		DeclareOriginal:  opts.DeclareOriginal,
 		AllowContentCopy: opts.AllowContentCopy,
+		StopBeforeSubmit: opts.StopBeforeSubmit,
 	}
 	imagePaths := trimSlice(opts.ImagePaths)
 	livePages := trimSlice(opts.LivePages)

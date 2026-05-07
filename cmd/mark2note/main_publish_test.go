@@ -27,7 +27,7 @@ func TestUsageTextMentionsPublishXHSCommand(t *testing.T) {
 
 func TestPublishXHSUsageTextMentionsConfigDefaults(t *testing.T) {
 	text := publishXHSUsageText()
-	for _, want := range []string{"--config <file>", "default from xhs.publish.account", "default from xhs.publish.mode", "default from xhs.publish.browser_path", "default from xhs.publish.profile_dir"} {
+	for _, want := range []string{"--config <file>", "default from xhs.publish.account", "default from xhs.publish.mode", "default from xhs.publish.schedule_at", "default from xhs.publish.browser_path", "default from xhs.publish.profile_dir"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("publishXHSUsageText() missing %q", want)
 		}
@@ -1148,7 +1148,7 @@ func TestRunPublishXHSRejectsScheduleWithoutScheduleAt(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("run() = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "--schedule-at is required when --mode schedule") {
+	if !strings.Contains(stderr.String(), "--mode schedule requires --schedule-at or xhs.publish.schedule_at") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -1218,7 +1218,8 @@ func TestRunPublishXHSCLIOverridesConfigDefaults(t *testing.T) {
 			Headless:    &headless,
 			BrowserPath: "/tmp/publish-chrome",
 			ProfileDir:  "/tmp/from-config",
-			Mode:        "only-self",
+			Mode:        "schedule",
+			ScheduleAt:  "2026-05-01 20:30:00",
 		}}}, nil
 	}
 
@@ -1236,6 +1237,9 @@ func TestRunPublishXHSCLIOverridesConfigDefaults(t *testing.T) {
 	}
 	if got.Account != "writer" || got.Headless != true || got.ChromePath != "/tmp/cli-chrome" || got.ProfileDir != "/tmp/from-cli" || got.Mode != string(xhs.PublishModeSchedule) {
 		t.Fatalf("merged opts = %#v", got)
+	}
+	if got.ScheduleAt != "2026-04-16 10:00:00" {
+		t.Fatalf("ScheduleAt = %q, want CLI value", got.ScheduleAt)
 	}
 }
 
@@ -1296,13 +1300,99 @@ func TestRunPublishXHSRejectsScheduleModeFromConfigWithoutScheduleAt(t *testing.
 	if code != 1 {
 		t.Fatalf("run() = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "--schedule-at is required when --mode schedule") {
+	if !strings.Contains(stderr.String(), "--mode schedule requires --schedule-at or xhs.publish.schedule_at") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
+func TestRunPublishXHSStopBeforeSubmitPassesFlag(t *testing.T) {
+	originalPublishXHS := publishXHS
+	defer func() { publishXHS = originalPublishXHS }()
+
+	var got app.PublishOptions
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		got = opts
+		scheduledAt := ptrSchedule("2026-05-01 20:30:00")
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account, ScheduleTime: scheduledAt}, Result: xhs.PublishResult{Mode: xhs.PublishModeSchedule, MediaKind: xhs.MediaKindStandard, ScheduleTime: scheduledAt, StoppedBeforeSubmit: true}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--account", "walker", "--mode", "schedule", "--schedule-at", "2026-05-01 20:30:00", "--title", "标题", "--content", "正文", "--images", "cover.jpg", "--stop-before-submit"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !got.StopBeforeSubmit {
+		t.Fatalf("StopBeforeSubmit = false, want true")
+	}
+	if !strings.Contains(stdout.String(), "xiaohongshu publish prepared; stopped before submit") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestRunPublishXHSUsesScheduleAtFromConfig(t *testing.T) {
+	originalPublishXHS := publishXHS
+	defer func() { publishXHS = originalPublishXHS }()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`xhs:
+  publish:
+    account: walker
+    mode: schedule
+    schedule_at: "2026-05-01 20:30:00"
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var got app.PublishOptions
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		got = opts
+		scheduledAt := ptrSchedule("2026-05-01 20:30:00")
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account, ScheduleTime: scheduledAt}, Result: xhs.PublishResult{Mode: xhs.PublishModeSchedule, MediaKind: xhs.MediaKindStandard, ScheduleTime: scheduledAt}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--config", configPath, "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if got.Mode != string(xhs.PublishModeSchedule) || got.ScheduleAt != "2026-05-01 20:30:00" {
+		t.Fatalf("opts = %#v", got)
+	}
+}
+
+func TestBuildAutoPublishXHSOptionsUsesScheduleAtFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "article.md")
+	imagePath := filepath.Join(dir, "p01-cover.png")
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(inputPath, []byte("# 自动发布标题\n\n正文"), 0o644); err != nil {
+		t.Fatalf("WriteFile(input) error = %v", err)
+	}
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`xhs:
+  publish:
+    account: walker
+    mode: schedule
+    schedule_at: "2026-05-01 20:30:00"
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{InputPath: inputPath, ConfigPath: configPath, XHSTags: []string{"AI代理"}}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if got.Mode != string(xhs.PublishModeSchedule) || got.ScheduleAt != "2026-05-01 20:30:00" {
+		t.Fatalf("opts = %#v", got)
+	}
+}
+
 func ptrSchedule(input string) *time.Time {
-	_ = input
-	tm := time.Date(2026, 4, 16, 10, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	tm, err := time.ParseInLocation("2006-01-02 15:04:05", input, time.FixedZone("UTC+8", 8*60*60))
+	if err != nil {
+		panic(err)
+	}
 	return &tm
 }

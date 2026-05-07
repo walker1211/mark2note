@@ -116,6 +116,7 @@ type XHSPublishCfg struct {
 	BrowserPath      string                `yaml:"browser_path"`
 	ProfileDir       string                `yaml:"profile_dir"`
 	Mode             string                `yaml:"mode"`
+	ScheduleAt       string                `yaml:"schedule_at"`
 	DeclareOriginal  *bool                 `yaml:"declare_original"`
 	AllowContentCopy *bool                 `yaml:"allow_content_copy"`
 	ChromeArgs       []string              `yaml:"chrome_args"`

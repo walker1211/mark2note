@@ -163,6 +163,22 @@ func TestPublishServiceBuildsLiveRequestFromFilesAndSchedule(t *testing.T) {
 	}
 }
 
+func TestPublishServicePassesStopBeforeSubmitIntoRequest(t *testing.T) {
+	orchestrator := &fakePublishOrchestrator{result: xhs.PublishResult{TargetAccount: "creator-a", Mode: xhs.PublishModeSchedule, StoppedBeforeSubmit: true}}
+	service := PublishService{
+		Now:             func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) },
+		NewOrchestrator: func(PublishRuntimeOptions) PublishOrchestrator { return orchestrator },
+	}
+
+	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeSchedule), ScheduleAt: "2026-04-10 12:20:00", ImagePaths: []string{"cover.jpg"}, StopBeforeSubmit: true})
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if !orchestrator.request.StopBeforeSubmit {
+		t.Fatalf("StopBeforeSubmit = false, want true")
+	}
+}
+
 func TestPublishServiceRejectsConflictingTitleSources(t *testing.T) {
 	service := PublishService{Now: func() time.Time { return shanghaiNow(2026, 4, 10, 12, 0, 0) }}
 	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", TitleFile: "/tmp/title.txt", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), ImagePaths: []string{"cover.jpg"}})

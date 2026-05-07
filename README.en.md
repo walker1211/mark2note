@@ -161,6 +161,7 @@ Key fields:
 - `xhs.publish.browser_path`: default browser executable path for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`; CLI `--chrome` can override it for one run
 - `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
 - `xhs.publish.mode`: default publish mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`, supporting `only-self` and `schedule`
+- `xhs.publish.schedule_at`: default scheduled publish time for `mode: schedule`, using `YYYY-MM-DD HH:MM:SS` and parsed in Asia/Shanghai
 - `xhs.publish.topic_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to generate 3-6 Xiaohongshu topics when `--xhs-tags` is omitted, on by default
 - `xhs.publish.title_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to rewrite titles that exceed `max_runes`, on by default
 - `xhs.publish.title_generation.max_runes`: auto-publish title limit, default `20`; counted as Unicode characters, so Chinese characters, English letters, digits, spaces, and punctuation generally each count as 1
@@ -340,13 +341,14 @@ mark2note publish-xhs --help
 - `--content-file <file>`: content file path
 - `--tags <csv>`: comma-separated tags
 - `--mode <name>`: publish mode, supporting `only-self` and `schedule`; when omitted it falls back to `xhs.publish.mode`, otherwise defaults to `only-self`
-- `--schedule-at <time>`: scheduled publish time in `YYYY-MM-DD HH:MM:SS`, parsed in Asia/Shanghai; required when `--mode schedule`
+- `--schedule-at <time>`: scheduled publish time in `YYYY-MM-DD HH:MM:SS`, parsed in Asia/Shanghai; when omitted it can fall back to `xhs.publish.schedule_at`
 - `--images <csv>`: comma-separated image paths for standard image posts
 - `--live-report <file>`: Live delivery report path used to resolve publishable Live assets
 - `--live-pages <csv>`: ordered Live page subset; valid only with `--live-report`
 - `--chrome <path>`: Chrome binary path; when omitted it first falls back to `xhs.publish.browser_path`
 - `--headless`: run browser automation headless; the built-in default is `true`, but `xhs.publish.headless` can override it
 - `--profile-dir <dir>`: browser profile directory; when omitted it first falls back to `xhs.publish.profile_dir`
+- `--stop-before-submit`: upload assets, fill fields, set schedule if needed, then stop before clicking the final publish/scheduled publish button; the browser is kept open for manual inspection. Use it with `--headless=false`, or set `xhs.publish.headless: false`, when you need to inspect the page manually
 
 ### What `--profile-dir` does
 
@@ -380,6 +382,7 @@ xhs:
     browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
     mode: only-self
+    schedule_at: ""
 ```
 
 Example command:
@@ -399,7 +402,7 @@ Example command:
 - without `--meta`, exactly one of `--title` / `--title-file` is required
 - without `--meta`, content may come from `--content` / `--content-file`; if `--tags` is provided, content may be omitted
 - exactly one media source is required: `--images` or `--live-report`
-- `--schedule-at` is required when `--mode schedule`
+- `--mode schedule` requires `--schedule-at` or `xhs.publish.schedule_at`
 - `--live-pages` is accepted only with `--live-report`
 
 ### Metadata replay

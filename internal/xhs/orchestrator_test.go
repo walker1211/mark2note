@@ -83,6 +83,30 @@ func TestOrchestratorRunsScheduledStandardFlow(t *testing.T) {
 	}
 }
 
+func TestOrchestratorOnlySelfLiveStopBeforeSubmitAppliesPreSubmitHooks(t *testing.T) {
+	page := &fakePublishPage{}
+	session := &fakeBrowserSession{page: page}
+	bridge := &capturingLiveBridge{result: LiveAttachResult{AttachedCount: 2, ItemNames: []string{"p01-cover", "p02-bullets"}, UIPreserved: true}}
+	request := livePublishRequest(PublishModeOnlySelf, nil)
+	request.StopBeforeSubmit = true
+	request.DeclareOriginal = true
+	request.AllowContentCopy = false
+	orchestrator := NewOrchestrator(session)
+	orchestrator.liveBridge = bridge
+
+	result, err := orchestrator.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	wantCalls := []string{"open", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-only-self"}
+	if !reflect.DeepEqual(page.calls, wantCalls) {
+		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
+	}
+	if !result.StoppedBeforeSubmit || result.OnlySelfPublished {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestOrchestratorRunsLiveBridgeBeforeTextFill(t *testing.T) {
 	orderCounter := 0
 	page := &fakePublishPage{orderCounter: &orderCounter}
@@ -155,12 +179,15 @@ func TestOrchestratorKeepsBrowserContextAfterLiveAttachFailure(t *testing.T) {
 	}
 }
 
-func TestOrchestratorRunsScheduledLiveFlow(t *testing.T) {
+func TestOrchestratorScheduledLiveStopBeforeSubmitSkipsSubmit(t *testing.T) {
 	page := &fakePublishPage{}
 	session := &fakeBrowserSession{page: page}
 	scheduledAt := time.Date(2026, 4, 11, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
 	bridge := &capturingLiveBridge{result: LiveAttachResult{AttachedCount: 2, ItemNames: []string{"p01-cover", "p02-bullets"}, UIPreserved: true}}
 	request := livePublishRequest(PublishModeSchedule, &scheduledAt)
+	request.StopBeforeSubmit = true
+	request.DeclareOriginal = true
+	request.AllowContentCopy = false
 	orchestrator := NewOrchestrator(session)
 	orchestrator.liveBridge = bridge
 
@@ -168,7 +195,31 @@ func TestOrchestratorRunsScheduledLiveFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	wantCalls := []string{"open", "title", "content", "set-schedule", "submit-scheduled", "confirm-scheduled"}
+	wantCalls := []string{"open", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-schedule"}
+	if !reflect.DeepEqual(page.calls, wantCalls) {
+		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
+	}
+	if !result.StoppedBeforeSubmit {
+		t.Fatalf("result = %#v, want StoppedBeforeSubmit", result)
+	}
+}
+
+func TestOrchestratorRunsScheduledLiveFlow(t *testing.T) {
+	page := &fakePublishPage{}
+	session := &fakeBrowserSession{page: page}
+	scheduledAt := time.Date(2026, 4, 11, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	bridge := &capturingLiveBridge{result: LiveAttachResult{AttachedCount: 2, ItemNames: []string{"p01-cover", "p02-bullets"}, UIPreserved: true}}
+	request := livePublishRequest(PublishModeSchedule, &scheduledAt)
+	request.DeclareOriginal = true
+	request.AllowContentCopy = false
+	orchestrator := NewOrchestrator(session)
+	orchestrator.liveBridge = bridge
+
+	result, err := orchestrator.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	wantCalls := []string{"open", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-schedule", "submit-scheduled", "confirm-scheduled"}
 	if !reflect.DeepEqual(page.calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
 	}

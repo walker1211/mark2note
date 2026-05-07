@@ -34,6 +34,7 @@ type PublishRequest struct {
 	Live             LivePublishSource
 	DeclareOriginal  bool
 	AllowContentCopy bool
+	StopBeforeSubmit bool
 }
 
 type LivePublishSource struct {
@@ -43,15 +44,16 @@ type LivePublishSource struct {
 }
 
 type PublishResult struct {
-	TargetAccount     string
-	Mode              PublishMode
-	MediaKind         MediaKind
-	OnlySelfPublished bool
-	ScheduleTime      *time.Time
-	AttachedCount     int
-	AttachedItems     []string
-	BrowserKept       bool
-	Warnings          []string
+	TargetAccount       string
+	Mode                PublishMode
+	MediaKind           MediaKind
+	OnlySelfPublished   bool
+	ScheduleTime        *time.Time
+	AttachedCount       int
+	AttachedItems       []string
+	BrowserKept         bool
+	StoppedBeforeSubmit bool
+	Warnings            []string
 }
 
 func ValidateMode(input string) (PublishMode, error) {

@@ -58,6 +58,8 @@ xhs:
     browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
     mode: only-self
+    # mode: schedule 时使用，格式 YYYY-MM-DD HH:MM:SS，按 Asia/Shanghai 解析
+    schedule_at: ""
     declare_original: true
     allow_content_copy: false
     topic_generation:
