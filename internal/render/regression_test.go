@@ -76,10 +76,12 @@ func TestRenderFixturePNGBaselines(t *testing.T) {
 		fixture := fixtures[i]
 		goldenPath := filepath.Join(goldenPNGDir, fixture.Name+".sha256")
 		if _, err := os.Stat(goldenPath); err != nil {
-			if os.IsNotExist(err) {
+			if os.IsNotExist(err) && os.Getenv("UPDATE_GOLDEN") != "1" {
 				continue
 			}
-			t.Fatalf("Stat(%q) error = %v", goldenPath, err)
+			if !os.IsNotExist(err) {
+				t.Fatalf("Stat(%q) error = %v", goldenPath, err)
+			}
 		}
 		t.Run(fixture.Name, func(t *testing.T) {
 			got := renderFixturePNGDigest(t, fixture, chromePath)

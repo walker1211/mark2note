@@ -102,7 +102,8 @@ Examples:
 
 Config defaults:
   deck.theme_mode fixed / weekly theme selection mode
-  deck.theme      fallback theme name used when --theme is not set
+  deck.weekly_themes weekly mode chooses a theme by local weekday
+  deck.theme      fixed mode theme and weekly fallback when the day is not configured
   deck.author     default cover author used when --author is not set
 
 Supported themes:
