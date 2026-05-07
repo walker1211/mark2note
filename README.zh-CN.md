@@ -228,7 +228,8 @@ ai:
 - 标题不超过 `xhs.publish.title_generation.max_runes` 时直接使用；超过时才调用 AI 改写，返回标题仍超长或为空会报错停止发布
 - 正文只包含话题，例如 `#AI代理 #数据安全 #工程反思`
 - 话题由 AI 生成，自动结果会尽量保持 3-6 个
-- 如果要手动指定话题，可以加 `--xhs-tags`，手动值会跳过 AI 话题生成并仍用于正文 hashtag：
+- 如果要手动指定话题，可以加 `--xhs-tags`，手动值会跳过 AI 话题生成并仍用于正文 hashtag
+- 自动发布会在浏览器自动化前写入 `<out>/xhs-publish-meta.json`，用于后续按同一份发布元数据重放
 
 ```bash
 ./mark2note \
@@ -259,17 +260,19 @@ ai:
 
 ```bash
 mark2note publish-xhs --account <name> [flags]
+mark2note publish-xhs --meta <file>
 mark2note publish-xhs --help
 ```
 
 ### 参数说明
 
 - `--config <file>`：配置文件路径，默认 `configs/config.yaml`
+- `--meta <file>`：读取自动 `--publish-xhs` 写出的发布元数据（通常是 `<out>/xhs-publish-meta.json`）并重放发布；`--meta` 必须单独使用，不能和手动发布字段混用
 - `--account <name>`：发布账号 / profile 名称；未显式传入时，回退到 `xhs.publish.account`
 - `--title <text>`：直接传标题文本；与 `--title-file` 二选一且必填
 - `--title-file <file>`：从文件读取标题
-- `--content <text>`：直接传正文；与 `--content-file` 二选一且必填
-- `--content-file <file>`：从文件读取正文
+- `--content <text>`：直接传正文；与 `--content-file` 二选一；如果提供了 `--tags`，正文可以省略
+- `--content-file <file>`：从文件读取正文；与 `--content` 二选一
 - `--tags <csv>`：逗号分隔标签列表
 - `--mode <name>`：发布模式，支持 `only-self`、`schedule`；未显式传入时，回退到 `xhs.publish.mode`，否则默认 `only-self`
 - `--schedule-at <time>`：定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析；仅 `--mode schedule` 时必填
@@ -327,11 +330,22 @@ xhs:
 
 ### 约束规则
 
-- 必须且只能提供其一：`--title` / `--title-file`
-- 必须且只能提供其一：`--content` / `--content-file`
+- `--meta` 会重放已保存的发布元数据，必须单独使用，不能和 `--title`、`--content`、`--tags`、`--images`、`--account` 等手动发布字段混用
+- 不使用 `--meta` 时，必须且只能提供其一：`--title` / `--title-file`
+- 不使用 `--meta` 时，正文可以来自 `--content` / `--content-file`；两者不能同时提供；如果提供了 `--tags`，正文可以省略
 - 媒体来源必须二选一：`--images` 或 `--live-report`
 - `--mode schedule` 时必须提供 `--schedule-at`
 - `--live-pages` 只能与 `--live-report` 一起使用
+
+### 元数据重放
+
+自动 `--publish-xhs` 会先完成 Markdown 渲染、标题处理和话题生成，然后在浏览器自动化开始前写出 `xhs-publish-meta.json`。独立子命令可以用 `--meta` 读取这份元数据重放发布：
+
+```bash
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
+
+重放只读取元数据里的标题、正文、话题、素材路径、账号和浏览器发布配置，不会重新渲染 Markdown，也不会重新生成话题。
 
 ### 普通图片发布
 

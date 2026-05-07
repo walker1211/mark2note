@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,6 +67,143 @@ func TestParsePublishXHSOptionsTracksOriginalityFlagPresence(t *testing.T) {
 	}
 	if opts.DeclareOriginal != false || opts.AllowContentCopy != true {
 		t.Fatalf("opts = %#v", opts)
+	}
+}
+
+func TestRunAutoPublishXHSWritesMetadataBeforePublishing(t *testing.T) {
+	originalPublishXHS := publishXHS
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	originalNowFunc := nowFunc
+	defer func() {
+		publishXHS = originalPublishXHS
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+		nowFunc = originalNowFunc
+	}()
+
+	outDir := t.TempDir()
+	imagePath := filepath.Join(outDir, "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", imagePath, err)
+	}
+	stubAutoPublishMetadataInputs(t, false)
+	nowFunc = func() time.Time {
+		return time.Date(2026, 4, 29, 10, 11, 12, 0, time.UTC)
+	}
+
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		metaPath := filepath.Join(outDir, xhsPublishMetaFilename)
+		data, err := os.ReadFile(metaPath)
+		if err != nil {
+			t.Fatalf("metadata not written before publishXHS: %v", err)
+		}
+		var meta xhsPublishMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			t.Fatalf("Unmarshal(%q) error = %v", metaPath, err)
+		}
+		if meta.Title != opts.Title || meta.Account != "walker" || meta.Mode != string(xhs.PublishModeOnlySelf) {
+			t.Fatalf("metadata basics = %#v", meta)
+		}
+		if meta.Content != opts.Content || !reflect.DeepEqual(meta.Tags, opts.Tags) || !reflect.DeepEqual(meta.Images, opts.ImagePaths) {
+			t.Fatalf("metadata publish content = %#v, opts = %#v", meta, opts)
+		}
+		if meta.ChromePath != "/tmp/publish-chrome" || meta.Headless || meta.ProfileDir != "/tmp/xhs-profile" {
+			t.Fatalf("metadata browser fields = %#v", meta)
+		}
+		if !meta.DeclareOriginal || meta.AllowContentCopy {
+			t.Fatalf("metadata originality fields = %#v", meta)
+		}
+		if meta.InputPath != "article.md" || meta.ConfigPath != "configs/config.yaml" || meta.GeneratedAt != "2026-04-29T10:11:12Z" {
+			t.Fatalf("metadata source fields = %#v", meta)
+		}
+		if !reflect.DeepEqual(meta.ChromeArgs, []string{"no-first-run"}) {
+			t.Fatalf("metadata chrome_args = %#v", meta.ChromeArgs)
+		}
+		return app.PublishResult{
+			Request: xhs.PublishRequest{Account: opts.Account, MediaKind: xhs.MediaKindStandard},
+			Result:  xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true},
+		}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := runAutoPublishXHS(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{OutDir: outDir, ImagePaths: []string{imagePath}}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runAutoPublishXHS() = %d, stderr = %s", code, stderr.String())
+	}
+}
+
+func TestRunAutoPublishXHSRejectsMetadataWriteFailureBeforePublishing(t *testing.T) {
+	originalPublishXHS := publishXHS
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	defer func() {
+		publishXHS = originalPublishXHS
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+	}()
+
+	baseDir := t.TempDir()
+	imagePath := filepath.Join(baseDir, "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", imagePath, err)
+	}
+	stubAutoPublishMetadataInputs(t, false)
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		t.Fatal("publishXHS called after metadata write failure")
+		return app.PublishResult{}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	missingOutDir := filepath.Join(baseDir, "missing")
+	code := runAutoPublishXHS(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{OutDir: missingOutDir, ImagePaths: []string{imagePath}}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("runAutoPublishXHS() = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "auto publish xhs failed: write xhs publish metadata") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func stubAutoPublishMetadataInputs(t *testing.T, titleTooLong bool) {
+	t.Helper()
+	readFile = func(path string) ([]byte, error) {
+		if titleTooLong {
+			return []byte("# 自动发布标题自动发布标题自动发布标题\n\n正文"), nil
+		}
+		return []byte("# 自动发布标题\n\n正文"), nil
+	}
+	headless := false
+	declareOriginal := true
+	allowContentCopy := false
+	topicGenerationEnabled := true
+	loadConfig = func(path string) (*config.Config, error) {
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:          "walker",
+			Headless:         &headless,
+			BrowserPath:      "/tmp/publish-chrome",
+			ProfileDir:       "/tmp/xhs-profile",
+			Mode:             string(xhs.PublishModeOnlySelf),
+			DeclareOriginal:  &declareOriginal,
+			AllowContentCopy: &allowContentCopy,
+			ChromeArgs:       []string{"no-first-run"},
+			TopicGeneration:  config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+		}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		return []string{"AI代理", "工程反思"}, nil
+	}
+	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+		t.Fatal("buildPublishTitle called for title within limit")
+		return "", nil
 	}
 }
 
@@ -615,6 +753,146 @@ func TestRunPublishXHSUsesConfigDefaultsForOriginalityFlags(t *testing.T) {
 	}
 	if !got.DeclareOriginal || got.AllowContentCopy {
 		t.Fatalf("merged opts = %#v", got)
+	}
+}
+
+func TestRunPublishXHSReplaysMetadata(t *testing.T) {
+	originalPublishXHS := publishXHS
+	defer func() { publishXHS = originalPublishXHS }()
+
+	metaPath := filepath.Join(t.TempDir(), xhsPublishMetaFilename)
+	meta := xhsPublishMeta{
+		Title:            "元数据回放标题",
+		Content:          "",
+		Tags:             []string{"AI代理", "工程反思"},
+		Images:           []string{"cover.jpg", "detail.jpg"},
+		Account:          "creator-meta",
+		Mode:             string(xhs.PublishModeOnlySelf),
+		ChromePath:       "/tmp/meta-chrome",
+		Headless:         false,
+		ProfileDir:       "/tmp/meta-profile",
+		DeclareOriginal:  true,
+		AllowContentCopy: false,
+		ChromeArgs:       []string{"no-first-run"},
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(metaPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", metaPath, err)
+	}
+
+	var got app.PublishOptions
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		got = opts
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--meta", metaPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	want := app.PublishOptions{
+		Account:          "creator-meta",
+		Title:            "元数据回放标题",
+		Content:          "",
+		Tags:             []string{"AI代理", "工程反思"},
+		Mode:             string(xhs.PublishModeOnlySelf),
+		ImagePaths:       []string{"cover.jpg", "detail.jpg"},
+		ChromePath:       "/tmp/meta-chrome",
+		Headless:         false,
+		ProfileDir:       "/tmp/meta-profile",
+		ChromeArgs:       []string{"no-first-run"},
+		DeclareOriginal:  true,
+		AllowContentCopy: false,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("publish opts = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunPublishXHSRejectsMetadataManualFieldConflict(t *testing.T) {
+	originalPublishXHS := publishXHS
+	defer func() { publishXHS = originalPublishXHS }()
+
+	metaPath := filepath.Join(t.TempDir(), xhsPublishMetaFilename)
+	meta := xhsPublishMeta{
+		Title:   "元数据回放标题",
+		Tags:    []string{"AI代理"},
+		Images:  []string{"cover.jpg"},
+		Account: "creator-meta",
+		Mode:    string(xhs.PublishModeOnlySelf),
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(metaPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", metaPath, err)
+	}
+
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		t.Fatal("publishXHS called for metadata with manual field conflict")
+		return app.PublishResult{}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--meta", metaPath, "--title", "other"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "--meta cannot be combined with manual publish fields") || !strings.Contains(stderr.String(), "--title") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"publish-xhs", "--meta", metaPath, "--config", "configs/other.yaml"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() with --config = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "--meta cannot be combined with manual publish fields") || !strings.Contains(stderr.String(), "--config") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunPublishXHSRejectsMetadataEmptyTitle(t *testing.T) {
+	originalPublishXHS := publishXHS
+	defer func() { publishXHS = originalPublishXHS }()
+
+	metaPath := filepath.Join(t.TempDir(), xhsPublishMetaFilename)
+	meta := xhsPublishMeta{
+		Title:      "",
+		Content:    "",
+		Tags:       []string{"AI代理"},
+		Images:     []string{"cover.jpg"},
+		Account:    "creator-meta",
+		Mode:       string(xhs.PublishModeOnlySelf),
+		ChromePath: "/tmp/meta-chrome",
+		Headless:   false,
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(metaPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", metaPath, err)
+	}
+
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		t.Fatal("publishXHS called for invalid metadata")
+		return app.PublishResult{}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--meta", metaPath}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run() = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "error validating xhs publish metadata") || !strings.Contains(stderr.String(), "metadata title is required") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
