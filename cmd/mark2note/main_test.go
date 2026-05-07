@@ -109,6 +109,8 @@ func TestUsageTextMentionsAutoPublishXHSFlags(t *testing.T) {
 		"--publish-xhs              publish generated PNG files to Xiaohongshu after render",
 		"--prepare-xhs              generate Xiaohongshu publish metadata after render without publishing",
 		"--xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs/--prepare-xhs",
+		"--xhs-mode <mode>          override Xiaohongshu mode for --publish-xhs/--prepare-xhs",
+		"--xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs",
 		"mark2note --input ./example.md --auto-posters --prepare-xhs",
 		"mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json",
 	} {
@@ -281,6 +283,19 @@ func TestParseOptionsAllowsXHSTagsWithPrepareXHS(t *testing.T) {
 	wantTags := []string{"动漫推荐", "推理番"}
 	if !opts.PrepareXHS || !reflect.DeepEqual(opts.XHSTags, wantTags) || !opts.XHSTagsChanged {
 		t.Fatalf("opts = %#v, want prepare with tags %#v", opts, wantTags)
+	}
+}
+
+func TestParseOptionsParsesXHSScheduleOverridesWithPrepareXHS(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs", "--xhs-mode", "schedule", "--xhs-schedule-at", "2026-05-07 07:00:00"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.PrepareXHS || opts.XHSMode != "schedule" || opts.XHSScheduleAt != "2026-05-07 07:00:00" {
+		t.Fatalf("opts = %#v, want prepare-xhs schedule override", opts)
+	}
+	if !opts.XHSModeChanged || !opts.XHSScheduleAtChanged {
+		t.Fatalf("opts = %#v, want XHS override flags marked changed", opts)
 	}
 }
 

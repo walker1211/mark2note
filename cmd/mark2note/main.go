@@ -82,6 +82,8 @@ Flags:
   --publish-xhs              publish generated PNG files to Xiaohongshu after render
   --prepare-xhs              generate Xiaohongshu publish metadata after render without publishing
   --xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs/--prepare-xhs
+  --xhs-mode <mode>          override Xiaohongshu mode for --publish-xhs/--prepare-xhs (only-self or schedule)
+  --xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs (YYYY-MM-DD HH:MM:SS)
   --import-photos            import generated PNG files into Apple Photos after export
   --import-album <name>      Apple Photos album name for imported PNG files
   --import-timeout <d>       Apple Photos PNG import timeout (default: 2m0s)
@@ -241,6 +243,8 @@ func parseOptions(args []string) (Options, error) {
 	fs.BoolVar(&opts.PublishXHS, "publish-xhs", opts.PublishXHS, "publish generated PNG files to Xiaohongshu after render")
 	fs.BoolVar(&opts.PrepareXHS, "prepare-xhs", opts.PrepareXHS, "generate Xiaohongshu publish metadata after render without publishing")
 	fs.StringVar(&xhsTags, "xhs-tags", xhsTags, "comma-separated Xiaohongshu topics for auto publish")
+	fs.StringVar(&opts.XHSMode, "xhs-mode", opts.XHSMode, "Xiaohongshu publish mode for auto publish")
+	fs.StringVar(&opts.XHSScheduleAt, "xhs-schedule-at", opts.XHSScheduleAt, "Xiaohongshu schedule time for auto publish")
 	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
 	fs.StringVar(&opts.ImportAlbum, "import-album", opts.ImportAlbum, "Apple Photos album name for imported PNG files")
 	fs.DurationVar(&opts.ImportTimeout, "import-timeout", opts.ImportTimeout, "Apple Photos PNG import timeout")
@@ -309,6 +313,8 @@ func parseOptions(args []string) (Options, error) {
 	liveImportTimeoutChanged := false
 	chromePathChanged := false
 	xhsTagsChanged := false
+	xhsModeChanged := false
+	xhsScheduleAtChanged := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "out":
@@ -347,6 +353,10 @@ func parseOptions(args []string) (Options, error) {
 			liveImportTimeoutChanged = true
 		case "xhs-tags":
 			xhsTagsChanged = true
+		case "xhs-mode":
+			xhsModeChanged = true
+		case "xhs-schedule-at":
+			xhsScheduleAtChanged = true
 		}
 	})
 	opts.OutDirChanged = outChanged
@@ -367,8 +377,20 @@ func parseOptions(args []string) (Options, error) {
 	opts.LiveImportAlbumChanged = liveImportAlbumChanged
 	opts.LiveImportTimeoutChanged = liveImportTimeoutChanged
 	opts.XHSTagsChanged = xhsTagsChanged
+	opts.XHSModeChanged = xhsModeChanged
+	opts.XHSScheduleAtChanged = xhsScheduleAtChanged
 	if opts.XHSTagsChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--xhs-tags requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
+	}
+	if (opts.XHSModeChanged || opts.XHSScheduleAtChanged) && !opts.PublishXHS && !opts.PrepareXHS {
+		return Options{}, fmt.Errorf("--xhs-mode/--xhs-schedule-at require --publish-xhs or --prepare-xhs\n\n%s", usageText())
+	}
+	if opts.XHSModeChanged {
+		mode, err := xhs.ValidateMode(opts.XHSMode)
+		if err != nil {
+			return Options{}, fmt.Errorf("--xhs-mode: %w\n\n%s", err, usageText())
+		}
+		opts.XHSMode = string(mode)
 	}
 	return opts, nil
 }
@@ -564,6 +586,9 @@ func validatePublishXHSOptions(opts app.PublishOptions) error {
 	if strings.TrimSpace(opts.Mode) == string(xhs.PublishModeSchedule) && strings.TrimSpace(opts.ScheduleAt) == "" {
 		return fmt.Errorf("--mode schedule requires --schedule-at or xhs.publish.schedule_at\n\n%s", publishXHSUsageText())
 	}
+	if strings.TrimSpace(opts.Mode) != string(xhs.PublishModeSchedule) && strings.TrimSpace(opts.ScheduleAt) != "" {
+		return fmt.Errorf("--schedule-at requires --mode schedule or xhs.publish.mode: schedule\n\n%s", publishXHSUsageText())
+	}
 	if len(opts.LivePages) > 0 && strings.TrimSpace(opts.LiveReportPath) == "" {
 		return fmt.Errorf("--live-pages requires --live-report\n\n%s", publishXHSUsageText())
 	}
@@ -750,6 +775,13 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		return app.PublishOptions{}, err
 	}
 	cliOpts.Tags = topics
+	if renderOpts.XHSModeChanged {
+		cliOpts.Mode = strings.TrimSpace(renderOpts.XHSMode)
+		cliOpts.ModeChanged = true
+	}
+	if renderOpts.XHSScheduleAtChanged {
+		cliOpts.ScheduleAt = strings.TrimSpace(renderOpts.XHSScheduleAt)
+	}
 	publishOpts := mergePublishXHSDefaults(cliOpts, cfg)
 	if err := validatePublishXHSOptions(publishOpts); err != nil {
 		return app.PublishOptions{}, err

@@ -1389,6 +1389,43 @@ func TestBuildAutoPublishXHSOptionsUsesScheduleAtFromConfig(t *testing.T) {
 	}
 }
 
+func TestBuildAutoPublishXHSOptionsUsesScheduleAtFromCLIOverride(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "article.md")
+	imagePath := filepath.Join(dir, "p01-cover.png")
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(inputPath, []byte("# 自动发布标题\n\n正文"), 0o644); err != nil {
+		t.Fatalf("WriteFile(input) error = %v", err)
+	}
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`xhs:
+  publish:
+    account: walker
+    mode: only-self
+    schedule_at: "2026-05-01 20:30:00"
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{
+		InputPath:            inputPath,
+		ConfigPath:           configPath,
+		XHSTags:              []string{"AI代理"},
+		XHSMode:              string(xhs.PublishModeSchedule),
+		XHSModeChanged:       true,
+		XHSScheduleAt:        "2026-05-07 07:00:00",
+		XHSScheduleAtChanged: true,
+	}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if got.Mode != string(xhs.PublishModeSchedule) || got.ScheduleAt != "2026-05-07 07:00:00" {
+		t.Fatalf("opts = %#v", got)
+	}
+}
+
 func ptrSchedule(input string) *time.Time {
 	tm, err := time.ParseInLocation("2006-01-02 15:04:05", input, time.FixedZone("UTC+8", 8*60*60))
 	if err != nil {

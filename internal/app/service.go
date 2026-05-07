@@ -54,6 +54,10 @@ type Options struct {
 	PrepareXHS               bool
 	XHSTags                  []string
 	XHSTagsChanged           bool
+	XHSMode                  string
+	XHSModeChanged           bool
+	XHSScheduleAt            string
+	XHSScheduleAtChanged     bool
 	Animated                 AnimatedOptions
 	Live                     LiveOptions
 	ImportPhotos             bool
