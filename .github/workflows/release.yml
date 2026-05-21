@@ -1,4 +1,4 @@
-name: release
+name: Release
 
 on:
   push:
@@ -15,14 +15,19 @@ concurrency:
 jobs:
   preflight:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Secret scan
-        run: bash ./scripts/secret-scan.sh --current --history
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Local CI
+        run: scripts/ci-local.sh clean
 
   build:
     runs-on: ubuntu-latest
@@ -33,21 +38,23 @@ jobs:
         include:
           - goos: darwin
             goarch: arm64
-            artifact_name: mark2note_Darwin_arm64
+            suffix: darwin-arm64
           - goos: darwin
             goarch: amd64
-            artifact_name: mark2note_Darwin_x86_64
+            suffix: darwin-amd64
           - goos: linux
             goarch: arm64
-            artifact_name: mark2note_Linux_arm64
+            suffix: linux-arm64
           - goos: linux
             goarch: amd64
-            artifact_name: mark2note_Linux_x86_64
+            suffix: linux-amd64
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out repository
+        uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -55,21 +62,21 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          SUFFIX: ${{ matrix.suffix }}
         run: |
           set -euo pipefail
-          artifact_dir="dist/${ARTIFACT_NAME}"
-          mkdir -p "${artifact_dir}/configs"
-          GOOS="${GOOS}" GOARCH="${GOARCH}" CGO_ENABLED=0 go build -o "${artifact_dir}/mark2note" ./cmd/mark2note
-          cp README.md README.zh-CN.md README.en.md LICENSE "${artifact_dir}/"
-          cp configs/config.example.yaml "${artifact_dir}/configs/config.example.yaml"
-          tar -C "${artifact_dir}" -czf "dist/${ARTIFACT_NAME}.tar.gz" mark2note README.md README.zh-CN.md README.en.md LICENSE configs
+          package="mark2note-${SUFFIX}"
+          mkdir -p "dist/${package}/configs"
+          GOOS="${GOOS}" GOARCH="${GOARCH}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/${package}/mark2note" ./cmd/mark2note
+          cp README.md README.zh-CN.md README.en.md LICENSE "dist/${package}/"
+          cp configs/config.example.yaml "dist/${package}/configs/config.example.yaml"
+          tar -C dist -czf "dist/${package}.tar.gz" "${package}"
 
       - name: Upload packaged archive
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.artifact_name }}.tar.gz
+          name: mark2note-${{ matrix.suffix }}
+          path: dist/mark2note-${{ matrix.suffix }}.tar.gz
           if-no-files-found: error
 
   release:
@@ -81,34 +88,25 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: dist
-
-      - name: Flatten downloaded artifacts
-        run: |
-          set -euo pipefail
-          find dist -type f -name '*.tar.gz' -exec mv {} dist/ \;
+          merge-multiple: true
 
       - name: Generate checksums
         run: |
           set -euo pipefail
-          (cd dist && sha256sum mark2note_*.tar.gz > checksums.txt)
+          (cd dist && sha256sum mark2note-*.tar.gz > checksums.txt)
 
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if gh release view "${GITHUB_REF_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
-            gh release upload "${GITHUB_REF_NAME}" \
-              dist/mark2note_*.tar.gz \
-              dist/checksums.txt \
-              --repo "${GH_REPO}" \
-              --clobber
+          if gh release view "${TAG_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release view "${TAG_NAME}" --repo "${GH_REPO}" --json assets --jq '.assets[].name' | while IFS= read -r asset; do
+              gh release delete-asset "${TAG_NAME}" "$asset" --repo "${GH_REPO}" --yes
+            done
+            gh release upload "${TAG_NAME}" dist/* --repo "${GH_REPO}" --clobber
           else
-            gh release create "${GITHUB_REF_NAME}" \
-              dist/mark2note_*.tar.gz \
-              dist/checksums.txt \
-              --repo "${GH_REPO}" \
-              --title "${GITHUB_REF_NAME}" \
-              --generate-notes
+            gh release create "${TAG_NAME}" dist/* --repo "${GH_REPO}" --verify-tag --title "${TAG_NAME}" --generate-notes
           fi
