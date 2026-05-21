@@ -104,7 +104,11 @@ jobs:
           set -euo pipefail
           if gh release view "${TAG_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
             gh release view "${TAG_NAME}" --repo "${GH_REPO}" --json assets --jq '.assets[].name' | while IFS= read -r asset; do
-              gh release delete-asset "${TAG_NAME}" "$asset" --repo "${GH_REPO}" --yes
+              case "$asset" in
+                mark2note-*.tar.gz|mark2note_*.tar.gz|checksums.txt)
+                  gh release delete-asset "${TAG_NAME}" "$asset" --repo "${GH_REPO}" --yes
+                  ;;
+              esac
             done
             gh release upload "${TAG_NAME}" dist/* --repo "${GH_REPO}" --clobber
           else
