@@ -358,6 +358,10 @@ func DefaultDeck(outDir string) Deck {
 }
 
 func FromJSON(raw string, outDir string) (Deck, error) {
+	return FromJSONWithMaxPages(raw, outDir, maxPages)
+}
+
+func FromJSONWithMaxPages(raw string, outDir string, configuredMaxPages int) (Deck, error) {
 	var rd rawDeck
 	if err := json.Unmarshal([]byte(raw), &rd); err != nil {
 		return Deck{}, fmt.Errorf("parse deck json: %w", err)
@@ -385,7 +389,7 @@ func FromJSON(raw string, outDir string) (Deck, error) {
 		Pages:          pages,
 		Themes:         defaultThemes(),
 	}
-	if err := d.Validate(); err != nil {
+	if err := d.ValidateWithMaxPages(configuredMaxPages); err != nil {
 		return Deck{}, err
 	}
 	d.Pages = normalizePageNames(d.Pages)
@@ -393,8 +397,15 @@ func FromJSON(raw string, outDir string) (Deck, error) {
 }
 
 func (d Deck) Validate() error {
-	if len(d.Pages) < minPages || len(d.Pages) > maxPages {
-		return fmt.Errorf("deck must contain 3 to 12 pages")
+	return d.ValidateWithMaxPages(maxPages)
+}
+
+func (d Deck) ValidateWithMaxPages(configuredMaxPages int) error {
+	if configuredMaxPages == 0 {
+		configuredMaxPages = maxPages
+	}
+	if len(d.Pages) < minPages || len(d.Pages) > configuredMaxPages {
+		return fmt.Errorf("deck must contain %d to %d pages", minPages, configuredMaxPages)
 	}
 	if d.Pages[0].Variant != "cover" {
 		return fmt.Errorf("first page must use cover variant")

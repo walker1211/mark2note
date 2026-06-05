@@ -46,6 +46,16 @@ func (r *fakeRenderer) Render(d deck.Deck) (render.RenderResult, error) {
 	return r.result, r.err
 }
 
+func deckJSONWithPageCount(count int) string {
+	pages := make([]string, 0, count)
+	pages = append(pages, fmt.Sprintf(`{"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/%d","theme":"default","cta":"cta"},"content":{"title":"封面"}}`, count))
+	for i := 2; i < count; i++ {
+		pages = append(pages, fmt.Sprintf(`{"name":"p%02d-bullets","variant":"bullets","meta":{"badge":"第 %d 页","counter":"%d/%d","theme":"default","cta":"cta"},"content":{"title":"列表页 %d","items":["要点"]}}`, i, i, i, count, i))
+	}
+	pages = append(pages, fmt.Sprintf(`{"name":"p%02d-ending","variant":"ending","meta":{"badge":"第 %d 页","counter":"%d/%d","theme":"default","cta":"cta"},"content":{"title":"结尾","body":"正文"}}`, count, count, count, count))
+	return `{"pages":[` + strings.Join(pages, ",") + `]}`
+}
+
 func TestServiceGeneratePreviewPassesPromptExtraToAIBuilder(t *testing.T) {
 	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, AI: config.AICfg{Command: "ccs", Args: []string{"codex"}}}
 	runner := &fakeAICommandRunner{stdout: `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`}
@@ -70,6 +80,50 @@ func TestServiceGeneratePreviewPassesPromptExtraToAIBuilder(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "封面更抓眼") {
 		t.Fatalf("prompt = %q, want PromptExtra contents", prompt)
+	}
+}
+
+func TestServiceGeneratePreviewPassesMaxPagesToAIBuilder(t *testing.T) {
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, AI: config.AICfg{Command: "ccs", Args: []string{"codex"}}, Deck: config.DeckCfg{MaxPages: 18}}
+	runner := &fakeAICommandRunner{stdout: `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`}
+	_svcRenderer := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:      func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:        func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		AICommandRunner: runner,
+		NewRenderer:     func(Options) DeckRenderer { return _svcRenderer },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	prompt := runner.args[len(runner.args)-1]
+	if !strings.Contains(prompt, "3-18 页") {
+		t.Fatalf("prompt = %q, want configured max pages", prompt)
+	}
+}
+
+func TestServiceGeneratePreviewAcceptsConfiguredMaxPages(t *testing.T) {
+	cfg := &config.Config{
+		Output: config.OutputCfg{Dir: t.TempDir()},
+		AI:     config.AICfg{Command: "ccs", Args: []string{"codex"}},
+		Deck:   config.DeckCfg{MaxPages: 18},
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte("# 标题"), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSONWithPageCount(18), nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if len(r.rendered.Pages) != 18 {
+		t.Fatalf("renderer received %d pages, want 18", len(r.rendered.Pages))
 	}
 }
 
@@ -362,6 +416,36 @@ func TestServiceGenerateFromDeckReadsDeckAndSkipsMarkdownBuilder(t *testing.T) {
 	}
 	if result.PageCount != 3 {
 		t.Fatalf("PageCount = %d, want 3", result.PageCount)
+	}
+}
+
+func TestServiceGenerateFromDeckAcceptsConfiguredMaxPages(t *testing.T) {
+	deckDir := t.TempDir()
+	deckPath := filepath.Join(deckDir, "deck.json")
+	deckJSON := deckJSONWithPageCount(18)
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, Deck: config.DeckCfg{MaxPages: 18}}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile: func(path string) ([]byte, error) {
+			if path == deckPath {
+				return []byte(deckJSON), nil
+			}
+			return nil, os.ErrNotExist
+		},
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			t.Fatalf("BuildDeckJSON should not be called in from-deck mode")
+			return "", nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GenerateFromDeck(Options{FromDeckPath: deckPath, ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GenerateFromDeck() error = %v", err)
+	}
+	if len(r.rendered.Pages) != 18 {
+		t.Fatalf("renderer received %d pages, want 18", len(r.rendered.Pages))
 	}
 }
 

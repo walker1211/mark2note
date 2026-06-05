@@ -37,6 +37,7 @@ type DeckCfg struct {
 	ThemeMode    string            `yaml:"theme_mode"`
 	WeeklyThemes map[string]string `yaml:"weekly_themes"`
 	Author       string            `yaml:"author"`
+	MaxPages     int               `yaml:"max_pages"`
 	Watermark    WatermarkCfg      `yaml:"watermark"`
 }
 
@@ -270,6 +271,12 @@ func Load(configPath string) (*Config, error) {
 	}
 	if cfg.Deck.WeeklyThemes == nil {
 		cfg.Deck.WeeklyThemes = cloneStringMap(defaultDeckWeeklyThemes)
+	}
+	if cfg.Deck.MaxPages == 0 {
+		cfg.Deck.MaxPages = 12
+	}
+	if cfg.Deck.MaxPages < 3 || cfg.Deck.MaxPages > 18 {
+		return nil, fmt.Errorf("validate deck.max_pages: must be between 3 and 18")
 	}
 	for day, theme := range cfg.Deck.WeeklyThemes {
 		if !validDeckWeekday(day) {

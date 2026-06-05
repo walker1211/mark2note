@@ -61,6 +61,21 @@ func TestBuildDeckPromptIgnoresWhitespaceOnlyPromptExtra(t *testing.T) {
 	}
 }
 
+func TestBuildDeckJSONUsesConfiguredMaxPages(t *testing.T) {
+	runner := &fakeRunner{stdout: `{"pages":[]}`}
+	b := Builder{Runner: runner, MaxPages: 18}
+	b.SetCommand("ccs", []string{"codex"})
+
+	_, err := b.BuildDeckJSON("# title")
+	if err != nil {
+		t.Fatalf("BuildDeckJSON() error = %v", err)
+	}
+	prompt := runner.args[len(runner.args)-1]
+	if !strings.Contains(prompt, "3-18 页") || !strings.Contains(prompt, "3 到 18 页之间") {
+		t.Fatalf("prompt = %q, want configured max page range", prompt)
+	}
+}
+
 func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"pages":[]}`}
 	b := Builder{Runner: runner}
