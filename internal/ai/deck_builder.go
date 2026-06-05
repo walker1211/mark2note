@@ -9,11 +9,13 @@ import (
 	"strings"
 )
 
-const deckPromptConstraints = `你是一个严格的 JSON 生成器。
-请把输入的 Markdown 内容转换成 3-12 页动态小红书预览 deck JSON。
+const defaultMaxPages = 12
+
+const deckPromptConstraintsTemplate = `你是一个严格的 JSON 生成器。
+请把输入的 Markdown 内容转换成 3-%d 页动态小红书预览 deck JSON。
 要求：
 1. 只能输出 JSON，不要输出解释、代码块或额外文本
-2. pages 数量必须在 3 到 12 页之间（3-12 页）
+2. pages 数量必须在 3 到 %d 页之间（3-%d 页）
 3. 第一页必须是 cover
 4. 最后一页必须是 ending
 5. 每页结构必须包含：name、variant、meta、content
@@ -58,12 +60,20 @@ type Builder struct {
 	Command     string
 	Args        []string
 	PromptExtra string
+	MaxPages    int
 	Runner      CommandRunner
 }
 
 func buildDeckPrompt(markdown, promptExtra string) string {
+	return buildDeckPromptWithMaxPages(markdown, promptExtra, defaultMaxPages)
+}
+
+func buildDeckPromptWithMaxPages(markdown, promptExtra string, maxPages int) string {
+	if maxPages == 0 {
+		maxPages = defaultMaxPages
+	}
 	var sb strings.Builder
-	sb.WriteString(deckPromptConstraints)
+	sb.WriteString(fmt.Sprintf(deckPromptConstraintsTemplate, maxPages, maxPages, maxPages))
 	if extra := strings.TrimSpace(promptExtra); extra != "" {
 		sb.WriteString("\n\n")
 		sb.WriteString(promptExtraIntro)
@@ -107,7 +117,7 @@ func (b Builder) BuildDeckJSON(markdown string) (string, error) {
 	if shouldUseBareOutput(b.Command, b.Args) && !containsArg(args, "--bare") {
 		args = append(args, "--bare")
 	}
-	args = append(args, "-p", buildDeckPrompt(markdown, b.PromptExtra))
+	args = append(args, "-p", buildDeckPromptWithMaxPages(markdown, b.PromptExtra, b.MaxPages))
 	stdout, stderr, err := b.effectiveRunner().Run(b.Command, args...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)

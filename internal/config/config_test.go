@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,6 +48,45 @@ func TestLoadAppliesDefaultDeckConfig(t *testing.T) {
 	}
 	if cfg.Deck.Author != "" {
 		t.Fatalf("Deck.Author = %q, want empty", cfg.Deck.Author)
+	}
+	if cfg.Deck.MaxPages != 12 {
+		t.Fatalf("Deck.MaxPages = %d, want 12", cfg.Deck.MaxPages)
+	}
+}
+
+func TestLoadKeepsExplicitDeckMaxPages(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "deck:\n  max_pages: 18\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Deck.MaxPages != 18 {
+		t.Fatalf("Deck.MaxPages = %d, want 18", cfg.Deck.MaxPages)
+	}
+}
+
+func TestLoadRejectsInvalidDeckMaxPages(t *testing.T) {
+	for _, maxPages := range []int{2, 19} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		content := fmt.Sprintf("deck:\n  max_pages: %d\n", maxPages)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+
+		_, err := Load(path)
+		if err == nil {
+			t.Fatalf("Load() error = nil for max_pages %d, want non-nil", maxPages)
+		}
+		if !strings.Contains(err.Error(), "deck.max_pages") {
+			t.Fatalf("error = %v, want deck.max_pages", err)
+		}
 	}
 }
 

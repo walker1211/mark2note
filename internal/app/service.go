@@ -146,7 +146,7 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("%w: %w", ErrBuildDeckJSON, err)
 	}
 
-	d, err := deck.FromJSON(rawJSON, opts.OutDir)
+	d, err := deck.FromJSONWithMaxPages(rawJSON, opts.OutDir, cfg.Deck.MaxPages)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
@@ -177,7 +177,7 @@ func (s Service) GenerateFromDeck(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrReadDeck, err)
 	}
-	d, err := deck.FromJSON(string(deckBytes), opts.OutDir)
+	d, err := deck.FromJSONWithMaxPages(string(deckBytes), opts.OutDir, cfg.Deck.MaxPages)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
@@ -362,7 +362,7 @@ func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, sourc
 	}
 	configTheme := resolveConfigDeckTheme(cfg.Deck, s.effectiveNow()())
 	d.ThemeName = resolveThemeWithPrecedence(opts.Theme, metaTheme, configTheme, d.ThemeName)
-	if err := d.Validate(); err != nil {
+	if err := d.ValidateWithMaxPages(cfg.Deck.MaxPages); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
 	d.ViewportWidth = opts.ViewportWidth
@@ -446,7 +446,7 @@ func (s Service) effectiveBuildDeckJSON() func(*config.Config, string) (string, 
 		return s.BuildDeckJSON
 	}
 	return func(cfg *config.Config, markdown string) (string, error) {
-		b := ai.Builder{PromptExtra: s.PromptExtra, Runner: s.AICommandRunner}
+		b := ai.Builder{PromptExtra: s.PromptExtra, MaxPages: cfg.Deck.MaxPages, Runner: s.AICommandRunner}
 		b.SetCommand(cfg.AI.Command, cfg.AI.Args)
 		return b.BuildDeckJSON(markdown)
 	}
