@@ -12,24 +12,27 @@ import (
 )
 
 type PublishOptions struct {
-	Account          string
-	Title            string
-	TitleFile        string
-	Content          string
-	ContentFile      string
-	Tags             []string
-	Mode             string
-	ScheduleAt       string
-	ImagePaths       []string
-	LiveReportPath   string
-	LivePages        []string
-	ChromePath       string
-	Headless         bool
-	ProfileDir       string
-	ChromeArgs       []string
-	DeclareOriginal  bool
-	AllowContentCopy bool
-	StopBeforeSubmit bool
+	Account                 string
+	Title                   string
+	TitleFile               string
+	Content                 string
+	ContentFile             string
+	Tags                    []string
+	Mode                    string
+	Visibility              string
+	ScheduleAt              string
+	Collection              string
+	ImagePaths              []string
+	LiveReportPath          string
+	LivePages               []string
+	ChromePath              string
+	Headless                bool
+	ProfileDir              string
+	ChromeArgs              []string
+	DeclareOriginal         bool
+	OriginalDeclarationType string
+	AllowContentCopy        bool
+	StopBeforeSubmit        bool
 }
 
 type PublishRuntimeOptions struct {
@@ -94,16 +97,27 @@ func (s PublishService) Publish(opts PublishOptions) (PublishResult, error) {
 }
 
 func buildPublishRequest(opts PublishOptions, title string, content string, mode xhs.PublishMode, scheduleTime *time.Time) (xhs.PublishRequest, error) {
+	visibility, err := xhs.ValidateVisibility(opts.Visibility)
+	if err != nil {
+		return xhs.PublishRequest{}, fmt.Errorf("%w: %v", ErrPublishRequestInvalid, err)
+	}
+	declarationType, err := xhs.ValidateOriginalDeclarationType(opts.OriginalDeclarationType)
+	if err != nil {
+		return xhs.PublishRequest{}, fmt.Errorf("%w: %v", ErrPublishRequestInvalid, err)
+	}
 	request := xhs.PublishRequest{
-		Account:          strings.TrimSpace(opts.Account),
-		Title:            xhs.NormalizePublishTitle(title),
-		Content:          content,
-		Tags:             trimSlice(opts.Tags),
-		Mode:             mode,
-		ScheduleTime:     scheduleTime,
-		DeclareOriginal:  opts.DeclareOriginal,
-		AllowContentCopy: opts.AllowContentCopy,
-		StopBeforeSubmit: opts.StopBeforeSubmit,
+		Account:                 strings.TrimSpace(opts.Account),
+		Title:                   xhs.NormalizePublishTitle(title),
+		Content:                 content,
+		Tags:                    trimSlice(opts.Tags),
+		Mode:                    mode,
+		Visibility:              visibility,
+		ScheduleTime:            scheduleTime,
+		Collection:              strings.TrimSpace(opts.Collection),
+		DeclareOriginal:         opts.DeclareOriginal,
+		OriginalDeclarationType: declarationType,
+		AllowContentCopy:        opts.AllowContentCopy,
+		StopBeforeSubmit:        opts.StopBeforeSubmit,
 	}
 	imagePaths := trimSlice(opts.ImagePaths)
 	livePages := trimSlice(opts.LivePages)

@@ -110,8 +110,11 @@ func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	if !strings.Contains(prompt, "第一页必须是 cover") {
 		t.Fatalf("prompt missing cover anchor: %q", prompt)
 	}
-	if !strings.Contains(prompt, "最后一页必须是 ending") {
-		t.Fatalf("prompt missing ending anchor: %q", prompt)
+	if !strings.Contains(prompt, "不要强制最后一页使用 ending") {
+		t.Fatalf("prompt missing optional ending guidance: %q", prompt)
+	}
+	if strings.Contains(prompt, "最后一页必须是 ending") {
+		t.Fatalf("prompt should not force ending as the last page: %q", prompt)
 	}
 	if !strings.Contains(prompt, "name、variant、meta、content") {
 		t.Fatalf("prompt missing page field schema: %q", prompt)
@@ -137,17 +140,29 @@ func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	if !strings.Contains(prompt, "quote 的 title 和 quote 必填") {
 		t.Fatalf("prompt missing quote required fields: %q", prompt)
 	}
+	if !strings.Contains(prompt, "variant 只能使用：cover、quote、image-caption、text-caption、bullets、compare、gallery-steps、ending") {
+		t.Fatalf("prompt missing text-caption in variant whitelist: %q", prompt)
+	}
 	if !strings.Contains(prompt, "image-caption 只能使用 title/body/images") {
 		t.Fatalf("prompt missing image-caption body/images marker: %q", prompt)
 	}
 	if !strings.Contains(prompt, "image-caption 的 title 必填") {
 		t.Fatalf("prompt missing image-caption required title rule: %q", prompt)
 	}
-	if !strings.Contains(prompt, "image-caption 最多 1 张图") {
-		t.Fatalf("prompt missing image-caption image limit: %q", prompt)
+	if !strings.Contains(prompt, "image-caption 的 images 必须正好 1 项") {
+		t.Fatalf("prompt missing image-caption exact image count: %q", prompt)
+	}
+	if strings.Contains(prompt, "image-caption 最多 1 张图") {
+		t.Fatalf("prompt should not allow image-caption without an image: %q", prompt)
 	}
 	if !strings.Contains(prompt, "每个 image 都必须包含 src 和 alt") {
 		t.Fatalf("prompt missing image src/alt rule: %q", prompt)
+	}
+	if !strings.Contains(prompt, "text-caption 只能使用 title/body/tip") {
+		t.Fatalf("prompt missing text-caption content whitelist: %q", prompt)
+	}
+	if !strings.Contains(prompt, "text-caption 的 title 和 body 必填") {
+		t.Fatalf("prompt missing text-caption required fields: %q", prompt)
 	}
 	if !strings.Contains(prompt, "bullets 只能使用 title/items") {
 		t.Fatalf("prompt missing bullets content whitelist: %q", prompt)
@@ -241,7 +256,7 @@ func TestBuildDeckJSONPromptPreservesFullVisibleCodeBlocks(t *testing.T) {
 		"每页可见内容必须完整放进 1242x1656 竖版卡片",
 		"长正文和长代码块必须保留原文完整内容",
 		"不要用省略号、省略说明或伪代码替代 fenced code block",
-		"需要容纳长内容时优先选择 image-caption 或 ending，由渲染层缩小字号和间距",
+		"需要容纳长内容时优先选择 text-caption、image-caption 或 ending，由渲染层缩小字号和间距",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing full-content fit rule %q: %q", want, prompt)
@@ -275,7 +290,7 @@ func TestBuildDeckJSONPromptSplitsOversizedFencedCodeBlocks(t *testing.T) {
 	prompt := runner.args[3]
 	for _, want := range []string{
 		"fenced code block 过长时不要强行塞进单页",
-		"拆成连续的 image-caption 页面",
+		"拆成连续的 text-caption 或 image-caption 页面",
 		"每页保留连续、完整、可执行的原始代码片段",
 		"不得用省略号替代被拆分的代码",
 	} {

@@ -49,6 +49,7 @@ func TestPublishServiceBuildsStandardRequestFromInlineFields(t *testing.T) {
 		Content:    "正文",
 		Tags:       []string{"效率", "AI"},
 		Mode:       string(xhs.PublishModeOnlySelf),
+		Collection: "AI科技日报",
 		ImagePaths: []string{"cover.jpg", "detail.jpg"},
 		ChromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 		Headless:   true,
@@ -66,6 +67,8 @@ func TestPublishServiceBuildsStandardRequestFromInlineFields(t *testing.T) {
 		Content:    "正文",
 		Tags:       []string{"效率", "AI"},
 		Mode:       xhs.PublishModeOnlySelf,
+		Visibility: xhs.PublishVisibilityOnlySelf,
+		Collection: "AI科技日报",
 		MediaKind:  xhs.MediaKindStandard,
 		ImagePaths: []string{"cover.jpg", "detail.jpg"},
 	}
@@ -263,6 +266,22 @@ func TestPublishServiceCarriesChromeArgsIntoRuntime(t *testing.T) {
 	}
 }
 
+func TestPublishServiceCarriesVisibilityIntoRequest(t *testing.T) {
+	orchestrator := &fakePublishOrchestrator{}
+	service := PublishService{
+		Now:             func() time.Time { return shanghaiNow(2026, 4, 18, 16, 0, 0) },
+		NewOrchestrator: func(PublishRuntimeOptions) PublishOrchestrator { return orchestrator },
+	}
+
+	_, err := service.Publish(PublishOptions{Account: "creator-a", Title: "标题", Content: "正文", Mode: string(xhs.PublishModeOnlySelf), Visibility: "public", ImagePaths: []string{"cover.jpg"}})
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if orchestrator.request.Visibility != xhs.PublishVisibilityPublic {
+		t.Fatalf("Visibility = %q, want public", orchestrator.request.Visibility)
+	}
+}
+
 func TestPublishServiceCarriesOriginalityFlagsIntoRequest(t *testing.T) {
 	orchestrator := &fakePublishOrchestrator{}
 	service := PublishService{
@@ -271,18 +290,19 @@ func TestPublishServiceCarriesOriginalityFlagsIntoRequest(t *testing.T) {
 	}
 
 	_, err := service.Publish(PublishOptions{
-		Account:          "creator-a",
-		Title:            "标题",
-		Content:          "正文",
-		Mode:             string(xhs.PublishModeOnlySelf),
-		ImagePaths:       []string{"cover.jpg"},
-		DeclareOriginal:  true,
-		AllowContentCopy: false,
+		Account:                 "creator-a",
+		Title:                   "标题",
+		Content:                 "正文",
+		Mode:                    string(xhs.PublishModeOnlySelf),
+		ImagePaths:              []string{"cover.jpg"},
+		DeclareOriginal:         true,
+		OriginalDeclarationType: "ai_generated",
+		AllowContentCopy:        false,
 	})
 	if err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if !orchestrator.request.DeclareOriginal || orchestrator.request.AllowContentCopy {
+	if !orchestrator.request.DeclareOriginal || orchestrator.request.OriginalDeclarationType != "ai_generated" || orchestrator.request.AllowContentCopy {
 		t.Fatalf("request = %#v", orchestrator.request)
 	}
 }

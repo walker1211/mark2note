@@ -154,6 +154,7 @@ var supportedVariants = map[string]struct{}{
 	"cover":         {},
 	"quote":         {},
 	"image-caption": {},
+	"text-caption":  {},
 	"bullets":       {},
 	"compare":       {},
 	"gallery-steps": {},
@@ -175,6 +176,11 @@ var allowedContentFieldsByVariant = map[string]map[string]struct{}{
 		"title":  {},
 		"body":   {},
 		"images": {},
+	},
+	"text-caption": {
+		"title": {},
+		"body":  {},
+		"tip":   {},
 	},
 	"bullets": {
 		"title": {},
@@ -257,6 +263,9 @@ func DefaultDeck(outDir string) Deck {
 			Content: PageContent{
 				Title: "先给结论，再补背景",
 				Body:  "图文页适合承接复杂信息：用一段说明解释原因，再用配图帮助读者快速建立场景。",
+				Images: []ImageBlock{
+					{Src: "https://example.com/context.png", Alt: "内容结构示意图"},
+				},
 			},
 		},
 		{
@@ -300,25 +309,11 @@ func DefaultDeck(outDir string) Deck {
 			},
 		},
 		{
-			Name:    "p6-image-caption",
-			Variant: "image-caption",
+			Name:    "p6-gallery-steps",
+			Variant: "gallery-steps",
 			Meta: PageMeta{
 				Badge:   "第 6 页",
 				Counter: "6/8",
-				Theme:   ThemeDefault,
-				CTA:     "示意图可以降低理解门槛",
-			},
-			Content: PageContent{
-				Title: "给复杂步骤配一张示意图",
-				Body:  "当流程较长时，用图示标注关键节点，能帮助读者快速把握输入、处理和输出关系。",
-			},
-		},
-		{
-			Name:    "p7-gallery-steps",
-			Variant: "gallery-steps",
-			Meta: PageMeta{
-				Badge:   "第 7 页",
-				Counter: "7/8",
 				Theme:   ThemeDefault,
 				CTA:     "把方法沉淀为可复用流程",
 			},
@@ -329,6 +324,20 @@ func DefaultDeck(outDir string) Deck {
 					"提炼结论并确定页面顺序",
 					"校对语句后统一视觉风格",
 				},
+			},
+		},
+		{
+			Name:    "p7-text-caption",
+			Variant: "text-caption",
+			Meta: PageMeta{
+				Badge:   "第 7 页",
+				Counter: "7/8",
+				Theme:   ThemeDefault,
+				CTA:     "无图也保留信息层次",
+			},
+			Content: PageContent{
+				Title: "没有配图时拆成两块信息",
+				Body:  "**摘要：** 用短段落保留新闻事实和关键背景，让读者先建立完整理解。\n\n**影响：** 再单独说明后续变化、判断标准或行动建议，避免把结论压成一句口号。",
 			},
 		},
 		{
@@ -409,9 +418,6 @@ func (d Deck) ValidateWithMaxPages(configuredMaxPages int) error {
 	}
 	if d.Pages[0].Variant != "cover" {
 		return fmt.Errorf("first page must use cover variant")
-	}
-	if d.Pages[len(d.Pages)-1].Variant != "ending" {
-		return fmt.Errorf("last page must use ending variant")
 	}
 	seenNames := make(map[string]struct{}, len(d.Pages))
 	for _, page := range d.Pages {
@@ -515,6 +521,9 @@ func validateContent(page Page) error {
 		if content.Title == "" {
 			return pageErr(page.Name, page.Variant, "title is required")
 		}
+		if len(content.Images) == 0 {
+			return pageErr(page.Name, page.Variant, "images requires exactly 1 item")
+		}
 		if len(content.Images) > 1 {
 			return pageErr(page.Name, page.Variant, "images accepts at most 1 item")
 		}
@@ -522,6 +531,13 @@ func validateContent(page Page) error {
 			if image.Src == "" || image.Alt == "" {
 				return pageErr(page.Name, page.Variant, "images[%d].src and images[%d].alt are required", i, i)
 			}
+		}
+	case "text-caption":
+		if content.Title == "" {
+			return pageErr(page.Name, page.Variant, "title is required")
+		}
+		if content.Body == "" {
+			return pageErr(page.Name, page.Variant, "body is required")
 		}
 	case "bullets":
 		if content.Title == "" {

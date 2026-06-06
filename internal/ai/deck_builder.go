@@ -17,16 +17,17 @@ const deckPromptConstraintsTemplate = `你是一个严格的 JSON 生成器。
 1. 只能输出 JSON，不要输出解释、代码块或额外文本
 2. pages 数量必须在 3 到 %d 页之间（3-%d 页）
 3. 第一页必须是 cover
-4. 最后一页必须是 ending
+4. 不要强制最后一页使用 ending；只有原文需要明确总结、收束或行动提醒时才使用 ending
 5. 每页结构必须包含：name、variant、meta、content
 6. 每页 name 必须唯一，建议使用顺序编号命名
 7. 每页 meta 必须包含：badge、counter、theme、cta
 8. meta.theme 保留为兼容字段，可使用 default；实际整套卡片颜色由顶层 theme 决定
-9. variant 只能使用：cover、quote、image-caption、bullets、compare、gallery-steps、ending
+9. variant 只能使用：cover、quote、image-caption、text-caption、bullets、compare、gallery-steps、ending
 10. content 字段按 variant 严格约束：
    - cover 只能使用 title/subtitle，且 cover 的 title 必填
    - quote 只能使用 title/quote/note/tip，且 quote 的 title 和 quote 必填
-   - image-caption 只能使用 title/body/images，且 image-caption 的 title 必填、image-caption 最多 1 张图；如果提供 images，每个 image 都必须包含 src 和 alt
+   - image-caption 只能使用 title/body/images，且 image-caption 的 title 必填、image-caption 的 images 必须正好 1 项，每个 image 都必须包含 src 和 alt
+   - text-caption 只能使用 title/body/tip，且 text-caption 的 title 和 body 必填
    - bullets 只能使用 title/items，且 bullets 的 title 必填、items 至少 1 项
    - compare 只能使用 title/compare，且 compare 的 title 必填、compare 必须使用 compare{leftLabel,rightLabel,rows}、compare.leftLabel/rightLabel 必填、rows 至少 1 项，且每个 rows 项都必须包含 left 和 right
    - gallery-steps 只能使用 title/steps/images，且 gallery-steps 的 title 必填、steps 至少 2 个；如果提供 images，每个 image 都必须包含 src 和 alt
@@ -40,8 +41,8 @@ const deckPromptConstraintsTemplate = `你是一个严格的 JSON 生成器。
 17. 如果原文某些术语已使用行内代码反引号表示，改写后必须保留该行内代码语义，不得去掉
 18. 每页可见内容必须完整放进 1242x1656 竖版卡片，不能依赖浏览器裁切
 19. 长正文和长代码块必须保留原文完整内容，不要用省略号、省略说明或伪代码替代 fenced code block
-20. 需要容纳长内容时优先选择 image-caption 或 ending，由渲染层缩小字号和间距；不要为了排版删减原文代码
-21. fenced code block 过长时不要强行塞进单页；拆成连续的 image-caption 页面，每页保留连续、完整、可执行的原始代码片段，不得用省略号替代被拆分的代码`
+20. 需要容纳长内容时优先选择 text-caption、image-caption 或 ending，由渲染层缩小字号和间距；不要为了排版删减原文代码
+21. fenced code block 过长时不要强行塞进单页；拆成连续的 text-caption 或 image-caption 页面，每页保留连续、完整、可执行的原始代码片段，不得用省略号替代被拆分的代码`
 
 const deckPromptMarkdownFooter = "\n\nMarkdown 如下：\n"
 const promptExtraIntro = "以下是本次生成的额外约束，只能用于控制风格、安全边界和取舍；不得原文复制、不得改写、不得概括到 JSON 的任何可见字段里，包括 title、subtitle、body、quote、note、tip、cta、items、steps、compare、images.alt。可见文案只能来自 Markdown 原文："

@@ -107,13 +107,16 @@ func TestRenderHTMLIncludesBadgeCounterAndCTA(t *testing.T) {
 		d.Pages[0].Content.Title,
 		`class="header-row"`,
 		`class="pill page-badge"`,
-		`class="page-no page-counter"`,
+		`class="page-counter"`,
 		`class="cta-bar cover-cta"`,
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(html, want) {
 			t.Fatalf("html missing %q", want)
 		}
+	}
+	if strings.Contains(html, `class="page-no page-counter"`) {
+		t.Fatalf("page counter should stay in the header instead of bottom page-no: %s", html)
 	}
 }
 
@@ -437,7 +440,7 @@ func mustExtractContainerHTML(t *testing.T, html string, marker string) string {
 	return ""
 }
 
-func TestRenderHTMLImageCaptionWrapsBodyAndCTAInContentColumn(t *testing.T) {
+func TestRenderHTMLImageCaptionRendersImageAndBodyWithoutBottomCTA(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
 		Name:    "p05-image-caption",
@@ -466,9 +469,10 @@ func TestRenderHTMLImageCaptionWrapsBodyAndCTAInContentColumn(t *testing.T) {
 		`flex-direction: column;`,
 		`.image-caption-image {`,
 		`height: 760px;`,
-		`.image-caption-cta {`,
-		`position: static;`,
-		`margin-top: auto;`,
+		`.image-frame {`,
+		`padding: 0;`,
+		`overflow: hidden;`,
+		`object-fit: cover;`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("html missing image-caption layout css %q", want)
@@ -478,25 +482,69 @@ func TestRenderHTMLImageCaptionWrapsBodyAndCTAInContentColumn(t *testing.T) {
 	for _, want := range []string{
 		`class="image-frame image-caption-image"`,
 		`<div class="caption">`,
-		`class="cta-bar image-caption-cta"`,
 	} {
 		if !strings.Contains(container, want) {
 			t.Fatalf("image-caption container missing %q: %s", want, container)
 		}
 	}
+	for _, unwanted := range []string{`class="cta-bar image-caption-cta"`, "把风险拆开，工作流就更稳"} {
+		if strings.Contains(container, unwanted) {
+			t.Fatalf("image-caption should not render bottom CTA %q: %s", unwanted, container)
+		}
+	}
 	imageIndex := strings.Index(container, `class="image-frame image-caption-image`)
 	captionIndex := strings.Index(container, `<div class="caption">`)
-	ctaIndex := strings.Index(container, `class="cta-bar image-caption-cta"`)
-	if !(imageIndex >= 0 && captionIndex > imageIndex && ctaIndex > captionIndex) {
-		t.Fatalf("image-caption layout should render image, caption, then cta in order: %s", container)
+	if !(imageIndex >= 0 && captionIndex > imageIndex) {
+		t.Fatalf("image-caption layout should render image, then caption in order: %s", container)
 	}
 }
 
-func TestRenderHTMLImageCaptionKeepsCTAInsideLayoutWithoutImage(t *testing.T) {
+func TestRenderHTMLTextCaptionUsesContinuousNewsCopyCard(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
-		Name:    "p05-image-caption",
-		Variant: "image-caption",
+		Name:    "p05-text-caption",
+		Variant: "text-caption",
+		Meta: deck.PageMeta{
+			Badge:   "第 5 页",
+			Counter: "5/6",
+			Theme:   "green",
+			CTA:     "无图也保留观点卡节奏",
+		},
+		Content: deck.PageContent{
+			Title: "纯文字图文页",
+			Body:  "**摘要：** 只有正文，也应该有像 quote 一样的视觉重心。\n\n**影响：** 少一层副标题，让正文更聚焦。",
+		},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	container := mustExtractContainerHTML(t, html, `<div class="text-caption-layout"`)
+	for _, want := range []string{
+		`class="card quote-card text-caption-card"`,
+		`class="quote-wrap text-caption-wrap"`,
+		`class="quote-bar"`,
+		`class="text-caption-copy"`,
+		`font-size: var(--caption-font-size);`,
+		`line-height: var(--caption-line-height);`,
+	} {
+		if !strings.Contains(html, want) && !strings.Contains(container, want) {
+			t.Fatalf("text-caption card missing %q: %s", want, container)
+		}
+	}
+	for _, unwanted := range []string{`class="text-caption-section"`, `class="text-caption-label"`, `quote-main`} {
+		if strings.Contains(container, unwanted) {
+			t.Fatalf("text-caption should render continuous copy without %q: %s", unwanted, container)
+		}
+	}
+}
+
+func TestRenderHTMLTextCaptionKeepsCTAInsideLayout(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	page := deck.Page{
+		Name:    "p05-text-caption",
+		Variant: "text-caption",
 		Meta: deck.PageMeta{
 			Badge:   "第 5 页",
 			Counter: "5/6",
@@ -505,39 +553,7 @@ func TestRenderHTMLImageCaptionKeepsCTAInsideLayoutWithoutImage(t *testing.T) {
 		},
 		Content: deck.PageContent{
 			Title: "纯文字图文页",
-			Body:  "只有正文，也应该保持清晰的阅读顺序。",
-		},
-	}
-
-	html, err := RenderPageHTML(d, page)
-	if err != nil {
-		t.Fatalf("RenderPageHTML() error = %v", err)
-	}
-	for _, want := range []string{`.image-caption-layout {`, `.image-caption-cta {`, `margin-top: auto;`} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("html missing image-caption layout css %q", want)
-		}
-	}
-	container := mustExtractContainerHTML(t, html, `<div class="image-caption-layout image-caption-no-image"`)
-	if strings.Contains(container, `class="image-frame image-caption-image`) {
-		t.Fatalf("html should not render image block when no image is provided: %s", container)
-	}
-	captionIndex := strings.Index(container, `<div class="caption">`)
-	ctaIndex := strings.Index(container, `class="cta-bar image-caption-cta"`)
-	if !(captionIndex >= 0 && ctaIndex > captionIndex) {
-		t.Fatalf("image-caption without image should render caption before cta: %s", container)
-	}
-}
-
-func TestRenderHTMLImageCaptionWithoutImageEnablesAutoFit(t *testing.T) {
-	d := deck.DefaultDeck("/tmp/out")
-	page := deck.Page{
-		Name:    "p03-image-caption",
-		Variant: "image-caption",
-		Meta:    deck.PageMeta{Badge: "第 3 页", Counter: "3/12", Theme: "default", CTA: "开源代码好自查"},
-		Content: deck.PageContent{
-			Title: "开源代码好自查",
-			Body:  "在本机安装的 OpenClaw 里，找到了这样一段 suppression：\n\n```text\nprovider: openai-codex\nmodel: gpt-5.3-codex-spark\n```",
+			Body:  "**摘要：** 只有正文，也应该保持清晰的阅读顺序。\n\n**影响：** 底部 CTA 保持在同一列里。",
 		},
 	}
 
@@ -546,27 +562,78 @@ func TestRenderHTMLImageCaptionWithoutImageEnablesAutoFit(t *testing.T) {
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
 	for _, want := range []string{
-		`class="image-caption-layout image-caption-no-image`,
-		`data-fit-auto="image-caption"`,
-		`function applyImageCaptionAutoFit()`,
-		`content-fit-roomy`,
-		`content-fit-balanced`,
+		`.text-caption-layout {`,
+		`.text-caption-card {`,
+		`flex: 0 0 auto;`,
+		`.text-caption-cta {`,
+		`margin-top: 0;`,
 	} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("html missing auto-fit marker %q", want)
+			t.Fatalf("html missing text-caption snug layout css %q", want)
+		}
+	}
+	for _, unwanted := range []string{`.text-caption-layout {\n    height: 1220px;`, `.text-caption-cta {\n    position: static;\n    margin-top: auto;`} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("text-caption should not reserve fixed empty space %q", unwanted)
+		}
+	}
+	container := mustExtractContainerHTML(t, html, `<div class="text-caption-layout`)
+	if strings.Contains(container, `class="image-frame image-caption-image`) {
+		t.Fatalf("text-caption should not render image block: %s", container)
+	}
+	copyIndex := strings.Index(container, `class="text-caption-copy"`)
+	ctaIndex := strings.Index(container, `class="cta-bar text-caption-cta"`)
+	if !(copyIndex >= 0 && ctaIndex > copyIndex) {
+		t.Fatalf("text-caption should render continuous copy before cta: %s", container)
+	}
+}
+
+func TestRenderHTMLTextCaptionUsesStableNewsFontSize(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	page := deck.Page{
+		Name:    "p03-text-caption",
+		Variant: "text-caption",
+		Meta:    deck.PageMeta{Badge: "第 3 页", Counter: "3/12", Theme: "default", CTA: "开源代码好自查"},
+		Content: deck.PageContent{
+			Title: "开源代码好自查",
+			Body:  "**摘要：** 在本机安装的 OpenClaw 里，找到了这样一段 suppression：\n\n```text\nprovider: openai-codex\nmodel: gpt-5.3-codex-spark\n```\n\n**影响：** 需要把命令和判断分块展示。" + strings.Repeat("补充说明。", 30),
+		},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{
+		`class="text-caption-layout"`,
+		`class="text-caption-copy"`,
+		`--caption-font-size: 38px;`,
+		`font-size: var(--caption-font-size);`,
+		`line-height: var(--caption-line-height);`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing stable text-caption marker %q", want)
+		}
+	}
+	if strings.Contains(html, `class="text-caption-layout content-fit-`) {
+		t.Fatalf("text-caption should not shrink news font via content-fit class: %s", html)
+	}
+	for _, unwanted := range []string{`class="text-caption-section"`, `class="text-caption-label"`} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("text-caption should not render split sections %q: %s", unwanted, html)
 		}
 	}
 }
 
-func TestRenderHTMLImageCaptionWrapsLongPlainText(t *testing.T) {
+func TestRenderHTMLTextCaptionWrapsLongPlainText(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
-		Name:    "p04-image-caption",
-		Variant: "image-caption",
+		Name:    "p04-text-caption",
+		Variant: "text-caption",
 		Meta:    deck.PageMeta{Badge: "第 4 页", Counter: "4/12", Theme: "default", CTA: "链接也要完整"},
 		Content: deck.PageContent{
 			Title: "长链接不能被裁掉",
-			Body:  "https://github.com/openclaw/openclaw/issues/46734",
+			Body:  "**摘要：** https://github.com/openclaw/openclaw/issues/46734",
 		},
 	}
 
@@ -577,6 +644,7 @@ func TestRenderHTMLImageCaptionWrapsLongPlainText(t *testing.T) {
 	for _, want := range []string{
 		`overflow-wrap: anywhere;`,
 		`word-break: break-word;`,
+		`.text-caption-copy {`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("html missing long plain text wrap CSS %q", want)
@@ -584,15 +652,15 @@ func TestRenderHTMLImageCaptionWrapsLongPlainText(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLImageCaptionAutoFitChecksHorizontalOverflow(t *testing.T) {
+func TestRenderHTMLTextCaptionWrapsHorizontalOverflow(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
-		Name:    "p04-image-caption",
-		Variant: "image-caption",
+		Name:    "p04-text-caption",
+		Variant: "text-caption",
 		Meta:    deck.PageMeta{Badge: "第 4 页", Counter: "4/12", Theme: "default", CTA: "链接也要完整"},
 		Content: deck.PageContent{
 			Title: "长链接不能被裁掉",
-			Body:  "https://github.com/openclaw/openclaw/issues/46734",
+			Body:  "**摘要：** https://github.com/openclaw/openclaw/issues/46734",
 		},
 	}
 
@@ -601,25 +669,25 @@ func TestRenderHTMLImageCaptionAutoFitChecksHorizontalOverflow(t *testing.T) {
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
 	for _, want := range []string{
-		`layout.scrollWidth <= layout.clientWidth + 1`,
-		`page.scrollWidth <= page.clientWidth + 1`,
-		`caption.scrollWidth <= caption.clientWidth + 1`,
+		`.text-caption-copy {`,
+		`overflow-wrap: anywhere;`,
+		`word-break: break-word;`,
 	} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("html missing horizontal auto-fit check %q", want)
+			t.Fatalf("html missing horizontal wrap marker %q", want)
 		}
 	}
 }
 
-func TestRenderHTMLImageCaptionAutoFitDetectsCodeHeavyPages(t *testing.T) {
+func TestRenderHTMLTextCaptionScalesCodeHeavyPages(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
-		Name:    "p07-image-caption",
-		Variant: "image-caption",
+		Name:    "p07-text-caption",
+		Variant: "text-caption",
 		Meta:    deck.PageMeta{Badge: "第 7 页", Counter: "7/12", Theme: "default", CTA: "临时补丁自己打"},
 		Content: deck.PageContent{
 			Title: "开源补丁自己打",
-			Body:  "说明\n\n```python\nimport json\nfrom pathlib import Path\npath = Path('/tmp/openclaw.plugin.json')\ndata = json.loads(path.read_text())\nmodels = data['providers']['openai-codex'].setdefault('models', [])\nmodels.append({'id': 'gpt-5.3-codex-spark'})\npath.write_text(json.dumps(data))\n```",
+			Body:  "**摘要：** 说明\n\n```python\nimport json\nfrom pathlib import Path\npath = Path('/tmp/openclaw.plugin.json')\ndata = json.loads(path.read_text())\nmodels = data['providers']['openai-codex'].setdefault('models', [])\nmodels.append({'id': 'gpt-5.3-codex-spark'})\npath.write_text(json.dumps(data))\n```\n\n**影响：** 代码块也要保持可读。",
 		},
 	}
 
@@ -628,16 +696,16 @@ func TestRenderHTMLImageCaptionAutoFitDetectsCodeHeavyPages(t *testing.T) {
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
 	for _, want := range []string{
-		`var codeBlocks = caption.querySelectorAll('.code-block');`,
-		`layout.classList.toggle('code-heavy', codeBlocks.length > 0);`,
-		`.image-caption-layout.image-caption-no-image.code-heavy.content-fit-dense {`,
-		`--code-font-size: 18px;`,
-		`.image-caption-layout.image-caption-no-image.code-heavy.content-fit-ultra {`,
-		`--code-font-size: 16px;`,
+		`.text-caption-copy .code-block {`,
+		`font-size: var(--code-font-size);`,
+		`path = Path(&#39;/tmp/openclaw.plugin.json&#39;)`,
 	} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("html missing code-heavy fit marker %q", want)
+			t.Fatalf("html missing text-caption code marker %q", want)
 		}
+	}
+	if strings.Contains(html, `.text-caption-layout.content-fit-dense`) {
+		t.Fatalf("text-caption should not use dense fit styles: %s", html)
 	}
 }
 
@@ -669,11 +737,11 @@ func TestRenderHTMLImageCaptionWithImageKeepsStaticFitOnly(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLIncludesImageCaptionAutoFitCandidateStyles(t *testing.T) {
+func TestRenderHTMLTextCaptionOmitsFitCandidateStyles(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
-		Name:    "p03-image-caption",
-		Variant: "image-caption",
+		Name:    "p03-text-caption",
+		Variant: "text-caption",
 		Meta:    deck.PageMeta{Badge: "第 3 页", Counter: "3/12", Theme: "default", CTA: "开源代码好自查"},
 		Content: deck.PageContent{
 			Title: "开源代码好自查",
@@ -685,23 +753,24 @@ func TestRenderHTMLIncludesImageCaptionAutoFitCandidateStyles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
-	for _, want := range []string{
-		`--image-caption-gap: 34px;`,
-		`gap: var(--image-caption-gap);`,
-		`font-size: var(--caption-font-size);`,
-		`font-size: var(--code-font-size);`,
-		`.image-caption-layout.image-caption-no-image.content-fit-roomy {`,
-		`--caption-font-size: 44px;`,
-		`.image-caption-layout.image-caption-no-image.content-fit-ultra {`,
-		`--code-font-size: 13px;`,
+	for _, unwanted := range []string{
+		`.text-caption-layout.content-fit-compact`,
+		`.text-caption-layout.content-fit-dense`,
+		`.text-caption-layout.content-fit-ultra`,
+		`class="text-caption-layout content-fit-`,
 	} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("text-caption should omit fit CSS marker %q: %s", unwanted, html)
+		}
+	}
+	for _, want := range []string{`.text-caption-card {`, `.text-caption-copy {`, `.text-caption-copy .code-block {`} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("html missing auto-fit CSS variable marker %q", want)
+			t.Fatalf("html missing stable text-caption CSS marker %q", want)
 		}
 	}
 }
 
-func TestRenderHTMLImageCaptionRendersCTAAfterImageWhenBodyMissing(t *testing.T) {
+func TestRenderHTMLImageCaptionOmitsCTAWhenBodyMissing(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
 		Name:    "p05-image-caption",
@@ -722,7 +791,7 @@ func TestRenderHTMLImageCaptionRendersCTAAfterImageWhenBodyMissing(t *testing.T)
 	if err != nil {
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
-	for _, want := range []string{`.image-caption-layout {`, `.image-caption-image {`, `.image-caption-cta {`, `margin-top: auto;`} {
+	for _, want := range []string{`.image-caption-layout {`, `.image-caption-image {`} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("html missing image-caption layout css %q", want)
 		}
@@ -731,10 +800,13 @@ func TestRenderHTMLImageCaptionRendersCTAAfterImageWhenBodyMissing(t *testing.T)
 	if strings.Contains(container, `<div class="caption">`) {
 		t.Fatalf("html should not render caption block when body is missing: %s", container)
 	}
-	imageIndex := strings.Index(container, `class="image-frame image-caption-image`)
-	ctaIndex := strings.Index(container, `class="cta-bar image-caption-cta"`)
-	if !(imageIndex >= 0 && ctaIndex > imageIndex) {
-		t.Fatalf("image-caption without body should render cta after image: %s", container)
+	for _, unwanted := range []string{`class="cta-bar image-caption-cta"`, "只有配图也要保留 CTA"} {
+		if strings.Contains(container, unwanted) {
+			t.Fatalf("image-caption should omit bottom CTA %q: %s", unwanted, container)
+		}
+	}
+	if !strings.Contains(container, `class="image-frame image-caption-image`) {
+		t.Fatalf("image-caption without body should still render image: %s", container)
 	}
 }
 
@@ -759,15 +831,15 @@ func TestRenderHTMLEndingUsesDynamicBody(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLScalesLongImageCaptionBodyWithoutTruncatingCode(t *testing.T) {
+func TestRenderHTMLKeepsLongTextCaptionBodyWithoutTruncatingCode(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
-		Name:    "p11-image-caption",
-		Variant: "image-caption",
+		Name:    "p11-text-caption",
+		Variant: "text-caption",
 		Meta:    deck.PageMeta{Badge: "第 11 页", Counter: "11/12", Theme: "green", CTA: "patch 前一定备份"},
 		Content: deck.PageContent{
 			Title: "如果列表里没有：临时 patch",
-			Body:  "说明\n\n```bash\npython3 - <<'PY'\nimport json\nimport shutil\nfrom pathlib import Path\nfrom datetime import datetime\npath = Path('/tmp/openclaw.plugin.json')\nbackup = path.with_name(path.name + '.bak')\nshutil.copy2(path, backup)\ndata = json.loads(path.read_text())\nmodels = data['providers']['openai-codex'].setdefault('models', [])\nmodels.append({'id': 'gpt-5.3-codex-spark'})\npath.write_text(json.dumps(data))\nprint(f'patched: {path}')\nprint(f'backup:  {backup}')\nPY\n```",
+			Body:  "**摘要：** 说明\n\n```bash\npython3 - <<'PY'\nimport json\nimport shutil\nfrom pathlib import Path\nfrom datetime import datetime\npath = Path('/tmp/openclaw.plugin.json')\nbackup = path.with_name(path.name + '.bak')\nshutil.copy2(path, backup)\ndata = json.loads(path.read_text())\nmodels = data['providers']['openai-codex'].setdefault('models', [])\nmodels.append({'id': 'gpt-5.3-codex-spark'})\npath.write_text(json.dumps(data))\nprint(f'patched: {path}')\nprint(f'backup:  {backup}')\nPY\n```\n\n**影响：** 代码块不能截断。",
 		},
 	}
 
@@ -776,14 +848,18 @@ func TestRenderHTMLScalesLongImageCaptionBodyWithoutTruncatingCode(t *testing.T)
 		t.Fatalf("RenderPageHTML() error = %v", err)
 	}
 	for _, want := range []string{
-		`class="image-caption-layout image-caption-no-image content-fit-ultra" data-fit-auto="image-caption"`,
-		`font-size: 12px;`,
+		`class="text-caption-layout"`,
+		`.text-caption-copy .code-block {`,
+		`font-size: var(--code-font-size);`,
 		`print(f&#39;patched: {path}&#39;)`,
 		`print(f&#39;backup:  {backup}&#39;)`,
 	} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("html missing full-code scaling marker %q", want)
+			t.Fatalf("html missing full-code marker %q", want)
 		}
+	}
+	if strings.Contains(html, `class="text-caption-layout content-fit-`) {
+		t.Fatalf("text-caption should keep a stable news font instead of shrinking: %s", html)
 	}
 }
 
@@ -991,12 +1067,12 @@ func TestRenderHTMLBodyRendersInlineCodeAndCodeBlock(t *testing.T) {
 	d.ThemeName = deck.ThemeTechNoir
 	d.Themes = deck.RegisteredThemes()
 	page := deck.Page{
-		Name:    "p03-image",
-		Variant: "image-caption",
+		Name:    "p03-text",
+		Variant: "text-caption",
 		Meta:    deck.PageMeta{Badge: "第 3 页", Counter: "3/3", Theme: "orange", CTA: "cta"},
 		Content: deck.PageContent{
-			Title: "图文页",
-			Body:  "先跑 `mark2note`\n```bash\nmark2note --input article.md --theme tech-noir\n```",
+			Title: "文字页",
+			Body:  "**摘要：** 先跑 `mark2note`\n\n```bash\nmark2note --input article.md --theme tech-noir\n```",
 		},
 	}
 
@@ -1112,7 +1188,8 @@ func TestRenderHTMLSupportsAllCurrentVariants(t *testing.T) {
 	markers := map[string]string{
 		"cover":         `class="cover-main"`,
 		"quote":         `class="card quote-card"`,
-		"image-caption": `class="caption"`,
+		"image-caption": `class="image-caption-layout`,
+		"text-caption":  `class="text-caption-layout`,
 		"bullets":       `class="bullets"`,
 		"compare":       `class="compare-rows"`,
 		"gallery-steps": `class="steps`,
@@ -1162,7 +1239,7 @@ func TestRenderHTMLFailsOnUnknownVariant(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLOmitsImageFrameWhenImageCaptionHasNoImages(t *testing.T) {
+func TestRenderHTMLRejectsImageCaptionWithNoImages(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
 		Name:    "p09-extra-image",
@@ -1179,15 +1256,12 @@ func TestRenderHTMLOmitsImageFrameWhenImageCaptionHasNoImages(t *testing.T) {
 		},
 	}
 
-	html, err := RenderPageHTML(d, page)
-	if err != nil {
-		t.Fatalf("RenderPageHTML() error = %v", err)
+	_, err := RenderPageHTML(d, page)
+	if err == nil {
+		t.Fatalf("RenderPageHTML() error = nil, want non-nil")
 	}
-	if strings.Contains(html, `class="image-frame"`) {
-		t.Fatalf("html should omit image frame when no images are provided: %s", html)
-	}
-	if strings.Contains(html, "data:image/svg") {
-		t.Fatalf("html should not render placeholder image when no images are provided: %s", html)
+	if !strings.Contains(err.Error(), `variant "image-caption" requires exactly one image`) {
+		t.Fatalf("error = %v", err)
 	}
 }
 

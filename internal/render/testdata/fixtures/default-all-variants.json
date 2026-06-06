@@ -6,7 +6,7 @@
       "variant": "cover",
       "meta": {
         "badge": "第 1 页",
-        "counter": "1/7",
+        "counter": "1/8",
         "theme": "orange",
         "cta": "cta1"
       },
@@ -20,7 +20,7 @@
       "variant": "quote",
       "meta": {
         "badge": "第 2 页",
-        "counter": "2/7",
+        "counter": "2/8",
         "theme": "orange",
         "cta": "cta2"
       },
@@ -36,21 +36,41 @@
       "variant": "image-caption",
       "meta": {
         "badge": "第 3 页",
-        "counter": "3/7",
+        "counter": "3/8",
         "theme": "orange",
         "cta": "cta3"
       },
       "content": {
         "title": "图文页",
-        "body": "图文说明"
+        "body": "图文说明",
+        "images": [
+          {
+            "src": "https://example.com/fixture-image.png",
+            "alt": "fixture image"
+          }
+        ]
       }
     },
     {
-      "name": "p04-bullets",
-      "variant": "bullets",
+      "name": "p04-text",
+      "variant": "text-caption",
       "meta": {
         "badge": "第 4 页",
-        "counter": "4/7",
+        "counter": "4/8",
+        "theme": "orange",
+        "cta": "cta4"
+      },
+      "content": {
+        "title": "文字页",
+        "body": "**摘要：** 无图新闻保留完整事实。\n\n**影响：** 单独说明后续判断。"
+      }
+    },
+    {
+      "name": "p05-bullets",
+      "variant": "bullets",
+      "meta": {
+        "badge": "第 5 页",
+        "counter": "5/8",
         "theme": "orange",
         "cta": "cta4"
       },
@@ -64,11 +84,11 @@
       }
     },
     {
-      "name": "p05-compare",
+      "name": "p06-compare",
       "variant": "compare",
       "meta": {
-        "badge": "第 5 页",
-        "counter": "5/7",
+        "badge": "第 6 页",
+        "counter": "6/8",
         "theme": "green",
         "cta": "cta5"
       },
@@ -87,11 +107,11 @@
       }
     },
     {
-      "name": "p06-gallery",
+      "name": "p07-gallery",
       "variant": "gallery-steps",
       "meta": {
-        "badge": "第 6 页",
-        "counter": "6/7",
+        "badge": "第 7 页",
+        "counter": "7/8",
         "theme": "green",
         "cta": "cta6"
       },
@@ -104,11 +124,11 @@
       }
     },
     {
-      "name": "p07-ending",
+      "name": "p08-ending",
       "variant": "ending",
       "meta": {
-        "badge": "第 7 页",
-        "counter": "7/7",
+        "badge": "第 8 页",
+        "counter": "8/8",
         "theme": "green",
         "cta": "cta7"
       },

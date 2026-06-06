@@ -217,6 +217,11 @@ func withVariantData(page deck.Page) (deck.Page, error) {
 		}
 		return page, nil
 	case "image-caption":
+		if len(page.Content.Images) != 1 {
+			return deck.Page{}, fmt.Errorf("variant %q requires exactly one image for page %q", page.Variant, page.Name)
+		}
+		return page, nil
+	case "text-caption":
 		return page, nil
 	case "gallery-steps":
 		target := len(page.Content.Steps)

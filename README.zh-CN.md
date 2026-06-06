@@ -196,7 +196,8 @@ posters:
 - `xhs.publish.headless`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认是否无头运行浏览器
 - `xhs.publish.browser_path`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认浏览器可执行文件路径；命令行 `--chrome` 可单次覆盖
 - `xhs.publish.profile_dir`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认浏览器 profile 目录
-- `xhs.publish.mode`：`publish-xhs`、`--publish-xhs` 和 `--prepare-xhs` 默认发布模式，支持 `only-self`、`schedule`；主渲染命令可用 `--xhs-mode` 单次覆盖
+- `xhs.publish.mode`：发布时机/流程，不控制页面可见性；支持 `immediate`（普通立即发布流程）和 `schedule`（定时发布流程）；主渲染命令可用 `--xhs-mode` 单次覆盖
+- `xhs.publish.visibility`：小红书页面可见性，不控制发布时机；支持 `public`（公开可见）和 `only-self`（仅自己可见）
 - `xhs.publish.schedule_at`：`mode: schedule` 时的默认定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析；主渲染命令可用 `--xhs-schedule-at` 单次覆盖
 - `xhs.publish.topic_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 未传 `--xhs-tags` 时是否调用 AI 生成 3-6 个小红书话题，默认开启
 - `xhs.publish.title_generation.enabled`：`--publish-xhs` / `--prepare-xhs` 标题超过 `max_runes` 时是否调用 AI 改写标题，默认开启
@@ -380,7 +381,7 @@ mark2note publish-xhs --help
 - `--content <text>`：直接传正文；与 `--content-file` 二选一；如果提供了 `--tags`，正文可以省略
 - `--content-file <file>`：从文件读取正文；与 `--content` 二选一
 - `--tags <csv>`：逗号分隔标签列表
-- `--mode <name>`：发布模式，支持 `only-self`、`schedule`；未显式传入时，回退到 `xhs.publish.mode`，否则默认 `only-self`
+- `--mode <name>`：发布时机/流程，支持 `immediate`、`schedule`；未显式传入时，回退到 `xhs.publish.mode`，否则默认 `immediate`
 - `--schedule-at <time>`：定时发布时间，格式 `YYYY-MM-DD HH:MM:SS`，按 Asia/Shanghai 解析；未显式传入时可回退到 `xhs.publish.schedule_at`
 - `--images <csv>`：逗号分隔图片路径列表，用于普通图文发布
 - `--live-report <file>`：Live 交付报告路径，用于从 Live 导出结果里提取可发布素材
@@ -421,7 +422,10 @@ xhs:
     headless: false
     browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
-    mode: only-self
+    # mode 控制发布时机/流程；可选值：immediate = 普通立即发布流程，schedule = 定时发布流程。
+    mode: immediate
+    # visibility 控制页面可见性；可选值：public = 公开可见，only-self = 仅自己可见。
+    visibility: public
     schedule_at: ""
 ```
 

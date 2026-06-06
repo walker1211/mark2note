@@ -63,7 +63,7 @@ Usage:
 Commands:
   capture-html    capture existing html file(s) to sibling png files
   enrich-posters  search poster candidates and write a posters.yaml manifest
-  publish-xhs     publish assets to Xiaohongshu only-self-visible or schedule queue
+  publish-xhs     publish assets to Xiaohongshu immediate or scheduled queue
 
 Flags:
   --input <file.md>          markdown input path
@@ -79,9 +79,11 @@ Flags:
   --auto-posters             automatically search poster candidates and hydrate cover cards
   --poster-sources <csv>     poster providers for --auto-posters (default: bilibili,bangumi,anilist,mydramalist)
   --publish-xhs              publish generated PNG files to Xiaohongshu after render
+  --stop-before-submit       for --publish-xhs, prepare Xiaohongshu editor then stop before final submit
   --prepare-xhs              generate Xiaohongshu publish metadata after render without publishing
   --xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs/--prepare-xhs
-  --xhs-mode <mode>          override Xiaohongshu mode for --publish-xhs/--prepare-xhs (only-self or schedule)
+  --xhs-mode <mode>          override Xiaohongshu publish timing mode for --publish-xhs/--prepare-xhs (immediate or schedule)
+  --xhs-visibility <name>    override Xiaohongshu visibility for --publish-xhs/--prepare-xhs (public or only-self)
   --xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs (YYYY-MM-DD HH:MM:SS)
   --import-photos            import generated PNG files into Apple Photos after export
   --import-album <name>      Apple Photos album name for imported PNG files
@@ -180,7 +182,7 @@ Examples:
 func publishXHSUsageText() string {
 	return `mark2note publish-xhs
 
-Publish generated assets to Xiaohongshu only-self-visible or schedule queue.
+Publish generated assets to Xiaohongshu immediate or scheduled queue.
 
 Usage:
   mark2note publish-xhs --account <name> [flags]
@@ -189,15 +191,17 @@ Usage:
 
 Flags:
   --config <file>          config file path (default: configs/config.yaml)
-  --meta <file>            replay publish options from xhs-publish-meta.json; cannot be combined with manual publish fields
+  --meta <file>            replay publish options from xhs-publish-meta.json; can only be combined with --stop-before-submit
   --account <name>         publish account/profile target (default from xhs.publish.account)
   --title <text>           inline title text (exactly one of --title / --title-file)
   --title-file <file>      title file path
   --content <text>         inline content text (exactly one of --content / --content-file)
   --content-file <file>    content file path
   --tags <csv>             comma-separated tags
-  --mode <name>            publish mode: only-self or schedule (default from xhs.publish.mode or only-self)
+  --mode <name>            publish timing mode: immediate or schedule (default from xhs.publish.mode or immediate)
+  --visibility <name>      visibility: public or only-self (default from xhs.publish.visibility or only-self)
   --schedule-at <time>     schedule time in YYYY-MM-DD HH:MM:SS (Asia/Shanghai; default from xhs.publish.schedule_at)
+  --collection <name>      Xiaohongshu collection name (default from xhs.publish.collection)
   --images <csv>           comma-separated image paths
   --live-report <file>     live delivery report path
   --live-pages <csv>       ordered live page subset; requires --live-report
@@ -205,11 +209,13 @@ Flags:
   --headless               run browser automation headless (default: true; xhs.publish.headless can override)
   --profile-dir <dir>      browser profile directory (default from xhs.publish.profile_dir)
   --declare-original       declare original content before submit (default from xhs.publish.declare_original)
+  --original-declaration-type <type>
+                           original declaration content type: ai_generated (default from xhs.publish.original_declaration_type)
   --allow-content-copy     keep allow content copy enabled (default from xhs.publish.allow_content_copy)
   --stop-before-submit     prepare the Xiaohongshu editor, then stop before final submit; use --headless=false for manual inspection
 
 Rules:
-  - --meta replays persisted metadata and must be used standalone
+  - --meta replays persisted metadata; only --stop-before-submit may be combined with it
   - without --meta, exactly one of --title / --title-file is required
   - without --meta, content may come from --content / --content-file or be omitted when --tags are provided
   - exactly one media source is required: --images or --live-report
@@ -240,9 +246,11 @@ func parseOptions(args []string) (Options, error) {
 	fs.BoolVar(&opts.AutoPosters, "auto-posters", opts.AutoPosters, "automatically search poster candidates and hydrate cover cards")
 	fs.StringVar(&posterSources, "poster-sources", posterSources, "comma-separated poster providers for --auto-posters")
 	fs.BoolVar(&opts.PublishXHS, "publish-xhs", opts.PublishXHS, "publish generated PNG files to Xiaohongshu after render")
+	fs.BoolVar(&opts.StopBeforeSubmit, "stop-before-submit", opts.StopBeforeSubmit, "prepare XHS editor then stop before final submit")
 	fs.BoolVar(&opts.PrepareXHS, "prepare-xhs", opts.PrepareXHS, "generate Xiaohongshu publish metadata after render without publishing")
 	fs.StringVar(&xhsTags, "xhs-tags", xhsTags, "comma-separated Xiaohongshu topics for auto publish")
 	fs.StringVar(&opts.XHSMode, "xhs-mode", opts.XHSMode, "Xiaohongshu publish mode for auto publish")
+	fs.StringVar(&opts.XHSVisibility, "xhs-visibility", opts.XHSVisibility, "Xiaohongshu visibility for auto publish")
 	fs.StringVar(&opts.XHSScheduleAt, "xhs-schedule-at", opts.XHSScheduleAt, "Xiaohongshu schedule time for auto publish")
 	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
 	fs.StringVar(&opts.ImportAlbum, "import-album", opts.ImportAlbum, "Apple Photos album name for imported PNG files")
@@ -313,7 +321,9 @@ func parseOptions(args []string) (Options, error) {
 	chromePathChanged := false
 	xhsTagsChanged := false
 	xhsModeChanged := false
+	xhsVisibilityChanged := false
 	xhsScheduleAtChanged := false
+	stopBeforeSubmitChanged := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "out":
@@ -354,8 +364,12 @@ func parseOptions(args []string) (Options, error) {
 			xhsTagsChanged = true
 		case "xhs-mode":
 			xhsModeChanged = true
+		case "xhs-visibility":
+			xhsVisibilityChanged = true
 		case "xhs-schedule-at":
 			xhsScheduleAtChanged = true
+		case "stop-before-submit":
+			stopBeforeSubmitChanged = true
 		}
 	})
 	opts.OutDirChanged = outChanged
@@ -377,12 +391,17 @@ func parseOptions(args []string) (Options, error) {
 	opts.LiveImportTimeoutChanged = liveImportTimeoutChanged
 	opts.XHSTagsChanged = xhsTagsChanged
 	opts.XHSModeChanged = xhsModeChanged
+	opts.XHSVisibilityChanged = xhsVisibilityChanged
 	opts.XHSScheduleAtChanged = xhsScheduleAtChanged
+	opts.StopBeforeSubmitChanged = stopBeforeSubmitChanged
 	if opts.XHSTagsChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--xhs-tags requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
 	}
-	if (opts.XHSModeChanged || opts.XHSScheduleAtChanged) && !opts.PublishXHS && !opts.PrepareXHS {
-		return Options{}, fmt.Errorf("--xhs-mode/--xhs-schedule-at require --publish-xhs or --prepare-xhs\n\n%s", usageText())
+	if (opts.XHSModeChanged || opts.XHSVisibilityChanged || opts.XHSScheduleAtChanged) && !opts.PublishXHS && !opts.PrepareXHS {
+		return Options{}, fmt.Errorf("--xhs-mode/--xhs-visibility/--xhs-schedule-at require --publish-xhs or --prepare-xhs\n\n%s", usageText())
+	}
+	if opts.StopBeforeSubmitChanged && !opts.PublishXHS {
+		return Options{}, fmt.Errorf("--stop-before-submit requires --publish-xhs\n\n%s", usageText())
 	}
 	if opts.XHSModeChanged {
 		mode, err := xhs.ValidateMode(opts.XHSMode)
@@ -390,6 +409,13 @@ func parseOptions(args []string) (Options, error) {
 			return Options{}, fmt.Errorf("--xhs-mode: %w\n\n%s", err, usageText())
 		}
 		opts.XHSMode = string(mode)
+	}
+	if opts.XHSVisibilityChanged {
+		visibility, err := xhs.ValidateVisibility(opts.XHSVisibility)
+		if err != nil {
+			return Options{}, fmt.Errorf("--xhs-visibility: %w\n\n%s", err, usageText())
+		}
+		opts.XHSVisibility = string(visibility)
 	}
 	return opts, nil
 }
@@ -452,17 +478,20 @@ func parseCaptureHTMLOptions(args []string) (Options, error) {
 type publishXHSCLIOptions struct {
 	app.PublishOptions
 
-	ConfigPath              string
-	MetaPath                string
-	ConfigPathChanged       bool
-	AccountChanged          bool
-	HeadlessChanged         bool
-	ChromePathChanged       bool
-	ProfileDirChanged       bool
-	ModeChanged             bool
-	DeclareOriginalChanged  bool
-	AllowContentCopyChanged bool
-	MetaConflictFlags       []string
+	ConfigPath                     string
+	MetaPath                       string
+	ConfigPathChanged              bool
+	AccountChanged                 bool
+	HeadlessChanged                bool
+	ChromePathChanged              bool
+	ProfileDirChanged              bool
+	ModeChanged                    bool
+	VisibilityChanged              bool
+	CollectionChanged              bool
+	DeclareOriginalChanged         bool
+	OriginalDeclarationTypeChanged bool
+	AllowContentCopyChanged        bool
+	MetaConflictFlags              []string
 }
 
 func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
@@ -471,6 +500,7 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 			ChromePath: defaultOptions().ChromePath,
 			Headless:   true,
 			Mode:       string(xhs.PublishModeOnlySelf),
+			Visibility: string(xhs.PublishVisibilityOnlySelf),
 		},
 		ConfigPath: defaultOptions().ConfigPath,
 	}
@@ -487,8 +517,10 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	fs.StringVar(&opts.Content, "content", opts.Content, "inline content text")
 	fs.StringVar(&opts.ContentFile, "content-file", opts.ContentFile, "content file path")
 	fs.StringVar(&tags, "tags", tags, "comma-separated tags")
-	fs.StringVar(&opts.Mode, "mode", opts.Mode, "publish mode")
+	fs.StringVar(&opts.Mode, "mode", opts.Mode, "publish timing mode")
+	fs.StringVar(&opts.Visibility, "visibility", opts.Visibility, "publish visibility")
 	fs.StringVar(&opts.ScheduleAt, "schedule-at", opts.ScheduleAt, "schedule time")
+	fs.StringVar(&opts.Collection, "collection", opts.Collection, "Xiaohongshu collection name")
 	fs.StringVar(&images, "images", images, "comma-separated image paths")
 	fs.StringVar(&opts.LiveReportPath, "live-report", opts.LiveReportPath, "live delivery report path")
 	fs.StringVar(&livePages, "live-pages", livePages, "ordered live page subset")
@@ -496,6 +528,7 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	fs.BoolVar(&opts.Headless, "headless", opts.Headless, "run browser automation headless")
 	fs.StringVar(&opts.ProfileDir, "profile-dir", opts.ProfileDir, "browser profile directory")
 	fs.BoolVar(&opts.DeclareOriginal, "declare-original", opts.DeclareOriginal, "declare original content before submit")
+	fs.StringVar(&opts.OriginalDeclarationType, "original-declaration-type", opts.OriginalDeclarationType, "original declaration content type")
 	fs.BoolVar(&opts.AllowContentCopy, "allow-content-copy", opts.AllowContentCopy, "leave allow content copy enabled")
 	fs.BoolVar(&opts.StopBeforeSubmit, "stop-before-submit", opts.StopBeforeSubmit, "prepare editor then stop before final submit")
 
@@ -509,7 +542,7 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 	opts.ImagePaths = splitCSV(images)
 	opts.LivePages = splitCSV(livePages)
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name != "meta" {
+		if f.Name != "meta" && f.Name != "stop-before-submit" {
 			opts.MetaConflictFlags = append(opts.MetaConflictFlags, "--"+f.Name)
 		}
 		switch f.Name {
@@ -525,8 +558,14 @@ func parsePublishXHSOptions(args []string) (publishXHSCLIOptions, error) {
 			opts.ProfileDirChanged = true
 		case "mode":
 			opts.ModeChanged = true
+		case "visibility":
+			opts.VisibilityChanged = true
+		case "collection":
+			opts.CollectionChanged = true
 		case "declare-original":
 			opts.DeclareOriginalChanged = true
+		case "original-declaration-type":
+			opts.OriginalDeclarationTypeChanged = true
 		case "allow-content-copy":
 			opts.AllowContentCopyChanged = true
 		}
@@ -563,11 +602,20 @@ func mergePublishXHSDefaults(cli publishXHSCLIOptions, cfg *config.Config) app.P
 	if !cli.ModeChanged && strings.TrimSpace(defaults.Mode) != "" {
 		opts.Mode = strings.TrimSpace(defaults.Mode)
 	}
+	if !cli.VisibilityChanged && strings.TrimSpace(defaults.Visibility) != "" {
+		opts.Visibility = strings.TrimSpace(defaults.Visibility)
+	}
 	if strings.TrimSpace(opts.Mode) == string(xhs.PublishModeSchedule) && strings.TrimSpace(opts.ScheduleAt) == "" && strings.TrimSpace(defaults.ScheduleAt) != "" {
 		opts.ScheduleAt = strings.TrimSpace(defaults.ScheduleAt)
 	}
+	if !cli.CollectionChanged && strings.TrimSpace(opts.Collection) == "" {
+		opts.Collection = strings.TrimSpace(defaults.Collection)
+	}
 	if !cli.DeclareOriginalChanged && defaults.DeclareOriginal != nil {
 		opts.DeclareOriginal = *defaults.DeclareOriginal
+	}
+	if !cli.OriginalDeclarationTypeChanged && strings.TrimSpace(opts.OriginalDeclarationType) == "" {
+		opts.OriginalDeclarationType = strings.TrimSpace(defaults.OriginalDeclarationType)
 	}
 	if !cli.AllowContentCopyChanged && defaults.AllowContentCopy != nil {
 		opts.AllowContentCopy = *defaults.AllowContentCopy
@@ -579,6 +627,16 @@ func mergePublishXHSDefaults(cli publishXHSCLIOptions, cfg *config.Config) app.P
 }
 
 func validatePublishXHSOptions(opts app.PublishOptions) error {
+	if _, err := xhs.ValidateVisibility(opts.Visibility); err != nil {
+		return fmt.Errorf("--visibility: %w\n\n%s", err, publishXHSUsageText())
+	}
+	declarationType, err := xhs.ValidateOriginalDeclarationType(opts.OriginalDeclarationType)
+	if err != nil {
+		return fmt.Errorf("--original-declaration-type: %w\n\n%s", err, publishXHSUsageText())
+	}
+	if declarationType != "" && !opts.DeclareOriginal {
+		return fmt.Errorf("--original-declaration-type requires --declare-original=true\n\n%s", publishXHSUsageText())
+	}
 	if strings.TrimSpace(opts.Account) == "" {
 		return fmt.Errorf("--account is required\n\n%s", publishXHSUsageText())
 	}
@@ -753,6 +811,7 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		PublishOptions: app.PublishOptions{
 			Title:      title,
 			Mode:       string(xhs.PublishModeOnlySelf),
+			Visibility: string(xhs.PublishVisibilityOnlySelf),
 			ImagePaths: imagePaths,
 			ChromePath: renderOpts.ChromePath,
 			Headless:   true,
@@ -778,8 +837,15 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		cliOpts.Mode = strings.TrimSpace(renderOpts.XHSMode)
 		cliOpts.ModeChanged = true
 	}
+	if renderOpts.XHSVisibilityChanged {
+		cliOpts.Visibility = strings.TrimSpace(renderOpts.XHSVisibility)
+		cliOpts.VisibilityChanged = true
+	}
 	if renderOpts.XHSScheduleAtChanged {
 		cliOpts.ScheduleAt = strings.TrimSpace(renderOpts.XHSScheduleAt)
+	}
+	if renderOpts.StopBeforeSubmitChanged {
+		cliOpts.StopBeforeSubmit = renderOpts.StopBeforeSubmit
 	}
 	publishOpts := mergePublishXHSDefaults(cliOpts, cfg)
 	if err := validatePublishXHSOptions(publishOpts); err != nil {
@@ -848,22 +914,25 @@ func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string,
 }
 
 type xhsPublishMeta struct {
-	Title            string   `json:"title"`
-	Content          string   `json:"content"`
-	Tags             []string `json:"tags"`
-	Images           []string `json:"images"`
-	Account          string   `json:"account"`
-	Mode             string   `json:"mode"`
-	ScheduleAt       string   `json:"schedule_at,omitempty"`
-	ChromePath       string   `json:"chrome_path"`
-	Headless         bool     `json:"headless"`
-	ProfileDir       string   `json:"profile_dir"`
-	DeclareOriginal  bool     `json:"declare_original"`
-	AllowContentCopy bool     `json:"allow_content_copy"`
-	InputPath        string   `json:"input_path"`
-	ConfigPath       string   `json:"config_path"`
-	GeneratedAt      string   `json:"generated_at"`
-	ChromeArgs       []string `json:"chrome_args,omitempty"`
+	Title                   string   `json:"title"`
+	Content                 string   `json:"content"`
+	Tags                    []string `json:"tags"`
+	Images                  []string `json:"images"`
+	Account                 string   `json:"account"`
+	Mode                    string   `json:"mode"`
+	Visibility              string   `json:"visibility,omitempty"`
+	ScheduleAt              string   `json:"schedule_at,omitempty"`
+	Collection              string   `json:"collection,omitempty"`
+	ChromePath              string   `json:"chrome_path"`
+	Headless                bool     `json:"headless"`
+	ProfileDir              string   `json:"profile_dir"`
+	DeclareOriginal         bool     `json:"declare_original"`
+	OriginalDeclarationType string   `json:"original_declaration_type,omitempty"`
+	AllowContentCopy        bool     `json:"allow_content_copy"`
+	InputPath               string   `json:"input_path"`
+	ConfigPath              string   `json:"config_path"`
+	GeneratedAt             string   `json:"generated_at"`
+	ChromeArgs              []string `json:"chrome_args,omitempty"`
 }
 
 func xhsPublishMetaPath(renderResult app.Result) string {
@@ -880,22 +949,25 @@ func writeAutoPublishXHSMeta(renderOpts Options, renderResult app.Result, publis
 		return nil
 	}
 	meta := xhsPublishMeta{
-		Title:            publishOpts.Title,
-		Content:          publishOpts.Content,
-		Tags:             publishOpts.Tags,
-		Images:           publishOpts.ImagePaths,
-		Account:          publishOpts.Account,
-		Mode:             publishOpts.Mode,
-		ScheduleAt:       publishOpts.ScheduleAt,
-		ChromePath:       publishOpts.ChromePath,
-		Headless:         publishOpts.Headless,
-		ProfileDir:       publishOpts.ProfileDir,
-		DeclareOriginal:  publishOpts.DeclareOriginal,
-		AllowContentCopy: publishOpts.AllowContentCopy,
-		InputPath:        renderOpts.InputPath,
-		ConfigPath:       renderOpts.ConfigPath,
-		GeneratedAt:      nowFunc().Format(time.RFC3339),
-		ChromeArgs:       publishOpts.ChromeArgs,
+		Title:                   publishOpts.Title,
+		Content:                 publishOpts.Content,
+		Tags:                    publishOpts.Tags,
+		Images:                  publishOpts.ImagePaths,
+		Account:                 publishOpts.Account,
+		Mode:                    publishOpts.Mode,
+		Visibility:              publishOpts.Visibility,
+		ScheduleAt:              publishOpts.ScheduleAt,
+		Collection:              publishOpts.Collection,
+		ChromePath:              publishOpts.ChromePath,
+		Headless:                publishOpts.Headless,
+		ProfileDir:              publishOpts.ProfileDir,
+		DeclareOriginal:         publishOpts.DeclareOriginal,
+		OriginalDeclarationType: publishOpts.OriginalDeclarationType,
+		AllowContentCopy:        publishOpts.AllowContentCopy,
+		InputPath:               renderOpts.InputPath,
+		ConfigPath:              renderOpts.ConfigPath,
+		GeneratedAt:             nowFunc().Format(time.RFC3339),
+		ChromeArgs:              publishOpts.ChromeArgs,
 	}
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -919,19 +991,22 @@ func readXHSPublishMeta(path string) (app.PublishOptions, error) {
 		return app.PublishOptions{}, err
 	}
 	return app.PublishOptions{
-		Account:          meta.Account,
-		Title:            meta.Title,
-		Content:          meta.Content,
-		Tags:             append([]string(nil), meta.Tags...),
-		Mode:             meta.Mode,
-		ScheduleAt:       meta.ScheduleAt,
-		ImagePaths:       append([]string(nil), meta.Images...),
-		ChromePath:       meta.ChromePath,
-		Headless:         meta.Headless,
-		ProfileDir:       meta.ProfileDir,
-		ChromeArgs:       append([]string(nil), meta.ChromeArgs...),
-		DeclareOriginal:  meta.DeclareOriginal,
-		AllowContentCopy: meta.AllowContentCopy,
+		Account:                 meta.Account,
+		Title:                   meta.Title,
+		Content:                 meta.Content,
+		Tags:                    append([]string(nil), meta.Tags...),
+		Mode:                    meta.Mode,
+		Visibility:              meta.Visibility,
+		ScheduleAt:              meta.ScheduleAt,
+		Collection:              meta.Collection,
+		ImagePaths:              append([]string(nil), meta.Images...),
+		ChromePath:              meta.ChromePath,
+		Headless:                meta.Headless,
+		ProfileDir:              meta.ProfileDir,
+		ChromeArgs:              append([]string(nil), meta.ChromeArgs...),
+		DeclareOriginal:         meta.DeclareOriginal,
+		OriginalDeclarationType: meta.OriginalDeclarationType,
+		AllowContentCopy:        meta.AllowContentCopy,
 	}, nil
 }
 
@@ -1166,6 +1241,7 @@ func printPublishXHSResult(stdout io.Writer, result app.PublishResult) int {
 		fmt.Fprintln(stdout, "xiaohongshu publish prepared; stopped before submit")
 		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)
 		fmt.Fprintf(stdout, "mode: %s\n", result.Request.Mode)
+		fmt.Fprintf(stdout, "visibility: %s\n", result.Request.Visibility)
 		fmt.Fprintf(stdout, "media: %s\n", result.Result.MediaKind)
 		if result.Request.ScheduleTime != nil {
 			fmt.Fprintf(stdout, "schedule at: %s\n", result.Request.ScheduleTime.In(xhsShanghaiLocation()).Format("2006-01-02 15:04:05"))
@@ -1173,8 +1249,18 @@ func printPublishXHSResult(stdout io.Writer, result app.PublishResult) int {
 		return 0
 	}
 	if result.Result.OnlySelfPublished {
-		fmt.Fprintln(stdout, "xiaohongshu only-self-visible published")
+		fmt.Fprintln(stdout, "xiaohongshu immediate publish submitted")
 		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)
+		mode := result.Request.Mode
+		if mode == "" {
+			mode = result.Result.Mode
+		}
+		if mode != "" {
+			fmt.Fprintf(stdout, "mode: %s\n", mode)
+		}
+		if result.Request.Visibility != "" {
+			fmt.Fprintf(stdout, "visibility: %s\n", result.Request.Visibility)
+		}
 		fmt.Fprintf(stdout, "media: %s\n", result.Result.MediaKind)
 		if result.Result.AttachedCount > 0 {
 			fmt.Fprintf(stdout, "attached: %d\n", result.Result.AttachedCount)
@@ -1224,6 +1310,7 @@ func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error reading xhs publish metadata: %v\n", err)
 			return 1
 		}
+		opts.StopBeforeSubmit = cliOpts.StopBeforeSubmit
 		if strings.TrimSpace(opts.Title) == "" {
 			fmt.Fprintln(stderr, "error validating xhs publish metadata: metadata title is required")
 			return 1

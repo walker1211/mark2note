@@ -32,8 +32,8 @@
       }
     },
     {
-      "name": "p03-image",
-      "variant": "image-caption",
+      "name": "p03-text",
+      "variant": "text-caption",
       "meta": {
         "badge": "第 3 页",
         "counter": "3/7",
@@ -41,8 +41,8 @@
         "cta": "看代码块示例"
       },
       "content": {
-        "title": "图文页",
-        "body": "先执行命令：\n```bash\nmark2note --input article.md --theme default\n```"
+        "title": "文字页",
+        "body": "**摘要：** 先执行命令：\n```bash\nmark2note --input article.md --theme default\n```"
       }
     },
     {

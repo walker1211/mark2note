@@ -47,6 +47,66 @@ func TestPublishRequestValidateAcceptsScheduledRequest(t *testing.T) {
 	}
 }
 
+func TestValidateModeAcceptsImmediateAndSchedule(t *testing.T) {
+	cases := map[string]PublishMode{
+		"":          PublishModeImmediate,
+		"immediate": PublishModeImmediate,
+		"schedule":  PublishModeSchedule,
+	}
+	for input, want := range cases {
+		got, err := ValidateMode(input)
+		if err != nil {
+			t.Fatalf("ValidateMode(%q) error = %v", input, err)
+		}
+		if got != want {
+			t.Fatalf("ValidateMode(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestValidateModeRejectsVisibilityValue(t *testing.T) {
+	if _, err := ValidateMode("only-self"); err == nil || !strings.Contains(err.Error(), "mode must be immediate or schedule") {
+		t.Fatalf("ValidateMode() error = %v, want mode validation error", err)
+	}
+}
+
+func TestValidateVisibilityAcceptsPublicAndOnlySelf(t *testing.T) {
+	for _, input := range []string{"", "only-self", "public"} {
+		if _, err := ValidateVisibility(input); err != nil {
+			t.Fatalf("ValidateVisibility(%q) error = %v", input, err)
+		}
+	}
+}
+
+func TestValidateVisibilityRejectsInvalidValue(t *testing.T) {
+	if _, err := ValidateVisibility("friends"); err == nil || !strings.Contains(err.Error(), "visibility must be public or only-self") {
+		t.Fatalf("ValidateVisibility() error = %v, want visibility validation error", err)
+	}
+}
+
+func TestPublishRequestValidateDefaultsVisibilityToOnlySelf(t *testing.T) {
+	now := shanghaiTime(2026, 4, 10, 12, 0, 0)
+	request := PublishRequest{Account: "creator-a", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
+	if err := request.Validate(now); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestPublishRequestValidateAcceptsPublicVisibility(t *testing.T) {
+	now := shanghaiTime(2026, 4, 10, 12, 0, 0)
+	request := PublishRequest{Account: "creator-a", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, Visibility: PublishVisibilityPublic, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
+	if err := request.Validate(now); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestPublishRequestValidateRejectsInvalidVisibility(t *testing.T) {
+	request := PublishRequest{Account: "creator-a", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, Visibility: PublishVisibility("friends"), MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
+	if err := request.Validate(shanghaiTime(2026, 4, 10, 12, 0, 0)); err == nil || !strings.Contains(err.Error(), "visibility must be public or only-self") {
+		t.Fatalf("Validate() error = %v, want visibility validation error", err)
+	}
+}
+
 func TestPublishRequestValidateRequiresImageForStandardRequest(t *testing.T) {
 	request := PublishRequest{Account: "creator-a", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard}
 	if err := request.Validate(shanghaiTime(2026, 4, 10, 12, 0, 0)); err == nil || !strings.Contains(err.Error(), "at least one image path is required") {
@@ -54,11 +114,11 @@ func TestPublishRequestValidateRequiresImageForStandardRequest(t *testing.T) {
 	}
 }
 
-func TestPublishRequestValidateRejectsOnlySelfWithScheduleTime(t *testing.T) {
+func TestPublishRequestValidateRejectsImmediateWithScheduleTime(t *testing.T) {
 	now := shanghaiTime(2026, 4, 10, 12, 0, 0)
 	scheduledAt := shanghaiTime(2026, 4, 10, 12, 20, 0)
-	request := PublishRequest{Account: "creator-a", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, ScheduleTime: &scheduledAt, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
-	if err := request.Validate(now); err == nil || !strings.Contains(err.Error(), "only-self mode forbids schedule time") {
+	request := PublishRequest{Account: "creator-a", Title: "标题", Content: "正文", Mode: PublishModeImmediate, ScheduleTime: &scheduledAt, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
+	if err := request.Validate(now); err == nil || !strings.Contains(err.Error(), "immediate mode forbids schedule time") {
 		t.Fatalf("Validate() error = %v", err)
 	}
 }

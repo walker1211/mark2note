@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,10 +54,14 @@ type Options struct {
 	PosterSources            []string
 	PublishXHS               bool
 	PrepareXHS               bool
+	StopBeforeSubmit         bool
+	StopBeforeSubmitChanged  bool
 	XHSTags                  []string
 	XHSTagsChanged           bool
 	XHSMode                  string
 	XHSModeChanged           bool
+	XHSVisibility            string
+	XHSVisibilityChanged     bool
 	XHSScheduleAt            string
 	XHSScheduleAtChanged     bool
 	Animated                 AnimatedOptions
@@ -154,6 +160,7 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	if d, posterWarnings, err = s.hydratePosters(opts, d, string(markdownBytes)); err != nil {
 		return Result{}, err
 	}
+	d = hydrateLocalImageAssets(d, filepath.Dir(opts.InputPath))
 
 	result, err := s.renderDeck(opts, cfg, d, sourceRenderMeta{})
 	result.Warnings = append(posterWarnings, result.Warnings...)
@@ -185,6 +192,7 @@ func (s Service) GenerateFromDeck(opts Options) (Result, error) {
 	if d, posterWarnings, err = s.hydratePosters(opts, d, ""); err != nil {
 		return Result{}, err
 	}
+	d = hydrateLocalImageAssets(d, filepath.Dir(opts.FromDeckPath))
 	meta, err := s.readRenderMetaForDeck(opts.FromDeckPath)
 	if err != nil {
 		return Result{}, err
@@ -274,6 +282,63 @@ func appendMissingPosterWarning(warnings []string, title string) []string {
 		}
 	}
 	return append(warnings, warning)
+}
+
+func hydrateLocalImageAssets(d deck.Deck, baseDir string) deck.Deck {
+	baseDir = strings.TrimSpace(baseDir)
+	if baseDir == "" {
+		return d
+	}
+	if abs, err := filepath.Abs(baseDir); err == nil {
+		baseDir = abs
+	}
+	for pageIndex := range d.Pages {
+		for imageIndex := range d.Pages[pageIndex].Content.Images {
+			src := strings.TrimSpace(d.Pages[pageIndex].Content.Images[imageIndex].Src)
+			if !isLocalRelativeImageAsset(src) {
+				continue
+			}
+			path := filepath.Join(baseDir, filepath.Clean(filepath.FromSlash(src)))
+			if !pathWithinBaseDir(baseDir, path) {
+				continue
+			}
+			dataURI := localImageDataURI(path)
+			if dataURI == "" {
+				continue
+			}
+			d.Pages[pageIndex].Content.Images[imageIndex].Src = dataURI
+		}
+	}
+	return d
+}
+
+func isLocalRelativeImageAsset(src string) bool {
+	src = strings.TrimSpace(src)
+	if src == "" || filepath.IsAbs(src) || strings.Contains(src, "://") || strings.HasPrefix(src, "data:image/") {
+		return false
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(src))
+	return cleaned != "." && cleaned != ".." && !strings.HasPrefix(cleaned, ".."+string(filepath.Separator))
+}
+
+func pathWithinBaseDir(baseDir string, path string) bool {
+	rel, err := filepath.Rel(baseDir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func localImageDataURI(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	contentType := http.DetectContentType(data)
+	if !strings.HasPrefix(contentType, "image/") {
+		return ""
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data)
 }
 
 func (s Service) renderDeck(opts Options, cfg *config.Config, d deck.Deck, source sourceRenderMeta) (Result, error) {
