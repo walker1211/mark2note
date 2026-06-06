@@ -209,6 +209,13 @@ func defaultAnimatedPreset(variant string) (animatedPreset, bool) {
 			Image: "scale-in",
 			CTA:   "fade-in",
 		}, true
+	case "text-caption":
+		return animatedPreset{
+			Title: "fade-in",
+			Body:  "fade-up",
+			Tip:   "fade-in",
+			CTA:   "fade-in",
+		}, true
 	case "bullets":
 		return animatedPreset{
 			Title: "fade-in",

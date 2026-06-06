@@ -112,17 +112,20 @@ type XHSCfg struct {
 }
 
 type XHSPublishCfg struct {
-	Account          string                `yaml:"account"`
-	Headless         *bool                 `yaml:"headless"`
-	BrowserPath      string                `yaml:"browser_path"`
-	ProfileDir       string                `yaml:"profile_dir"`
-	Mode             string                `yaml:"mode"`
-	ScheduleAt       string                `yaml:"schedule_at"`
-	DeclareOriginal  *bool                 `yaml:"declare_original"`
-	AllowContentCopy *bool                 `yaml:"allow_content_copy"`
-	ChromeArgs       []string              `yaml:"chrome_args"`
-	TopicGeneration  XHSTopicGenerationCfg `yaml:"topic_generation"`
-	TitleGeneration  XHSTitleGenerationCfg `yaml:"title_generation"`
+	Account                 string                `yaml:"account"`
+	Headless                *bool                 `yaml:"headless"`
+	BrowserPath             string                `yaml:"browser_path"`
+	ProfileDir              string                `yaml:"profile_dir"`
+	Mode                    string                `yaml:"mode"`
+	Visibility              string                `yaml:"visibility"`
+	ScheduleAt              string                `yaml:"schedule_at"`
+	Collection              string                `yaml:"collection"`
+	DeclareOriginal         *bool                 `yaml:"declare_original"`
+	OriginalDeclarationType string                `yaml:"original_declaration_type"`
+	AllowContentCopy        *bool                 `yaml:"allow_content_copy"`
+	ChromeArgs              []string              `yaml:"chrome_args"`
+	TopicGeneration         XHSTopicGenerationCfg `yaml:"topic_generation"`
+	TitleGeneration         XHSTitleGenerationCfg `yaml:"title_generation"`
 }
 
 type XHSTopicGenerationCfg struct {
@@ -145,7 +148,25 @@ var DefaultXHSPublishChromeArgs = []string{
 
 func validateXHSPublishMode(value string) error {
 	switch strings.TrimSpace(value) {
-	case "", "only-self", "schedule":
+	case "", "immediate", "schedule":
+		return nil
+	default:
+		return fmt.Errorf("unsupported value %q", value)
+	}
+}
+
+func validateXHSPublishVisibility(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", "only-self", "public":
+		return nil
+	default:
+		return fmt.Errorf("unsupported value %q", value)
+	}
+}
+
+func validateXHSPublishOriginalDeclarationType(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", "ai_generated":
 		return nil
 	default:
 		return fmt.Errorf("unsupported value %q", value)
@@ -321,15 +342,27 @@ func Load(configPath string) (*Config, error) {
 	if cfg.Render.Live.ImportTimeout == 0 {
 		cfg.Render.Live.ImportTimeout = 120 * time.Second
 	}
+	cfg.XHS.Publish.Mode = strings.TrimSpace(cfg.XHS.Publish.Mode)
 	if cfg.XHS.Publish.Mode == "" {
-		cfg.XHS.Publish.Mode = "only-self"
+		cfg.XHS.Publish.Mode = "immediate"
 	}
 	if err := validateXHSPublishMode(cfg.XHS.Publish.Mode); err != nil {
 		return nil, fmt.Errorf("validate xhs.publish.mode: %w", err)
 	}
+	cfg.XHS.Publish.Visibility = strings.TrimSpace(cfg.XHS.Publish.Visibility)
+	if cfg.XHS.Publish.Visibility == "" {
+		cfg.XHS.Publish.Visibility = "only-self"
+	}
+	if err := validateXHSPublishVisibility(cfg.XHS.Publish.Visibility); err != nil {
+		return nil, fmt.Errorf("validate xhs.publish.visibility: %w", err)
+	}
 	if cfg.XHS.Publish.DeclareOriginal == nil {
 		enabled := true
 		cfg.XHS.Publish.DeclareOriginal = &enabled
+	}
+	cfg.XHS.Publish.OriginalDeclarationType = strings.TrimSpace(cfg.XHS.Publish.OriginalDeclarationType)
+	if err := validateXHSPublishOriginalDeclarationType(cfg.XHS.Publish.OriginalDeclarationType); err != nil {
+		return nil, fmt.Errorf("validate xhs.publish.original_declaration_type: %w", err)
 	}
 	if cfg.XHS.Publish.AllowContentCopy == nil {
 		enabled := false

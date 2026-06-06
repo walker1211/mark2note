@@ -196,7 +196,8 @@ Key fields:
 - `xhs.publish.headless`: default browser headless mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
 - `xhs.publish.browser_path`: default browser executable path for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`; CLI `--chrome` can override it for one run
 - `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
-- `xhs.publish.mode`: default publish mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`, supporting `only-self` and `schedule`; main render commands can override it for one run with `--xhs-mode`
+- `xhs.publish.mode`: publish timing/flow, not page visibility; supports `immediate` (normal immediate publish flow) and `schedule` (scheduled publish flow); main render commands can override it for one run with `--xhs-mode`
+- `xhs.publish.visibility`: Xiaohongshu page visibility, not publish timing; supports `public` and `only-self`
 - `xhs.publish.schedule_at`: default scheduled publish time for `mode: schedule`, using `YYYY-MM-DD HH:MM:SS` and parsed in Asia/Shanghai; main render commands can override it for one run with `--xhs-schedule-at`
 - `xhs.publish.topic_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to generate 3-6 Xiaohongshu topics when `--xhs-tags` is omitted, on by default
 - `xhs.publish.title_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to rewrite titles that exceed `max_runes`, on by default
@@ -357,8 +358,8 @@ Rules:
 
 Current behavior:
 
-- standard publish mode currently submits as only-self-visible
-- schedule mode still submits as scheduled publish
+- `immediate` mode uses the normal publish flow; page visibility is controlled separately by `visibility`
+- `schedule` mode submits a scheduled publish
 - media source is exclusive: use `--images` for standard image posts or `--live-report` for the Live pipeline
 
 ### Usage
@@ -379,7 +380,7 @@ mark2note publish-xhs --help
 - `--content <text>`: inline content text; exactly one of `--content` / `--content-file` is required
 - `--content-file <file>`: content file path
 - `--tags <csv>`: comma-separated tags
-- `--mode <name>`: publish mode, supporting `only-self` and `schedule`; when omitted it falls back to `xhs.publish.mode`, otherwise defaults to `only-self`
+- `--mode <name>`: publish timing/flow, supporting `immediate` and `schedule`; when omitted it falls back to `xhs.publish.mode`, otherwise defaults to `immediate`
 - `--schedule-at <time>`: scheduled publish time in `YYYY-MM-DD HH:MM:SS`, parsed in Asia/Shanghai; when omitted it can fall back to `xhs.publish.schedule_at`
 - `--images <csv>`: comma-separated image paths for standard image posts
 - `--live-report <file>`: Live delivery report path used to resolve publishable Live assets
@@ -420,7 +421,10 @@ xhs:
     headless: false
     browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
-    mode: only-self
+    # mode controls publish timing/flow; values: immediate = normal immediate flow, schedule = scheduled flow.
+    mode: immediate
+    # visibility controls page visibility; values: public = public, only-self = visible only to yourself.
+    visibility: public
     schedule_at: ""
 ```
 

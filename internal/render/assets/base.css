@@ -333,19 +333,20 @@ html, body {
 }
 
 .image-frame {
-    background: var(--white);
+    background: transparent;
     border: 2px solid var(--line);
     border-radius: 42px;
-    padding: 18px;
+    padding: 0;
+    overflow: hidden;
 }
 
 .image-frame img {
     width: 100%;
     height: 100%;
-    object-fit: contain;
-    border-radius: 28px;
+    object-fit: cover;
+    border-radius: 40px;
     display: block;
-    background: #fff;
+    background: transparent;
 }
 
 .image-caption-layout {
@@ -439,6 +440,27 @@ html, body {
 
 .image-caption-layout.image-caption-no-image {
     height: 1220px;
+}
+
+.image-caption-text-card {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 54px 52px;
+    display: flex;
+}
+
+.image-caption-text-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+}
+
+.image-caption-text-card .quote-bar {
+    height: 220px;
+}
+
+.image-caption-text-caption {
+    color: var(--text);
 }
 
 .image-caption-layout.image-caption-no-image.content-fit-roomy {
@@ -549,6 +571,61 @@ html, body {
     --code-block-padding-x: 12px;
     --code-font-size: 16px;
     --code-line-height: 1.12;
+}
+
+.text-caption-layout {
+    --caption-font-size: 38px;
+    --caption-line-height: 1.55;
+    --code-block-margin-top: 24px;
+    --code-block-padding-y: 20px;
+    --code-block-padding-x: 22px;
+    --code-font-size: 24px;
+    --code-line-height: 1.45;
+    margin-top: 42px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+}
+
+.text-caption-card {
+    flex: 0 0 auto;
+    min-height: 0;
+    padding: 54px 52px;
+    display: flex;
+}
+
+.text-caption-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+}
+
+.text-caption-wrap .quote-bar {
+    height: 220px;
+}
+
+.text-caption-copy {
+    color: var(--text);
+    font-size: var(--caption-font-size);
+    line-height: var(--caption-line-height);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.text-caption-copy .code-block {
+    margin-top: var(--code-block-margin-top);
+    padding: var(--code-block-padding-y) var(--code-block-padding-x);
+    font-size: var(--code-font-size);
+    line-height: var(--code-line-height);
+}
+
+.text-caption-cta {
+    position: static;
+    margin-top: 0;
+    left: auto;
+    right: auto;
+    bottom: auto;
 }
 
 .bullets {

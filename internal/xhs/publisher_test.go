@@ -78,29 +78,32 @@ func testPage(t *testing.T) *rod.Page {
 }
 
 type fakePublishPage struct {
-	calls               []string
-	uploaded            []string
-	title               string
-	content             string
-	scheduledAt         time.Time
-	openErr             error
-	uploadErr           error
-	titleErr            error
-	contentErr          error
-	publishOnlySelfErr  error
-	confirmOnlySelfErr  error
-	setScheduleErr      error
-	submitScheduleErr   error
-	confirmScheduleErr  error
-	dismissOverlaysErr  error
-	applyOriginalErr    error
-	applyContentCopyErr error
-	originalApplied     bool
-	contentCopyAllowed  bool
-	onlySelfVisible     bool
-	setOnlySelfErr      error
-	orderCounter        *int
-	firstActionOrder    int
+	calls                   []string
+	uploaded                []string
+	title                   string
+	content                 string
+	scheduledAt             time.Time
+	openErr                 error
+	uploadErr               error
+	titleErr                error
+	contentErr              error
+	publishOnlySelfErr      error
+	confirmOnlySelfErr      error
+	setScheduleErr          error
+	submitScheduleErr       error
+	confirmScheduleErr      error
+	dismissOverlaysErr      error
+	applyOriginalErr        error
+	applyContentCopyErr     error
+	applyCollectionErr      error
+	collection              string
+	originalApplied         bool
+	originalDeclarationType string
+	contentCopyAllowed      bool
+	onlySelfVisible         bool
+	setOnlySelfErr          error
+	orderCounter            *int
+	firstActionOrder        int
 }
 
 func (f *fakePublishPage) Open(context.Context) error {
@@ -170,10 +173,22 @@ func (f *fakePublishPage) dismissEditorOverlays() error {
 	return f.dismissOverlaysErr
 }
 
-func (f *fakePublishPage) applyOriginalDeclaration(enabled bool) error {
+func (f *fakePublishPage) applyCollection(collection string) error {
+	collection = strings.TrimSpace(collection)
+	if collection == "" {
+		return nil
+	}
+	f.calls = append(f.calls, "collection")
+	f.recordActionOrder()
+	f.collection = collection
+	return f.applyCollectionErr
+}
+
+func (f *fakePublishPage) applyOriginalDeclaration(enabled bool, declarationType string) error {
 	f.calls = append(f.calls, "declare-original")
 	f.recordActionOrder()
 	f.originalApplied = enabled
+	f.originalDeclarationType = declarationType
 	return f.applyOriginalErr
 }
 
@@ -248,6 +263,21 @@ func TestPublisherUploadsStandardImagesBeforeTextFill(t *testing.T) {
 	}
 	if !reflect.DeepEqual(page.uploaded, request.ImagePaths) {
 		t.Fatalf("uploaded = %#v, want %#v", page.uploaded, request.ImagePaths)
+	}
+}
+
+func TestPublisherPublicVisibilityStopBeforeSubmitSkipsOnlySelfSelection(t *testing.T) {
+	page := &fakePublishPage{}
+	request := PublishRequest{Title: "标题", Content: "正文", Tags: []string{"效率"}, ImagePaths: []string{"cover.jpg"}, StopBeforeSubmit: true, Visibility: PublishVisibilityPublic}
+	if err := (Publisher{}).PublishStandardOnlySelf(context.Background(), page, request); err != nil {
+		t.Fatalf("PublishStandardOnlySelf() error = %v", err)
+	}
+	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "declare-original", "content-copy"}
+	if !reflect.DeepEqual(page.calls, wantCalls) {
+		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
+	}
+	if page.onlySelfVisible {
+		t.Fatal("onlySelfVisible = true, want false for public visibility")
 	}
 }
 
@@ -395,6 +425,374 @@ func TestPermissionDropdownSelectorMatchesRealWrapper(t *testing.T) {
 	}
 }
 
+func TestApplyCollectionSelectsMatchingCollection(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="collection-plugin-wrapper">
+      <div class="collection-plugin-content">
+        <div class="collection-plugin-content-title">加入合集</div>
+        <button class="collection-plugin-button">选择合集</button>
+      </div>
+    </div>
+    <div class="d-popover d-popover-default collection-plugin-popover" style="display:none">
+      <div class="collection-plugin-popover-content">
+        <div class="item"><div class="item-content"><div class="item-label">AI科技日报</div></div></div>
+        <div class="item"><div class="item-content"><div class="item-label">AI用法</div></div></div>
+        <div class="popover-footer">创建合集</div>
+      </div>
+    </div>
+    <script>
+      const button = document.querySelector('.collection-plugin-button');
+      const popover = document.querySelector('.collection-plugin-popover');
+      button.addEventListener('mousedown', () => { popover.style.display = 'block'; });
+      document.querySelectorAll('.collection-plugin-popover .item').forEach((item) => {
+        item.addEventListener('mousedown', () => {
+          const label = item.querySelector('.item-label').textContent.trim();
+          button.textContent = label;
+          button.setAttribute('data-selected', label);
+          popover.style.display = 'none';
+        });
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyCollection("AI科技日报"); err != nil {
+		t.Fatalf("applyCollection() error = %v", err)
+	}
+	got := page.MustElement(".collection-plugin-button").MustAttribute("data-selected")
+	if got == nil || *got != "AI科技日报" {
+		t.Fatalf("selected collection = %v, want AI科技日报", got)
+	}
+}
+
+func TestApplyOriginalDeclarationSelectsAIGeneratedType(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="original-wrapper">
+      <div class="custom-switch-wrapper">
+        <div class="custom-switch-card">
+          <span class="custom-switch-text-content">原创声明</span>
+          <input type="checkbox" checked>
+        </div>
+      </div>
+      <div class="wrapper">
+        <div tabindex="1" class="d-select-wrapper d-inline-block custom-select-44">
+          <div class="d-select --color-text-title --color-bg-fill">
+            <div class="d-grid d-select-main d-select-main-prefix-indicator --color-text-title">
+              <div class="d-text d-select-placeholder d-text-ellipsis d-text-nowrap">添加内容类型声明</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="d-popover d-dropdown declaration-dropdown" style="display:none">
+      <div class="d-grid-item"><div class="custom-option">笔记含AI生成内容</div></div>
+      <div class="d-grid-item"><div class="custom-option">无声明</div></div>
+    </div>
+    <script>
+      const trigger = document.querySelector('.d-select-wrapper');
+      const dropdown = document.querySelector('.declaration-dropdown');
+      const placeholder = document.querySelector('.d-select-placeholder');
+      trigger.addEventListener('mousedown', (event) => {
+        if (!event.isTrusted) return;
+        window.declarationTriggerTrustedClickSeen = true;
+        dropdown.style.display = 'block';
+      });
+      document.querySelectorAll('.declaration-dropdown .d-grid-item').forEach((item) => {
+        item.addEventListener('mousedown', () => {
+          const label = item.textContent.trim();
+          placeholder.textContent = label;
+          placeholder.className = 'd-text d-select-content d-text-ellipsis d-text-nowrap';
+          trigger.setAttribute('data-selected', label);
+          dropdown.style.display = 'none';
+        });
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true, "ai_generated"); err != nil {
+		state := page.MustEval(`() => document.body.innerText.replace(/\s+/g, ' ').trim()`).String()
+		t.Fatalf("applyOriginalDeclaration() error = %v, state = %s", err, state)
+	}
+	selected := page.MustElement(".d-select-wrapper").MustAttribute("data-selected")
+	if selected == nil || *selected != "笔记含AI生成内容" {
+		t.Fatalf("selected declaration type = %v, want 笔记含AI生成内容", selected)
+	}
+	if trusted := page.MustEval(`() => window.declarationTriggerTrustedClickSeen === true`).Bool(); !trusted {
+		t.Fatal("declaration type select should open by a trusted click")
+	}
+}
+
+func TestApplyOriginalDeclarationSelectsAIGeneratedTypeFromNestedTrigger(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="original-wrapper">
+      <div class="custom-switch-wrapper">
+        <div class="custom-switch-card">
+          <span class="custom-switch-text-content">原创声明</span>
+          <input type="checkbox" checked>
+        </div>
+      </div>
+      <div class="wrapper">
+        <div tabindex="1" class="d-select-wrapper d-inline-block custom-select-44" style="display:block;width:320px;height:100px;border:1px solid #ddd;">
+          <div class="d-select --color-text-title --color-bg-fill" style="display:block;width:110px;height:32px;">
+            <div class="d-grid d-select-main d-select-main-prefix-indicator --color-text-title" style="display:block;width:90px;height:24px;">
+              <div class="d-text d-select-placeholder d-text-ellipsis d-text-nowrap">添加内容类型声明</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="d-popover d-dropdown declaration-dropdown" style="display:none;width:180px;height:80px;">
+      <div class="d-grid-item"><div class="custom-option">笔记含AI生成内容</div></div>
+      <div class="d-grid-item"><div class="custom-option">无声明</div></div>
+    </div>
+    <script>
+      const trigger = document.querySelector('.d-select-main');
+      const dropdown = document.querySelector('.declaration-dropdown');
+      const wrapper = document.querySelector('.d-select-wrapper');
+      const placeholder = document.querySelector('.d-select-placeholder');
+      trigger.addEventListener('mousedown', (event) => {
+        if (!event.isTrusted) return;
+        window.declarationNestedTriggerTrustedClickSeen = true;
+        dropdown.style.display = 'block';
+      });
+      document.querySelectorAll('.declaration-dropdown .d-grid-item').forEach((item) => {
+        item.addEventListener('mousedown', () => {
+          const label = item.textContent.trim();
+          placeholder.textContent = label;
+          placeholder.className = 'd-text d-select-content d-text-ellipsis d-text-nowrap';
+          wrapper.setAttribute('data-selected', label);
+          dropdown.style.display = 'none';
+        });
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true, "ai_generated"); err != nil {
+		state := page.MustEval(`() => document.body.innerText.replace(/\s+/g, ' ').trim()`).String()
+		t.Fatalf("applyOriginalDeclaration() error = %v, state = %s", err, state)
+	}
+	selected := page.MustElement(".d-select-wrapper").MustAttribute("data-selected")
+	if selected == nil || *selected != "笔记含AI生成内容" {
+		t.Fatalf("selected declaration type = %v, want 笔记含AI生成内容", selected)
+	}
+	if trusted := page.MustEval(`() => window.declarationNestedTriggerTrustedClickSeen === true`).Bool(); !trusted {
+		t.Fatal("declaration type select should try the nested trusted trigger")
+	}
+}
+
+func TestApplyOriginalDeclarationAcceptsVisibleDeclarationOptionsOutsidePopover(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="original-wrapper">
+      <div class="custom-switch-wrapper">
+        <div class="custom-switch-card">
+          <span class="custom-switch-text-content">原创声明</span>
+          <input type="checkbox" checked>
+        </div>
+      </div>
+      <div class="wrapper">
+        <div tabindex="1" class="d-select-wrapper d-inline-block custom-select-44">
+          <div class="d-select --color-text-title --color-bg-fill">
+            <div class="d-grid d-select-main d-select-main-prefix-indicator --color-text-title">
+              <div class="d-text d-select-placeholder d-text-ellipsis d-text-nowrap">添加内容类型声明</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="declaration-options declaration-dropdown" style="display:none;">
+      <div class="d-grid-item option-ai" style="display:block;width:180px;height:28px;">笔记含AI生成内容</div>
+      <div class="d-grid-item option-none" style="display:block;width:180px;height:28px;">无声明</div>
+    </div>
+    <script>
+      const trigger = document.querySelector('.d-select-wrapper');
+      const dropdown = document.querySelector('.declaration-dropdown');
+      const placeholder = document.querySelector('.d-select-placeholder');
+      const wrapper = document.querySelector('.d-select-wrapper');
+      trigger.addEventListener('mousedown', (event) => {
+        if (!event.isTrusted) return;
+        dropdown.style.display = 'contents';
+      });
+      document.querySelector('.option-ai').addEventListener('mousedown', () => {
+        placeholder.textContent = '笔记含AI生成内容';
+        wrapper.setAttribute('data-selected', '笔记含AI生成内容');
+        dropdown.style.display = 'none';
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true, "ai_generated"); err != nil {
+		state := page.MustEval(`() => document.body.innerText.replace(/\s+/g, ' ').trim()`).String()
+		t.Fatalf("applyOriginalDeclaration() error = %v, state = %s", err, state)
+	}
+	selected := page.MustElement(".d-select-wrapper").MustAttribute("data-selected")
+	if selected == nil || *selected != "笔记含AI生成内容" {
+		t.Fatalf("selected declaration type = %v, want 笔记含AI生成内容", selected)
+	}
+}
+
+func TestApplyOriginalDeclarationSelectsCurrentAIGeneratedTypeLabel(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="original-wrapper">
+      <div class="custom-switch-wrapper">
+        <div class="custom-switch-card">
+          <span class="custom-switch-text-content">原创声明</span>
+          <input type="checkbox" checked>
+        </div>
+      </div>
+      <div class="wrapper">
+        <div tabindex="1" class="d-select-wrapper d-inline-block custom-select-44" style="display:block;width:220px;height:32px;">
+          <div class="d-select --color-text-title --color-bg-fill" style="display:block;width:220px;height:32px;">
+            <div class="d-grid d-select-main d-select-main-prefix-indicator --color-text-title" style="display:block;width:220px;height:32px;">
+              <div class="d-text d-select-placeholder d-text-ellipsis d-text-nowrap">添加内容类型声明</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="d-popover d-dropdown declaration-dropdown" style="display:none;width:220px;height:140px;">
+      <div class="d-grid-item option-fiction" style="display:block;width:200px;height:28px;">虚构演绎，仅供娱乐</div>
+      <div class="d-grid-item option-ai" style="display:block;width:200px;height:28px;">笔记含AI合成内容</div>
+      <div class="d-grid-item option-ad" style="display:block;width:200px;height:28px;">内容包含营销广告</div>
+      <div class="d-grid-item option-source" style="display:block;width:200px;height:28px;">内容来源声明</div>
+    </div>
+    <script>
+      const trigger = document.querySelector('.d-select-wrapper');
+      const dropdown = document.querySelector('.declaration-dropdown');
+      const placeholder = document.querySelector('.d-select-placeholder');
+      const wrapper = document.querySelector('.d-select-wrapper');
+      trigger.addEventListener('mousedown', (event) => {
+        if (!event.isTrusted) return;
+        dropdown.style.display = 'block';
+      });
+      document.querySelector('.option-ai').addEventListener('mousedown', () => {
+        placeholder.textContent = '笔记含AI合成内容';
+        wrapper.setAttribute('data-selected', '笔记含AI合成内容');
+        dropdown.style.display = 'none';
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true, "ai_generated"); err != nil {
+		state := page.MustEval(`() => document.body.innerText.replace(/\s+/g, ' ').trim()`).String()
+		t.Fatalf("applyOriginalDeclaration() error = %v, state = %s", err, state)
+	}
+	selected := page.MustElement(".d-select-wrapper").MustAttribute("data-selected")
+	if selected == nil || *selected != "笔记含AI合成内容" {
+		t.Fatalf("selected declaration type = %v, want 笔记含AI合成内容", selected)
+	}
+}
+
+func TestApplyOriginalDeclarationClicksInnerOptionContent(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div class="original-wrapper">
+      <div class="custom-switch-wrapper">
+        <div class="custom-switch-card">
+          <span class="custom-switch-text-content">原创声明</span>
+          <input type="checkbox" checked>
+        </div>
+      </div>
+      <div class="wrapper">
+        <div tabindex="1" class="d-select-wrapper d-inline-block custom-select-44" style="display:block;width:220px;height:32px;">
+          <div class="d-select --color-text-title --color-bg-fill" style="display:block;width:220px;height:32px;">
+            <div class="d-grid d-select-main d-select-main-prefix-indicator --color-text-title" style="display:block;width:220px;height:32px;">
+              <div class="d-text d-select-placeholder d-text-ellipsis d-text-nowrap">添加内容类型声明</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="d-popover d-dropdown declaration-dropdown" style="display:none;width:220px;height:140px;">
+      <div class="d-grid-item" style="display:block;width:280px;height:28px;"><div class="d-grid d-option d-option-content" style="display:block;width:130px;height:28px;">虚构演绎，仅供娱乐</div></div>
+      <div class="d-grid-item" style="display:block;width:280px;height:28px;"><div class="d-grid d-option d-option-content option-ai" style="display:block;width:120px;height:28px;">笔记含AI合成内容</div></div>
+      <div class="d-grid-item" style="display:block;width:280px;height:28px;"><div class="d-grid d-option d-option-content" style="display:block;width:120px;height:28px;">内容包含营销广告</div></div>
+      <div class="d-grid-item" style="display:block;width:280px;height:28px;"><div class="d-grid d-option d-option-content" style="display:block;width:90px;height:28px;">内容来源声明</div></div>
+    </div>
+    <script>
+      const trigger = document.querySelector('.d-select-wrapper');
+      const dropdown = document.querySelector('.declaration-dropdown');
+      const placeholder = document.querySelector('.d-select-placeholder');
+      const wrapper = document.querySelector('.d-select-wrapper');
+      trigger.addEventListener('mousedown', (event) => {
+        if (!event.isTrusted) return;
+        dropdown.style.display = 'block';
+      });
+      document.querySelector('.option-ai').addEventListener('mousedown', () => {
+        placeholder.textContent = '笔记含AI合成内容';
+        wrapper.setAttribute('data-selected', '笔记含AI合成内容');
+        dropdown.style.display = 'none';
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.applyOriginalDeclaration(true, "ai_generated"); err != nil {
+		state := page.MustEval(`() => document.body.innerText.replace(/\s+/g, ' ').trim()`).String()
+		t.Fatalf("applyOriginalDeclaration() error = %v, state = %s", err, state)
+	}
+	selected := page.MustElement(".d-select-wrapper").MustAttribute("data-selected")
+	if selected == nil || *selected != "笔记含AI合成内容" {
+		t.Fatalf("selected declaration type = %v, want 笔记含AI合成内容", selected)
+	}
+}
+
 func TestPublisherPublishesOnlySelfExplicitly(t *testing.T) {
 	page := &fakePublishPage{}
 	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}}
@@ -426,32 +824,38 @@ func TestPublisherPreservesUploadInputMissingError(t *testing.T) {
 
 func TestPublisherOnlySelfStopBeforeSubmitAppliesPreSubmitHooks(t *testing.T) {
 	page := &fakePublishPage{}
-	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}, StopBeforeSubmit: true, DeclareOriginal: true, AllowContentCopy: false}
+	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}, Collection: "AI科技日报", StopBeforeSubmit: true, DeclareOriginal: true, OriginalDeclarationType: "ai_generated", AllowContentCopy: false}
 	if err := (Publisher{}).PublishStandardOnlySelf(context.Background(), page, request); err != nil {
 		t.Fatalf("PublishStandardOnlySelf() error = %v", err)
 	}
-	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-only-self"}
+	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "collection", "declare-original", "content-copy", "set-only-self"}
 	if !reflect.DeepEqual(page.calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
+	}
+	if page.collection != "AI科技日报" {
+		t.Fatalf("collection = %q, want AI科技日报", page.collection)
 	}
 	if !page.onlySelfVisible {
 		t.Fatal("expected only-self visibility to be applied before stopping")
 	}
-	if !page.originalApplied {
-		t.Fatal("expected original declaration to be applied before stopping")
+	if !page.originalApplied || page.originalDeclarationType != "ai_generated" {
+		t.Fatalf("expected original declaration type to be applied before stopping, page = %#v", page)
 	}
 }
 
 func TestPublisherSetsScheduleTimeBeforeSubmit(t *testing.T) {
 	page := &fakePublishPage{}
 	scheduledAt := time.Date(2026, 4, 11, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
-	request := PublishRequest{Title: "标题", Content: "正文", Tags: []string{"效率"}, ImagePaths: []string{"cover.jpg"}, ScheduleTime: &scheduledAt}
+	request := PublishRequest{Title: "标题", Content: "正文", Tags: []string{"效率"}, ImagePaths: []string{"cover.jpg"}, ScheduleTime: &scheduledAt, Collection: "AI科技日报"}
 	if err := (Publisher{}).PublishStandardScheduled(context.Background(), page, request); err != nil {
 		t.Fatalf("PublishStandardScheduled() error = %v", err)
 	}
-	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "declare-original", "content-copy", "set-schedule", "submit-scheduled", "confirm-scheduled"}
+	wantCalls := []string{"open", "upload", "title", "content", "dismiss-overlays", "collection", "declare-original", "content-copy", "set-schedule", "submit-scheduled", "confirm-scheduled"}
 	if !reflect.DeepEqual(page.calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
+	}
+	if page.collection != "AI科技日报" {
+		t.Fatalf("collection = %q, want AI科技日报", page.collection)
 	}
 	if !page.scheduledAt.Equal(scheduledAt) {
 		t.Fatalf("scheduledAt = %v, want %v", page.scheduledAt, scheduledAt)
@@ -471,7 +875,7 @@ func TestPublisherReturnsScheduleErrorWhenControlsMissing(t *testing.T) {
 func TestPublisherScheduledFlowAppliesPreSubmitHooks(t *testing.T) {
 	page := &fakePublishPage{}
 	scheduledAt := time.Date(2026, 4, 11, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
-	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}, ScheduleTime: &scheduledAt, DeclareOriginal: true, AllowContentCopy: false}
+	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}, ScheduleTime: &scheduledAt, DeclareOriginal: true, OriginalDeclarationType: "ai_generated", AllowContentCopy: false}
 	if err := (Publisher{}).PublishStandardScheduled(context.Background(), page, request); err != nil {
 		t.Fatalf("PublishStandardScheduled() error = %v", err)
 	}
@@ -479,8 +883,8 @@ func TestPublisherScheduledFlowAppliesPreSubmitHooks(t *testing.T) {
 	if !reflect.DeepEqual(page.calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", page.calls, wantCalls)
 	}
-	if !page.originalApplied {
-		t.Fatal("expected original declaration hook to run")
+	if !page.originalApplied || page.originalDeclarationType != "ai_generated" {
+		t.Fatalf("expected original declaration type hook to run, page = %#v", page)
 	}
 	if page.contentCopyAllowed {
 		t.Fatal("expected content copy hook to disable copy")
@@ -1311,7 +1715,7 @@ func TestApplyOriginalDeclarationChecksUncheckedOriginalBox(t *testing.T) {
 	page.MustWaitLoad()
 
 	rodPage := &rodPage{page: page}
-	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+	if err := rodPage.applyOriginalDeclaration(true, ""); err != nil {
 		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
 	}
 	if !page.MustElement("#original").MustProperty("checked").Bool() {
@@ -1361,7 +1765,7 @@ func TestApplyOriginalDeclarationChecksAgreementInModal(t *testing.T) {
 	page.MustWaitLoad()
 
 	rodPage := &rodPage{page: page}
-	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+	if err := rodPage.applyOriginalDeclaration(true, ""); err != nil {
 		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
 	}
 	if !page.MustElement("#original").MustProperty("checked").Bool() {
@@ -1397,7 +1801,7 @@ func TestApplyOriginalDeclarationClicksConfirmButtonInModal(t *testing.T) {
 	page.MustWaitLoad()
 
 	rodPage := &rodPage{page: page}
-	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+	if err := rodPage.applyOriginalDeclaration(true, ""); err != nil {
 		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
 	}
 	confirmed := page.MustEval(`() => document.body.getAttribute('data-original-confirmed') || ''`).String()
@@ -1450,7 +1854,7 @@ func TestApplyOriginalDeclarationClicksEntryBeforeConfirmingModal(t *testing.T) 
 	page.MustWaitLoad()
 
 	rodPage := &rodPage{page: page}
-	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+	if err := rodPage.applyOriginalDeclaration(true, ""); err != nil {
 		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
 	}
 	confirmed := page.MustEval(`() => document.body.getAttribute('data-original-confirmed') || ''`).String()
@@ -1502,7 +1906,7 @@ func TestApplyOriginalDeclarationUsesVisibleSwitchAndConfirmsPrompt(t *testing.T
 	page.MustWaitLoad()
 
 	rodPage := &rodPage{page: page}
-	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+	if err := rodPage.applyOriginalDeclaration(true, ""); err != nil {
 		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
 	}
 	if !page.MustElement("#original").MustProperty("checked").Bool() {
@@ -1537,7 +1941,7 @@ func TestApplyOriginalDeclarationClicksWrapperWithHiddenInput(t *testing.T) {
 	page.MustWaitLoad()
 
 	rodPage := &rodPage{page: page}
-	if err := rodPage.applyOriginalDeclaration(true); err != nil {
+	if err := rodPage.applyOriginalDeclaration(true, ""); err != nil {
 		t.Fatalf("applyOriginalDeclaration(true) error = %v", err)
 	}
 	if !page.MustElement("#original").MustProperty("checked").Bool() {

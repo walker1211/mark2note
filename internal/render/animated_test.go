@@ -129,7 +129,7 @@ func TestFrameTimesCapsRenderedFramesForPerformance(t *testing.T) {
 }
 
 func TestDefaultVariantPresetExistsForEverySupportedVariant(t *testing.T) {
-	for _, variant := range []string{"cover", "quote", "image-caption", "bullets", "compare", "gallery-steps", "ending"} {
+	for _, variant := range []string{"cover", "quote", "image-caption", "text-caption", "bullets", "compare", "gallery-steps", "ending"} {
 		if _, ok := defaultAnimatedPreset(variant); !ok {
 			t.Fatalf("missing preset for %q", variant)
 		}

@@ -47,7 +47,7 @@ func TestDefaultDeckStillCoversAllSupportedVariants(t *testing.T) {
 		seen[page.Variant] = true
 	}
 
-	for _, variant := range []string{"cover", "quote", "image-caption", "bullets", "compare", "gallery-steps", "ending"} {
+	for _, variant := range []string{"cover", "quote", "image-caption", "text-caption", "bullets", "compare", "gallery-steps", "ending"} {
 		if !seen[variant] {
 			t.Fatalf("missing variant %q in default deck", variant)
 		}
@@ -144,12 +144,12 @@ func TestDeckFromJSONAcceptsTwelvePagesWithContentSchema(t *testing.T) {
     {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/12","theme":"orange","cta":"cta"},"content":{"title":"封面","subtitle":"副标题"}},
     {"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/12","theme":"orange","cta":"cta"},"content":{"title":"列表页","items":["a","b"]}},
     {"name":"p03-quote","variant":"quote","meta":{"badge":"第 3 页","counter":"3/12","theme":"orange","cta":"cta"},"content":{"title":"引用页","quote":"一句话"}},
-    {"name":"p04-image","variant":"image-caption","meta":{"badge":"第 4 页","counter":"4/12","theme":"orange","cta":"cta"},"content":{"title":"图文页"}},
+    {"name":"p04-text","variant":"text-caption","meta":{"badge":"第 4 页","counter":"4/12","theme":"orange","cta":"cta"},"content":{"title":"文字页","body":"**摘要：** 事实。\n\n**影响：** 判断。"}},
     {"name":"p05-compare","variant":"compare","meta":{"badge":"第 5 页","counter":"5/12","theme":"green","cta":"cta"},"content":{"title":"对比页","compare":{"leftLabel":"旧","rightLabel":"新","rows":[{"left":"慢","right":"快"}]}}},
     {"name":"p06-gallery","variant":"gallery-steps","meta":{"badge":"第 6 页","counter":"6/12","theme":"green","cta":"cta"},"content":{"title":"步骤页","steps":["第一步","第二步"]}},
     {"name":"p07-bullets","variant":"bullets","meta":{"badge":"第 7 页","counter":"7/12","theme":"orange","cta":"cta"},"content":{"title":"列表页 2","items":["x"]}},
     {"name":"p08-quote","variant":"quote","meta":{"badge":"第 8 页","counter":"8/12","theme":"orange","cta":"cta"},"content":{"title":"引用页 2","quote":"第二句"}},
-    {"name":"p09-image","variant":"image-caption","meta":{"badge":"第 9 页","counter":"9/12","theme":"green","cta":"cta"},"content":{"title":"图文页 2"}},
+    {"name":"p09-image","variant":"image-caption","meta":{"badge":"第 9 页","counter":"9/12","theme":"green","cta":"cta"},"content":{"title":"图文页 2","images":[{"src":"image.png","alt":"图"}]}},
     {"name":"p10-compare","variant":"compare","meta":{"badge":"第 10 页","counter":"10/12","theme":"green","cta":"cta"},"content":{"title":"对比页 2","compare":{"leftLabel":"A","rightLabel":"B","rows":[{"left":"一","right":"二"}]}}},
     {"name":"p11-gallery","variant":"gallery-steps","meta":{"badge":"第 11 页","counter":"11/12","theme":"green","cta":"cta"},"content":{"title":"步骤页 2","steps":["一","二","三"]}},
     {"name":"p12-ending","variant":"ending","meta":{"badge":"第 12 页","counter":"12/12","theme":"green","cta":"cta"},"content":{"title":"结尾","body":"总结"}}
@@ -212,21 +212,21 @@ func TestDeckFromJSONRejectsWhenFirstPageIsNotCover(t *testing.T) {
 	}
 }
 
-func TestDeckFromJSONRejectsWhenLastPageIsNotEnding(t *testing.T) {
+func TestDeckFromJSONAcceptsNewsDeckWithoutEndingPage(t *testing.T) {
 	raw := `{
   "pages": [
     {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta"},"content":{"title":"封面"}},
     {"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta"},"content":{"title":"列表","items":["a"]}},
-    {"name":"p03-quote","variant":"quote","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta"},"content":{"title":"结尾?","quote":"不是 ending"}}
+    {"name":"p03-text","variant":"text-caption","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta"},"content":{"title":"最后一条新闻","body":"**摘要：** 事实。\n\n**影响：** 判断。"}}
   ]
 }`
 
-	_, err := FromJSON(raw, "/tmp/out")
-	if err == nil {
-		t.Fatalf("FromJSON() error = nil, want non-nil")
+	d, err := FromJSON(raw, "/tmp/out")
+	if err != nil {
+		t.Fatalf("FromJSON() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "last page must use ending variant") {
-		t.Fatalf("error = %v", err)
+	if got := d.Pages[len(d.Pages)-1].Variant; got != "text-caption" {
+		t.Fatalf("last variant = %q, want text-caption", got)
 	}
 }
 
@@ -349,6 +349,24 @@ func TestDeckFromJSONRejectsUnsupportedVariant(t *testing.T) {
 		t.Fatalf("FromJSON() error = nil, want non-nil")
 	}
 	if !strings.Contains(err.Error(), "unsupported variant") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDeckFromJSONRejectsImageCaptionWithoutImages(t *testing.T) {
+	raw := `{
+  "pages": [
+    {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta"},"content":{"title":"封面"}},
+    {"name":"p02-image","variant":"image-caption","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta"},"content":{"title":"图文"}},
+    {"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta"},"content":{"title":"结尾","body":"总结"}}
+  ]
+}`
+
+	_, err := FromJSON(raw, "/tmp/out")
+	if err == nil {
+		t.Fatal("FromJSON() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), `page "p02-image" (image-caption): images requires exactly 1 item`) {
 		t.Fatalf("error = %v", err)
 	}
 }

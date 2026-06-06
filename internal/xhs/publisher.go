@@ -34,7 +34,8 @@ type PublishPage interface {
 
 type scheduledPreSubmitPage interface {
 	dismissEditorOverlays() error
-	applyOriginalDeclaration(bool) error
+	applyCollection(string) error
+	applyOriginalDeclaration(bool, string) error
 	applyContentCopyPreference(bool) error
 }
 
@@ -108,7 +109,13 @@ var (
 		`.d-datepicker input.d-text`,
 		`input[placeholder*="选择发布时间"]`,
 	}
+	collectionTriggerSelector  = ".collection-plugin-wrapper .collection-plugin-button, .collection-plugin-button, button, div"
+	collectionPopoverSelector  = ".collection-plugin-popover, .d-popover"
+	collectionOptionSelector   = ".item-label, .item"
+	collectionSelectedSelector = ".collection-plugin-wrapper, .collection-plugin-button"
 )
+
+const collectionPopoverTimeout = 2 * time.Second
 
 func (p *rodPage) Open(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
@@ -333,6 +340,14 @@ func existingHashtagTokens(text string) map[string]bool {
 	return result
 }
 
+func shouldSetOnlySelfVisibility(request PublishRequest) bool {
+	visibility, err := ValidateVisibility(string(request.Visibility))
+	if err != nil {
+		return true
+	}
+	return visibility == PublishVisibilityOnlySelf
+}
+
 func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -341,17 +356,23 @@ func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) e
 	if err := p.dismissEditorOverlays(); err != nil {
 		return err
 	}
+	defaultXHSLogger("only-self publish apply collection")
+	if err := p.applyCollection(request.Collection); err != nil {
+		return err
+	}
 	defaultXHSLogger("only-self publish declare original")
-	if err := p.applyOriginalDeclaration(request.DeclareOriginal); err != nil {
+	if err := p.applyOriginalDeclaration(request.DeclareOriginal, request.OriginalDeclarationType); err != nil {
 		return err
 	}
 	defaultXHSLogger("only-self publish set content copy")
 	if err := p.applyContentCopyPreference(request.AllowContentCopy); err != nil {
 		return err
 	}
-	defaultXHSLogger("only-self publish set visibility")
-	if err := p.setOnlySelfVisible(); err != nil {
-		return err
+	if shouldSetOnlySelfVisibility(request) {
+		defaultXHSLogger("only-self publish set visibility")
+		if err := p.setOnlySelfVisible(); err != nil {
+			return err
+		}
 	}
 	defaultXHSLogger("only-self publish click submit")
 	clicked, err := p.clickByText("button", "^发布$")
@@ -421,11 +442,17 @@ func prepareOnlySelfBeforeSubmit(page PublishPage, request PublishRequest) error
 	if err := preSubmitPage.dismissEditorOverlays(); err != nil {
 		return err
 	}
-	if err := preSubmitPage.applyOriginalDeclaration(request.DeclareOriginal); err != nil {
+	if err := preSubmitPage.applyCollection(request.Collection); err != nil {
+		return err
+	}
+	if err := preSubmitPage.applyOriginalDeclaration(request.DeclareOriginal, request.OriginalDeclarationType); err != nil {
 		return err
 	}
 	if err := preSubmitPage.applyContentCopyPreference(request.AllowContentCopy); err != nil {
 		return err
+	}
+	if !shouldSetOnlySelfVisibility(request) {
+		return nil
 	}
 	return preSubmitPage.setOnlySelfVisible()
 }
@@ -438,7 +465,10 @@ func runScheduledPreSubmitHooks(page PublishPage, request PublishRequest) error 
 	if err := preSubmitPage.dismissEditorOverlays(); err != nil {
 		return err
 	}
-	if err := preSubmitPage.applyOriginalDeclaration(request.DeclareOriginal); err != nil {
+	if err := preSubmitPage.applyCollection(request.Collection); err != nil {
+		return err
+	}
+	if err := preSubmitPage.applyOriginalDeclaration(request.DeclareOriginal, request.OriginalDeclarationType); err != nil {
 		return err
 	}
 	if err := preSubmitPage.applyContentCopyPreference(request.AllowContentCopy); err != nil {
@@ -690,6 +720,129 @@ func (p *rodPage) clickVisibleNodeByText(selector string, pattern string) (bool,
 		return false, err
 	}
 	return clicked, nil
+}
+
+func (p *rodPage) applyCollection(collection string) error {
+	collection = strings.TrimSpace(collection)
+	if collection == "" || p.isCollectionSelected(collection) {
+		return nil
+	}
+	if err := p.openCollectionPopover(); err != nil {
+		return err
+	}
+	if err := p.selectCollectionOption(collection); err != nil {
+		return err
+	}
+	if !p.isCollectionSelected(collection) {
+		return fmt.Errorf("collection %q was not selected", collection)
+	}
+	return nil
+}
+
+func (p *rodPage) openCollectionPopover() error {
+	if p.isCollectionPopoverVisible() {
+		return nil
+	}
+	clicked, err := p.clickVisibleNodeByText(collectionTriggerSelector, "^选择合集$")
+	if err != nil {
+		return err
+	}
+	if !clicked {
+		return fmt.Errorf("collection selector not found")
+	}
+	deadline := time.Now().Add(collectionPopoverTimeout)
+	for time.Now().Before(deadline) {
+		if p.isCollectionPopoverVisible() {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("collection popover did not become visible")
+}
+
+func (p *rodPage) isCollectionPopoverVisible() bool {
+	visible := false
+	_ = rodTry(func() {
+		visible = p.page.MustEval(`(popoverSelector, optionSelector) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			return Array.from(document.querySelectorAll(popoverSelector)).some((node) => {
+				if (!isVisible(node)) return false;
+				const text = normalize(node.innerText || node.textContent || '');
+				return text.includes('创建合集') || Array.from(node.querySelectorAll(optionSelector)).some((item) => normalize(item.innerText || item.textContent || '') !== '');
+			});
+		}`, collectionPopoverSelector, collectionOptionSelector).Bool()
+	})
+	return visible
+}
+
+func (p *rodPage) selectCollectionOption(collection string) error {
+	selected := false
+	err := rodTry(func() {
+		selected = p.page.MustEval(`(collection, popoverSelector, optionSelector) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const fire = (node, type) => node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: 0 }));
+			const popovers = Array.from(document.querySelectorAll(popoverSelector)).filter(isVisible);
+			for (const popover of popovers) {
+				const labels = Array.from(popover.querySelectorAll(optionSelector));
+				for (const label of labels) {
+					if (!isVisible(label)) continue;
+					if (normalize(label.innerText || label.textContent || '') !== collection) continue;
+					const item = label.closest('.item') || label;
+					if (!isVisible(item)) continue;
+					item.scrollIntoView({ block: 'center', behavior: 'instant' });
+					fire(item, 'mousedown');
+					fire(item, 'mouseup');
+					if (isVisible(popover)) item.click();
+					return true;
+				}
+			}
+			return false;
+		}`, collection, collectionPopoverSelector, collectionOptionSelector).Bool()
+		if selected {
+			p.page.MustWaitStable()
+		}
+	})
+	if err != nil {
+		return err
+	}
+	if !selected {
+		return fmt.Errorf("collection option %q not found", collection)
+	}
+	return nil
+}
+
+func (p *rodPage) isCollectionSelected(collection string) bool {
+	selected := false
+	_ = rodTry(func() {
+		selected = p.page.MustEval(`(collection, selectedSelector) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			return Array.from(document.querySelectorAll(selectedSelector)).some((node) => {
+				if (!isVisible(node)) return false;
+				const selected = normalize(node.getAttribute('data-selected') || '');
+				const text = normalize(node.innerText || node.textContent || '');
+				return selected === collection || text === collection || text.includes(collection);
+			});
+		}`, collection, collectionSelectedSelector).Bool()
+	})
+	return selected
 }
 
 func (p *rodPage) openPermissionDropdown() error {
@@ -1208,42 +1361,332 @@ func isOriginalDeclarationNeedle(labelNeedle string) bool {
 	return strings.Contains(labelNeedle, "原创") || strings.Contains(labelNeedle, "声明")
 }
 
-func (p *rodPage) applyOriginalDeclaration(enabled bool) error {
+func (p *rodPage) applyOriginalDeclaration(enabled bool, declarationType string) error {
 	if !enabled {
 		return nil
 	}
-	if p.isOriginalDeclared() {
+	if !p.isOriginalDeclared() {
+		if err := p.setCheckboxState("声明原创", true); err != nil {
+			if err := p.setCheckboxState("原创", true); err != nil {
+				if _, clickErr := p.clickVisibleNodeByText(".d-checkbox-main-label, .d-checkbox-label, .original-entry, div, span, label, button", "^声明原创$|^原创声明$|^原创$"); clickErr != nil {
+					p.debugOriginalDeclarationState()
+					return clickErr
+				}
+			}
+		}
+		if err := p.setCheckboxState("我已阅读并同意", true); err != nil {
+			if !strings.Contains(err.Error(), `checkbox containing "我已阅读并同意" not found`) {
+				return err
+			}
+		}
+		if clicked, err := p.clickByText("button", "声明原创"); err != nil {
+			return err
+		} else if clicked {
+			deadline := time.Now().Add(p.effectiveTimeouts().originalConfirm)
+			for time.Now().Before(deadline) {
+				if p.isOriginalDeclared() {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		if !p.isOriginalDeclared() {
+			p.debugOriginalDeclarationState()
+			return fmt.Errorf("original declaration was requested but not selected")
+		}
+	}
+	return p.applyOriginalDeclarationType(declarationType)
+}
+
+func (p *rodPage) applyOriginalDeclarationType(value string) error {
+	label, err := originalDeclarationTypeLabel(value)
+	if err != nil {
+		return err
+	}
+	if label == "" || p.isOriginalDeclarationTypeSelected(label) {
 		return nil
 	}
-	if err := p.setCheckboxState("声明原创", true); err != nil {
-		if err := p.setCheckboxState("原创", true); err != nil {
-			if _, clickErr := p.clickVisibleNodeByText(".d-checkbox-main-label, .d-checkbox-label, .original-entry, div, span, label, button", "^声明原创$|^原创声明$|^原创$"); clickErr != nil {
-				p.debugOriginalDeclarationState()
-				return clickErr
-			}
-		}
-	}
-	if err := p.setCheckboxState("我已阅读并同意", true); err != nil {
-		if !strings.Contains(err.Error(), `checkbox containing "我已阅读并同意" not found`) {
-			return err
-		}
-	}
-	if clicked, err := p.clickByText("button", "声明原创"); err != nil {
-		return err
-	} else if clicked {
-		deadline := time.Now().Add(p.effectiveTimeouts().originalConfirm)
-		for time.Now().Before(deadline) {
-			if p.isOriginalDeclared() {
-				return nil
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-	if !p.isOriginalDeclared() {
+	if err := p.openOriginalDeclarationTypeDropdown(); err != nil {
 		p.debugOriginalDeclarationState()
-		return fmt.Errorf("original declaration was requested but not selected")
+		return err
+	}
+	if err := p.selectOriginalDeclarationType(label); err != nil {
+		p.debugOriginalDeclarationState()
+		return err
+	}
+	if !p.isOriginalDeclarationTypeSelected(label) {
+		p.debugOriginalDeclarationState()
+		return fmt.Errorf("original declaration type %q was not selected", label)
 	}
 	return nil
+}
+
+func originalDeclarationTypeLabel(value string) (string, error) {
+	declarationType, err := ValidateOriginalDeclarationType(value)
+	if err != nil {
+		return "", err
+	}
+	switch declarationType {
+	case "":
+		return "", nil
+	case OriginalDeclarationTypeAIGenerated:
+		return "笔记含AI生成内容", nil
+	default:
+		return "", fmt.Errorf("unsupported original declaration type %q", value)
+	}
+}
+
+func originalDeclarationTypePattern(label string) string {
+	if strings.Contains(label, "AI") {
+		return "笔记含\\s*AI\\s*(生成|合成)内容|AI\\s*(生成|合成)"
+	}
+	return regexpQuote(label)
+}
+
+func regexpQuote(value string) string {
+	var out strings.Builder
+	for _, r := range value {
+		if strings.ContainsRune(`\\.+*?^$()[]{}|`, r) {
+			out.WriteRune('\\')
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
+func (p *rodPage) openOriginalDeclarationTypeDropdown() error {
+	if p.isOriginalDeclarationTypeDropdownVisible() {
+		return nil
+	}
+	triggers, err := p.findOriginalDeclarationTypeTriggers()
+	if err != nil {
+		return err
+	}
+	for _, trigger := range triggers {
+		if err := p.clickOriginalDeclarationTypeTrigger(trigger); err != nil {
+			return err
+		}
+		deadline := time.Now().Add(500 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			if p.isOriginalDeclarationTypeDropdownVisible() {
+				return nil
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	return fmt.Errorf("original declaration type dropdown did not become visible")
+}
+
+func (p *rodPage) clickOriginalDeclarationTypeTrigger(trigger *rod.Element) error {
+	if err := rodTry(func() {
+		trigger.MustScrollIntoView().MustWaitVisible().MustClick()
+		p.page.MustWaitStable()
+	}); err != nil {
+		return err
+	}
+	if p.isOriginalDeclarationTypeDropdownVisible() {
+		return nil
+	}
+	return p.openOriginalDeclarationTypeDropdownFallback(trigger)
+}
+
+func (p *rodPage) findOriginalDeclarationTypeTriggers() ([]*rod.Element, error) {
+	const attr = "data-mark2note-original-declaration-type-trigger"
+	count := 0
+	err := rodTry(func() {
+		count = p.page.MustEval(`(attr) => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			document.querySelectorAll('[' + attr + ']').forEach((node) => node.removeAttribute(attr));
+			const selectors = [
+				'.original-wrapper .d-select-main',
+				'.original-wrapper .d-select',
+				'.original-wrapper .d-select-wrapper',
+				'.wrapper .d-select-main',
+				'.wrapper .d-select',
+				'.wrapper .d-select-wrapper',
+				'.custom-select-44 .d-select-main',
+				'.custom-select-44 .d-select',
+				'.custom-select-44',
+				'.original-wrapper .d-select-placeholder',
+				'.wrapper .d-select-placeholder',
+			];
+			const seen = new Set();
+			let index = 0;
+			for (const selector of selectors) {
+				for (const node of Array.from(document.querySelectorAll(selector))) {
+					if (seen.has(node) || !isVisible(node)) continue;
+					const container = node.closest('.original-wrapper, .wrapper, .custom-select-44') || node;
+					const text = normalize((container.innerText || container.textContent || '') + ' ' + (node.innerText || node.textContent || ''));
+					if (!/添加内容类型声明|内容类型声明|AI\s*生成/.test(text)) continue;
+					seen.add(node);
+					node.setAttribute(attr, String(index));
+					index++;
+				}
+			}
+			return index;
+		}`, attr).Int()
+	})
+	if err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, fmt.Errorf("original declaration type selector not found")
+	}
+	triggers := make([]*rod.Element, 0, count)
+	for i := 0; i < count; i++ {
+		var trigger *rod.Element
+		if err := rodTry(func() {
+			trigger = p.page.MustElement(fmt.Sprintf("[%s=\"%d\"]", attr, i))
+		}); err != nil {
+			return nil, err
+		}
+		triggers = append(triggers, trigger)
+	}
+	return triggers, nil
+}
+
+func (p *rodPage) openOriginalDeclarationTypeDropdownFallback(trigger *rod.Element) error {
+	return rodTry(func() {
+		trigger.MustEval(`() => {
+			const firePointer = (node, type) => {
+				if (typeof PointerEvent === 'function') {
+					node.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, view: window, button: 0, pointerType: 'mouse', isPrimary: true }));
+				}
+			};
+			const fireMouse = (node, type) => node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: 0 }));
+			const node = this;
+			node.scrollIntoView({ block: 'center', behavior: 'instant' });
+			firePointer(node, 'pointerdown');
+			fireMouse(node, 'mousedown');
+			firePointer(node, 'pointerup');
+			fireMouse(node, 'mouseup');
+			fireMouse(node, 'click');
+			if (typeof node.focus === 'function') node.focus();
+		}`)
+		p.page.MustWaitStable()
+	})
+}
+
+func (p *rodPage) isOriginalDeclarationTypeDropdownVisible() bool {
+	visible := false
+	_ = rodTry(func() {
+		visible = p.page.MustEval(`() => {
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const hasAIOption = (text) => /笔记含\s*AI\s*(生成|合成)内容|AI\s*(生成|合成)/.test(text);
+			const hasOtherDeclarationOption = (text) => /无声明|虚构演绎|内容包含营销广告|内容来源声明/.test(text);
+			const overlaySelector = '.d-popover.d-dropdown, .d-dropdown, .d-popover, [role="listbox"], [data-popper-placement], .d-select-dropdown';
+			const optionSelector = '.d-grid-item, .custom-option, [role="option"], .d-select-option, .d-text, div, span';
+			const overlays = Array.from(document.querySelectorAll(overlaySelector));
+			for (const overlay of overlays) {
+				const overlayText = normalize(overlay.innerText || overlay.textContent || '');
+				if (isVisible(overlay) && (hasAIOption(overlayText) || hasOtherDeclarationOption(overlayText))) {
+					return true;
+				}
+				const visibleOptionTexts = Array.from(overlay.querySelectorAll(optionSelector)).filter(isVisible).map((node) => normalize(node.innerText || node.textContent || ''));
+				if (visibleOptionTexts.some(hasAIOption) && visibleOptionTexts.some(hasOtherDeclarationOption)) {
+					return true;
+				}
+			}
+			const visibleTexts = Array.from(document.querySelectorAll('div, span, label, button')).filter(isVisible).map((node) => normalize(node.innerText || node.textContent || ''));
+			return visibleTexts.some(hasAIOption) && visibleTexts.some(hasOtherDeclarationOption);
+		}`).Bool()
+	})
+	return visible
+}
+
+func (p *rodPage) selectOriginalDeclarationType(label string) error {
+	const attr = "data-mark2note-original-declaration-type-option"
+	pattern := originalDeclarationTypePattern(label)
+	found := false
+	err := rodTry(func() {
+		found = p.page.MustEval(`(attr, pattern) => {
+			const regex = new RegExp(pattern);
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			document.querySelectorAll('[' + attr + ']').forEach((node) => node.removeAttribute(attr));
+			const overlaySelector = '.d-popover.d-dropdown, .d-dropdown, .d-popover, [role="listbox"], [data-popper-placement], .d-select-dropdown';
+			const optionSelector = '.d-grid-item, .custom-option, [role="option"], .d-select-option, .d-text, div, span';
+			const candidates = [];
+			const seen = new Set();
+			const addCandidate = (node) => {
+				if (!node || seen.has(node)) return;
+				seen.add(node);
+				candidates.push(node);
+			};
+			for (const overlay of Array.from(document.querySelectorAll(overlaySelector))) {
+				Array.from(overlay.querySelectorAll(optionSelector)).forEach(addCandidate);
+			}
+			Array.from(document.querySelectorAll('.d-grid-item, .custom-option, [role="option"], .d-select-option, .d-text')).forEach(addCandidate);
+			for (const option of candidates) {
+				if (!isVisible(option)) continue;
+				const text = normalize(option.innerText || option.textContent || '');
+				if (!regex.test(text)) continue;
+				let target = option;
+				const inner = Array.from(option.querySelectorAll('.d-option, .custom-option, [role="option"], .d-select-option, .d-text, span')).find((node) => {
+					return isVisible(node) && regex.test(normalize(node.innerText || node.textContent || ''));
+				});
+				if (inner) target = inner;
+				if (!isVisible(target)) continue;
+				target.setAttribute(attr, 'true');
+				return true;
+			}
+			return false;
+		}`, attr, pattern).Bool()
+	})
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("original declaration type option %q not found", label)
+	}
+	if err := rodTry(func() {
+		p.page.MustElement("[" + attr + `="true"]`).MustScrollIntoView().MustWaitVisible().MustClick()
+		p.page.MustWaitStable()
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *rodPage) isOriginalDeclarationTypeSelected(label string) bool {
+	pattern := originalDeclarationTypePattern(label)
+	selected := false
+	_ = rodTry(func() {
+		selected = p.page.MustEval(`(pattern) => {
+			const regex = new RegExp(pattern);
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const selectors = '.original-wrapper .d-select-wrapper, .original-wrapper .d-select-main, .original-wrapper .d-text, .wrapper .d-select-wrapper, .wrapper .d-select-main, .custom-select-44, [data-selected]';
+			return Array.from(document.querySelectorAll(selectors)).some((node) => {
+				if (!isVisible(node)) return false;
+				const text = normalize((node.getAttribute('data-selected') || '') + ' ' + (node.innerText || node.textContent || ''));
+				return regex.test(text);
+			});
+		}`, pattern).Bool()
+	})
+	return selected
 }
 
 func (p *rodPage) isOriginalDeclared() bool {
@@ -1393,6 +1836,23 @@ func (p *rodPage) debugOriginalDeclarationState() {
 			};
 		}).filter((item) => /原创|声明|同意|阅读/.test(item.text) || item.tag === 'INPUT'))`).String()
 		defaultXHSLogger("original declaration candidates=%s", nodes)
+	})
+	_ = rodTry(func() {
+		nodes := p.page.MustEval(`() => JSON.stringify(Array.from(document.querySelectorAll('.original-wrapper, .custom-select-44, .d-popover.d-dropdown, .d-dropdown, .d-grid-item, .custom-option, [role="option"], .d-select-option, .d-text')).map((el) => {
+			const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+			const rect = el.getBoundingClientRect();
+			const style = window.getComputedStyle(el);
+			return {
+				tag: el.tagName,
+				text,
+				className: el.className || '',
+				role: el.getAttribute('role') || '',
+				visible: rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden',
+				rect: { width: Math.round(rect.width), height: Math.round(rect.height), x: Math.round(rect.x), y: Math.round(rect.y) },
+				outerHTML: (el.outerHTML || '').replace(/\s+/g, ' ').trim().slice(0, 260),
+			};
+		}).filter((item) => /原创|声明|AI|合成|生成|营销|虚构|来源/.test(item.text)).slice(0, 80))`).String()
+		defaultXHSLogger("original declaration type nodes=%s", nodes)
 	})
 }
 

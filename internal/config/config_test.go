@@ -588,8 +588,8 @@ func TestLoadAppliesDefaultXHSPublishConfig(t *testing.T) {
 	if cfg.XHS.Publish.ProfileDir != "" {
 		t.Fatalf("ProfileDir = %q, want empty", cfg.XHS.Publish.ProfileDir)
 	}
-	if cfg.XHS.Publish.Mode != "only-self" {
-		t.Fatalf("Mode = %q, want only-self", cfg.XHS.Publish.Mode)
+	if cfg.XHS.Publish.Mode != "immediate" {
+		t.Fatalf("Mode = %q, want immediate", cfg.XHS.Publish.Mode)
 	}
 	if !reflect.DeepEqual(cfg.XHS.Publish.ChromeArgs, DefaultXHSPublishChromeArgs) {
 		t.Fatalf("ChromeArgs = %#v, want %#v", cfg.XHS.Publish.ChromeArgs, DefaultXHSPublishChromeArgs)
@@ -605,7 +605,7 @@ func TestLoadAppliesDefaultXHSPublishConfig(t *testing.T) {
 func TestLoadKeepsExplicitXHSPublishConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	content := "xhs:\n  publish:\n    account: walker\n    headless: false\n    browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n    profile_dir: ~/.config/mark2note/xhs/profiles/walker\n    mode: schedule\n    chrome_args:\n      - --no-first-run\n      - proxy-server=http://127.0.0.1:8080\n"
+	content := "xhs:\n  publish:\n    account: walker\n    headless: false\n    browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n    profile_dir: ~/.config/mark2note/xhs/profiles/walker\n    mode: schedule\n    collection: AI科技日报\n    chrome_args:\n      - --no-first-run\n      - proxy-server=http://127.0.0.1:8080\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -628,6 +628,9 @@ func TestLoadKeepsExplicitXHSPublishConfig(t *testing.T) {
 	}
 	if cfg.XHS.Publish.Mode != "schedule" {
 		t.Fatalf("Mode = %q, want schedule", cfg.XHS.Publish.Mode)
+	}
+	if cfg.XHS.Publish.Collection != "AI科技日报" {
+		t.Fatalf("Collection = %q, want AI科技日报", cfg.XHS.Publish.Collection)
 	}
 	wantChromeArgs := []string{"--no-first-run", "proxy-server=http://127.0.0.1:8080"}
 	if !reflect.DeepEqual(cfg.XHS.Publish.ChromeArgs, wantChromeArgs) {
@@ -712,6 +715,51 @@ func TestLoadKeepsExplicitEmptyXHSPublishChromeArgs(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsXHSPublishVisibilityToOnlySelf(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("output:\n  dir: out\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.Visibility != "only-self" {
+		t.Fatalf("Visibility = %q, want only-self", cfg.XHS.Publish.Visibility)
+	}
+}
+
+func TestLoadKeepsExplicitXHSPublishVisibility(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("xhs:\n  publish:\n    visibility: public\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.Visibility != "public" {
+		t.Fatalf("Visibility = %q, want public", cfg.XHS.Publish.Visibility)
+	}
+}
+
+func TestLoadRejectsInvalidXHSPublishVisibility(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("xhs:\n  publish:\n    visibility: friends\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "validate xhs.publish.visibility") {
+		t.Fatalf("Load() error = %v, want visibility validation error", err)
+	}
+}
+
 func TestLoadRejectsInvalidXHSPublishMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -761,5 +809,36 @@ func TestLoadKeepsExplicitXHSPublishOriginalityConfig(t *testing.T) {
 	}
 	if cfg.XHS.Publish.AllowContentCopy == nil || !*cfg.XHS.Publish.AllowContentCopy {
 		t.Fatalf("AllowContentCopy = %#v, want true", cfg.XHS.Publish.AllowContentCopy)
+	}
+}
+
+func TestLoadKeepsExplicitXHSPublishOriginalDeclarationType(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "xhs:\n  publish:\n    original_declaration_type: ai_generated\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.XHS.Publish.OriginalDeclarationType != "ai_generated" {
+		t.Fatalf("OriginalDeclarationType = %q, want ai_generated", cfg.XHS.Publish.OriginalDeclarationType)
+	}
+}
+
+func TestLoadRejectsInvalidXHSPublishOriginalDeclarationType(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "xhs:\n  publish:\n    original_declaration_type: sponsored\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "validate xhs.publish.original_declaration_type") {
+		t.Fatalf("Load() error = %v, want original declaration type validation error", err)
 	}
 }

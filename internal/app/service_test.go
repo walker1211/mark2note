@@ -213,6 +213,40 @@ func TestServiceGeneratePreviewSuccess(t *testing.T) {
 	}
 }
 
+func TestServiceGeneratePreviewInlinesLocalImageAssetsBeforeRendering(t *testing.T) {
+	root := t.TempDir()
+	articleDir := filepath.Join(root, "article")
+	imagePath := filepath.Join(articleDir, "media", "inline-local-001.png")
+	if err := os.MkdirAll(filepath.Dir(imagePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(imagePath, []byte("\x89PNG\r\n\x1a\nimage"), 0o644); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+	articlePath := filepath.Join(articleDir, "article.md")
+	if err := os.WriteFile(articlePath, []byte("# 标题\n\n![图](media/inline-local-001.png)\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(article) error = %v", err)
+	}
+	cfg := &config.Config{Output: config.OutputCfg{Dir: root}}
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-image-caption","variant":"image-caption","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"图文","images":[{"src":"media/inline-local-001.png","alt":"图"}] }},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      os.ReadFile,
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: articlePath, ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	got := r.rendered.Pages[1].Content.Images[0].Src
+	if !strings.HasPrefix(got, "data:image/png;base64,") {
+		t.Fatalf("rendered image src = %q, want local image data URI", got)
+	}
+}
+
 func TestServiceGeneratePreviewHydratesAssetManifestBeforeRendering(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "posters.yaml")

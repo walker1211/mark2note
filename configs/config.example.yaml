@@ -59,10 +59,19 @@ xhs:
     headless: false
     browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
     profile_dir: ~/.config/mark2note/xhs/profiles/walker
-    mode: only-self
-    # mode: schedule 时使用，格式 YYYY-MM-DD HH:MM:SS，按 Asia/Shanghai 解析
+    # mode 控制发布时机/流程，不控制可见性。
+    # 可选值：immediate = 普通立即发布流程；schedule = 定时发布流程，需同时设置 schedule_at。
+    mode: immediate
+    # visibility 控制小红书页面里的可见性选项，不控制发布时机。
+    # 可选值：public = 公开可见，保留页面默认公开状态；only-self = 仅自己可见，自动切换可见性下拉。
+    visibility: only-self
+    # schedule_at 仅在 mode: schedule 时使用；格式 YYYY-MM-DD HH:MM:SS，按 Asia/Shanghai 解析。
     schedule_at: ""
+    # 可选：加入已有小红书合集；留空则不选择合集。Optional existing Xiaohongshu collection name.
+    collection: ""
     declare_original: true
+    # 可选：原创声明内容类型；留空则不选择。当前支持 ai_generated。
+    original_declaration_type: ""
     allow_content_copy: false
     topic_generation:
       enabled: true

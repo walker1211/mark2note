@@ -11,9 +11,19 @@ const scheduleTimeLayout = "2006-01-02 15:04:05"
 type PublishMode string
 
 const (
-	PublishModeOnlySelf PublishMode = "only-self"
-	PublishModeSchedule PublishMode = "schedule"
+	PublishModeImmediate PublishMode = "immediate"
+	PublishModeOnlySelf  PublishMode = PublishModeImmediate
+	PublishModeSchedule  PublishMode = "schedule"
 )
+
+type PublishVisibility string
+
+const (
+	PublishVisibilityOnlySelf PublishVisibility = "only-self"
+	PublishVisibilityPublic   PublishVisibility = "public"
+)
+
+const OriginalDeclarationTypeAIGenerated = "ai_generated"
 
 type MediaKind string
 
@@ -23,18 +33,21 @@ const (
 )
 
 type PublishRequest struct {
-	Account          string
-	Title            string
-	Content          string
-	Tags             []string
-	Mode             PublishMode
-	ScheduleTime     *time.Time
-	MediaKind        MediaKind
-	ImagePaths       []string
-	Live             LivePublishSource
-	DeclareOriginal  bool
-	AllowContentCopy bool
-	StopBeforeSubmit bool
+	Account                 string
+	Title                   string
+	Content                 string
+	Tags                    []string
+	Mode                    PublishMode
+	Visibility              PublishVisibility
+	ScheduleTime            *time.Time
+	Collection              string
+	MediaKind               MediaKind
+	ImagePaths              []string
+	Live                    LivePublishSource
+	DeclareOriginal         bool
+	OriginalDeclarationType string
+	AllowContentCopy        bool
+	StopBeforeSubmit        bool
 }
 
 type LivePublishSource struct {
@@ -58,12 +71,32 @@ type PublishResult struct {
 
 func ValidateMode(input string) (PublishMode, error) {
 	switch PublishMode(strings.TrimSpace(input)) {
-	case "", PublishModeOnlySelf:
-		return PublishModeOnlySelf, nil
+	case "", PublishModeImmediate:
+		return PublishModeImmediate, nil
 	case PublishModeSchedule:
 		return PublishModeSchedule, nil
 	default:
-		return "", fmt.Errorf("mode must be only-self or schedule")
+		return "", fmt.Errorf("mode must be immediate or schedule")
+	}
+}
+
+func ValidateVisibility(input string) (PublishVisibility, error) {
+	switch PublishVisibility(strings.TrimSpace(input)) {
+	case "", PublishVisibilityOnlySelf:
+		return PublishVisibilityOnlySelf, nil
+	case PublishVisibilityPublic:
+		return PublishVisibilityPublic, nil
+	default:
+		return "", fmt.Errorf("visibility must be public or only-self")
+	}
+}
+
+func ValidateOriginalDeclarationType(input string) (string, error) {
+	switch trimmed := strings.TrimSpace(input); trimmed {
+	case "", OriginalDeclarationTypeAIGenerated:
+		return trimmed, nil
+	default:
+		return "", fmt.Errorf("original declaration type must be empty or %s", OriginalDeclarationTypeAIGenerated)
 	}
 }
 
@@ -77,10 +110,20 @@ func (r PublishRequest) Validate(now time.Time) error {
 	if strings.TrimSpace(r.Content) == "" && len(trimmedNonEmpty(r.Tags)) == 0 {
 		return fmt.Errorf("content or tags are required")
 	}
+	if _, err := ValidateVisibility(string(r.Visibility)); err != nil {
+		return err
+	}
+	declarationType, err := ValidateOriginalDeclarationType(r.OriginalDeclarationType)
+	if err != nil {
+		return err
+	}
+	if declarationType != "" && !r.DeclareOriginal {
+		return fmt.Errorf("original declaration type requires declare_original")
+	}
 	switch r.Mode {
-	case PublishModeOnlySelf:
+	case PublishModeImmediate:
 		if r.ScheduleTime != nil {
-			return fmt.Errorf("only-self mode forbids schedule time")
+			return fmt.Errorf("immediate mode forbids schedule time")
 		}
 	case PublishModeSchedule:
 		if r.ScheduleTime == nil {
@@ -95,7 +138,7 @@ func (r PublishRequest) Validate(now time.Time) error {
 			return fmt.Errorf("schedule lead time must be at least 15 minutes")
 		}
 	default:
-		return fmt.Errorf("mode must be only-self or schedule")
+		return fmt.Errorf("mode must be immediate or schedule")
 	}
 
 	switch r.MediaKind {

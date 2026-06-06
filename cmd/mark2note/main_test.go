@@ -109,7 +109,7 @@ func TestUsageTextMentionsAutoPublishXHSFlags(t *testing.T) {
 		"--publish-xhs              publish generated PNG files to Xiaohongshu after render",
 		"--prepare-xhs              generate Xiaohongshu publish metadata after render without publishing",
 		"--xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs/--prepare-xhs",
-		"--xhs-mode <mode>          override Xiaohongshu mode for --publish-xhs/--prepare-xhs",
+		"--xhs-mode <mode>          override Xiaohongshu publish timing mode for --publish-xhs/--prepare-xhs",
 		"--xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs",
 		"mark2note --input ./example.md --auto-posters --prepare-xhs",
 		"mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json",
@@ -296,6 +296,36 @@ func TestParseOptionsParsesXHSScheduleOverridesWithPrepareXHS(t *testing.T) {
 	}
 	if !opts.XHSModeChanged || !opts.XHSScheduleAtChanged {
 		t.Fatalf("opts = %#v, want XHS override flags marked changed", opts)
+	}
+}
+
+func TestParseOptionsParsesXHSVisibilityWithPrepareXHS(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs", "--xhs-visibility", "public"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.PrepareXHS || opts.XHSVisibility != "public" || !opts.XHSVisibilityChanged {
+		t.Fatalf("opts = %#v, want prepare-xhs visibility override", opts)
+	}
+}
+
+func TestParseOptionsParsesStopBeforeSubmitWithPublishXHS(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--publish-xhs", "--stop-before-submit"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.PublishXHS || !opts.StopBeforeSubmit || !opts.StopBeforeSubmitChanged {
+		t.Fatalf("opts = %#v, want publish-xhs stop-before-submit override", opts)
+	}
+}
+
+func TestParseOptionsRejectsStopBeforeSubmitWithoutPublishXHS(t *testing.T) {
+	_, err := parseOptions([]string{"--input", "article.md", "--stop-before-submit"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--stop-before-submit requires --publish-xhs") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

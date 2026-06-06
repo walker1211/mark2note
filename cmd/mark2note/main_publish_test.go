@@ -27,7 +27,7 @@ func TestUsageTextMentionsPublishXHSCommand(t *testing.T) {
 
 func TestPublishXHSUsageTextMentionsConfigDefaults(t *testing.T) {
 	text := publishXHSUsageText()
-	for _, want := range []string{"--config <file>", "default from xhs.publish.account", "default from xhs.publish.mode", "default from xhs.publish.schedule_at", "default from xhs.publish.browser_path", "default from xhs.publish.profile_dir"} {
+	for _, want := range []string{"--config <file>", "default from xhs.publish.account", "default from xhs.publish.mode", "default from xhs.publish.schedule_at", "default from xhs.publish.collection", "default from xhs.publish.browser_path", "default from xhs.publish.profile_dir"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("publishXHSUsageText() missing %q", want)
 		}
@@ -35,15 +35,18 @@ func TestPublishXHSUsageTextMentionsConfigDefaults(t *testing.T) {
 }
 
 func TestParsePublishXHSOptionsTracksConfigBackedFlagPresence(t *testing.T) {
-	opts, err := parsePublishXHSOptions([]string{"--config", "alt.yaml", "--account", "writer", "--headless=false", "--profile-dir", "/tmp/xhs", "--mode", "schedule", "--title", "标题", "--content", "正文", "--images", "cover.png"})
+	opts, err := parsePublishXHSOptions([]string{"--config", "alt.yaml", "--account", "writer", "--headless=false", "--profile-dir", "/tmp/xhs", "--mode", "schedule", "--collection", "AI科技日报", "--title", "标题", "--content", "正文", "--images", "cover.png"})
 	if err != nil {
 		t.Fatalf("parsePublishXHSOptions() error = %v", err)
 	}
 	if opts.ConfigPath != "alt.yaml" || !opts.ConfigPathChanged {
 		t.Fatalf("ConfigPath = %#v", opts)
 	}
-	if !opts.AccountChanged || !opts.HeadlessChanged || !opts.ProfileDirChanged || !opts.ModeChanged {
+	if !opts.AccountChanged || !opts.HeadlessChanged || !opts.ProfileDirChanged || !opts.ModeChanged || !opts.CollectionChanged {
 		t.Fatalf("changed flags = %#v", opts)
+	}
+	if opts.Collection != "AI科技日报" {
+		t.Fatalf("Collection = %q, want AI科技日报", opts.Collection)
 	}
 }
 
@@ -57,15 +60,25 @@ func TestParsePublishXHSOptionsUsesDefaultConfigPath(t *testing.T) {
 	}
 }
 
-func TestParsePublishXHSOptionsTracksOriginalityFlagPresence(t *testing.T) {
-	opts, err := parsePublishXHSOptions([]string{"--declare-original=false", "--allow-content-copy=true", "--title", "标题", "--content", "正文", "--images", "cover.png"})
+func TestParsePublishXHSOptionsTracksVisibilityFlagPresence(t *testing.T) {
+	opts, err := parsePublishXHSOptions([]string{"--visibility", "public", "--title", "标题", "--content", "正文", "--images", "cover.png"})
 	if err != nil {
 		t.Fatalf("parsePublishXHSOptions() error = %v", err)
 	}
-	if !opts.DeclareOriginalChanged || !opts.AllowContentCopyChanged {
+	if !opts.VisibilityChanged || opts.Visibility != "public" {
+		t.Fatalf("opts = %#v", opts)
+	}
+}
+
+func TestParsePublishXHSOptionsTracksOriginalityFlagPresence(t *testing.T) {
+	opts, err := parsePublishXHSOptions([]string{"--declare-original=false", "--original-declaration-type", "ai_generated", "--allow-content-copy=true", "--title", "标题", "--content", "正文", "--images", "cover.png"})
+	if err != nil {
+		t.Fatalf("parsePublishXHSOptions() error = %v", err)
+	}
+	if !opts.DeclareOriginalChanged || !opts.OriginalDeclarationTypeChanged || !opts.AllowContentCopyChanged {
 		t.Fatalf("changed flags = %#v", opts)
 	}
-	if opts.DeclareOriginal != false || opts.AllowContentCopy != true {
+	if opts.DeclareOriginal != false || opts.OriginalDeclarationType != "ai_generated" || opts.AllowContentCopy != true {
 		t.Fatalf("opts = %#v", opts)
 	}
 }
@@ -109,14 +122,20 @@ func TestRunAutoPublishXHSWritesMetadataBeforePublishing(t *testing.T) {
 		if meta.Title != opts.Title || meta.Account != "walker" || meta.Mode != string(xhs.PublishModeOnlySelf) {
 			t.Fatalf("metadata basics = %#v", meta)
 		}
+		if meta.Collection != "AI科技日报" || opts.Collection != "AI科技日报" {
+			t.Fatalf("metadata collection = %q, opts collection = %q", meta.Collection, opts.Collection)
+		}
 		if meta.Content != opts.Content || !reflect.DeepEqual(meta.Tags, opts.Tags) || !reflect.DeepEqual(meta.Images, opts.ImagePaths) {
 			t.Fatalf("metadata publish content = %#v, opts = %#v", meta, opts)
 		}
 		if meta.ChromePath != "/tmp/publish-chrome" || meta.Headless || meta.ProfileDir != "/tmp/xhs-profile" {
 			t.Fatalf("metadata browser fields = %#v", meta)
 		}
-		if !meta.DeclareOriginal || meta.AllowContentCopy {
+		if !meta.DeclareOriginal || meta.OriginalDeclarationType != "ai_generated" || meta.AllowContentCopy {
 			t.Fatalf("metadata originality fields = %#v", meta)
+		}
+		if opts.OriginalDeclarationType != "ai_generated" {
+			t.Fatalf("opts original declaration type = %q, want ai_generated", opts.OriginalDeclarationType)
 		}
 		if meta.InputPath != "article.md" || meta.ConfigPath != "configs/config.yaml" || meta.GeneratedAt != "2026-04-29T10:11:12Z" {
 			t.Fatalf("metadata source fields = %#v", meta)
@@ -187,15 +206,17 @@ func stubAutoPublishMetadataInputs(t *testing.T, titleTooLong bool) {
 	topicGenerationEnabled := true
 	loadConfig = func(path string) (*config.Config, error) {
 		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
-			Account:          "walker",
-			Headless:         &headless,
-			BrowserPath:      "/tmp/publish-chrome",
-			ProfileDir:       "/tmp/xhs-profile",
-			Mode:             string(xhs.PublishModeOnlySelf),
-			DeclareOriginal:  &declareOriginal,
-			AllowContentCopy: &allowContentCopy,
-			ChromeArgs:       []string{"no-first-run"},
-			TopicGeneration:  config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+			Account:                 "walker",
+			Headless:                &headless,
+			BrowserPath:             "/tmp/publish-chrome",
+			ProfileDir:              "/tmp/xhs-profile",
+			Mode:                    string(xhs.PublishModeOnlySelf),
+			Collection:              "AI科技日报",
+			DeclareOriginal:         &declareOriginal,
+			OriginalDeclarationType: "ai_generated",
+			AllowContentCopy:        &allowContentCopy,
+			ChromeArgs:              []string{"no-first-run"},
+			TopicGeneration:         config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
 		}}}, nil
 	}
 	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
@@ -248,15 +269,17 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 	topicGenerationEnabled := true
 	loadConfig = func(path string) (*config.Config, error) {
 		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
-			Account:          "walker",
-			Headless:         &headless,
-			BrowserPath:      "/tmp/publish-chrome",
-			ProfileDir:       "/tmp/xhs-profile",
-			Mode:             string(xhs.PublishModeOnlySelf),
-			DeclareOriginal:  &declareOriginal,
-			AllowContentCopy: &allowContentCopy,
-			ChromeArgs:       []string{"no-first-run", "no-default-browser-check"},
-			TopicGeneration:  config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+			Account:                 "walker",
+			Headless:                &headless,
+			BrowserPath:             "/tmp/publish-chrome",
+			ProfileDir:              "/tmp/xhs-profile",
+			Mode:                    string(xhs.PublishModeOnlySelf),
+			Collection:              "AI科技日报",
+			DeclareOriginal:         &declareOriginal,
+			OriginalDeclarationType: "ai_generated",
+			AllowContentCopy:        &allowContentCopy,
+			ChromeArgs:              []string{"no-first-run", "no-default-browser-check"},
+			TopicGeneration:         config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
 		}}}, nil
 	}
 	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
@@ -300,10 +323,10 @@ func TestRunAutoPublishXHSPublishesGeneratedPNGs(t *testing.T) {
 	if !reflect.DeepEqual(got.ImagePaths, imagePaths) {
 		t.Fatalf("ImagePaths = %#v, want %#v", got.ImagePaths, imagePaths)
 	}
-	if !got.DeclareOriginal || got.AllowContentCopy {
-		t.Fatalf("originality flags = declare:%v copy:%v", got.DeclareOriginal, got.AllowContentCopy)
+	if !got.DeclareOriginal || got.OriginalDeclarationType != "ai_generated" || got.AllowContentCopy {
+		t.Fatalf("originality flags = declare:%v type:%q copy:%v", got.DeclareOriginal, got.OriginalDeclarationType, got.AllowContentCopy)
 	}
-	for _, want := range []string{"generated 2 preview pages", "xiaohongshu only-self-visible published"} {
+	for _, want := range []string{"generated 2 preview pages", "xiaohongshu immediate publish submitted"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, missing %q", stdout.String(), want)
 		}
@@ -782,9 +805,10 @@ func TestRunPublishXHSUsesConfigDefaultsForOriginalityFlags(t *testing.T) {
 	allowContentCopy := false
 	loadConfig = func(path string) (*config.Config, error) {
 		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
-			Account:          "walker",
-			DeclareOriginal:  &declareOriginal,
-			AllowContentCopy: &allowContentCopy,
+			Account:                 "walker",
+			DeclareOriginal:         &declareOriginal,
+			OriginalDeclarationType: "ai_generated",
+			AllowContentCopy:        &allowContentCopy,
 		}}}, nil
 	}
 
@@ -810,18 +834,21 @@ func TestRunPublishXHSReplaysMetadata(t *testing.T) {
 
 	metaPath := filepath.Join(t.TempDir(), xhsPublishMetaFilename)
 	meta := xhsPublishMeta{
-		Title:            "元数据回放标题",
-		Content:          "",
-		Tags:             []string{"AI代理", "工程反思"},
-		Images:           []string{"cover.jpg", "detail.jpg"},
-		Account:          "creator-meta",
-		Mode:             string(xhs.PublishModeOnlySelf),
-		ChromePath:       "/tmp/meta-chrome",
-		Headless:         false,
-		ProfileDir:       "/tmp/meta-profile",
-		DeclareOriginal:  true,
-		AllowContentCopy: false,
-		ChromeArgs:       []string{"no-first-run"},
+		Title:                   "元数据回放标题",
+		Content:                 "",
+		Tags:                    []string{"AI代理", "工程反思"},
+		Images:                  []string{"cover.jpg", "detail.jpg"},
+		Account:                 "creator-meta",
+		Mode:                    string(xhs.PublishModeOnlySelf),
+		Visibility:              "public",
+		Collection:              "AI科技日报",
+		ChromePath:              "/tmp/meta-chrome",
+		Headless:                false,
+		ProfileDir:              "/tmp/meta-profile",
+		DeclareOriginal:         true,
+		OriginalDeclarationType: "ai_generated",
+		AllowContentCopy:        false,
+		ChromeArgs:              []string{"no-first-run"},
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
@@ -843,21 +870,61 @@ func TestRunPublishXHSReplaysMetadata(t *testing.T) {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
 	want := app.PublishOptions{
-		Account:          "creator-meta",
-		Title:            "元数据回放标题",
-		Content:          "",
-		Tags:             []string{"AI代理", "工程反思"},
-		Mode:             string(xhs.PublishModeOnlySelf),
-		ImagePaths:       []string{"cover.jpg", "detail.jpg"},
-		ChromePath:       "/tmp/meta-chrome",
-		Headless:         false,
-		ProfileDir:       "/tmp/meta-profile",
-		ChromeArgs:       []string{"no-first-run"},
-		DeclareOriginal:  true,
-		AllowContentCopy: false,
+		Account:                 "creator-meta",
+		Title:                   "元数据回放标题",
+		Content:                 "",
+		Tags:                    []string{"AI代理", "工程反思"},
+		Mode:                    string(xhs.PublishModeOnlySelf),
+		Visibility:              "public",
+		Collection:              "AI科技日报",
+		ImagePaths:              []string{"cover.jpg", "detail.jpg"},
+		ChromePath:              "/tmp/meta-chrome",
+		Headless:                false,
+		ProfileDir:              "/tmp/meta-profile",
+		ChromeArgs:              []string{"no-first-run"},
+		DeclareOriginal:         true,
+		OriginalDeclarationType: "ai_generated",
+		AllowContentCopy:        false,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("publish opts = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunPublishXHSReplaysMetadataWithStopBeforeSubmit(t *testing.T) {
+	originalPublishXHS := publishXHS
+	defer func() { publishXHS = originalPublishXHS }()
+
+	metaPath := filepath.Join(t.TempDir(), xhsPublishMetaFilename)
+	meta := xhsPublishMeta{
+		Title:    "元数据回放标题",
+		Tags:     []string{"AI代理"},
+		Images:   []string{"cover.jpg"},
+		Account:  "creator-meta",
+		Mode:     string(xhs.PublishModeOnlySelf),
+		Headless: false,
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(metaPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", metaPath, err)
+	}
+
+	var got app.PublishOptions
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		got = opts
+		return app.PublishResult{Request: xhs.PublishRequest{Account: opts.Account}, Result: xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, StoppedBeforeSubmit: true}}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--meta", metaPath, "--stop-before-submit"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !got.StopBeforeSubmit {
+		t.Fatalf("StopBeforeSubmit = false, want true; opts = %#v", got)
 	}
 }
 
@@ -965,7 +1032,7 @@ func TestRunPublishXHSParsesStandardMediaFlags(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"publish-xhs", "--account", "creator-a", "--title", "标题", "--content", "正文", "--images", "cover.jpg,detail.jpg", "--mode", "only-self", "--tags", "效率,AI", "--headless=false", "--profile-dir", "/tmp/xhs-profile"}, &stdout, &stderr)
+	code := run([]string{"publish-xhs", "--account", "creator-a", "--title", "标题", "--content", "正文", "--images", "cover.jpg,detail.jpg", "--mode", "immediate", "--collection", "AI科技日报", "--tags", "效率,AI", "--headless=false", "--profile-dir", "/tmp/xhs-profile"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
@@ -978,6 +1045,8 @@ func TestRunPublishXHSParsesStandardMediaFlags(t *testing.T) {
 		Content:    "正文",
 		Tags:       []string{"效率", "AI"},
 		Mode:       string(xhs.PublishModeOnlySelf),
+		Visibility: string(xhs.PublishVisibilityOnlySelf),
+		Collection: "AI科技日报",
 		ImagePaths: []string{"cover.jpg", "detail.jpg"},
 		ChromePath: defaultOptions().ChromePath,
 		Headless:   false,
@@ -986,7 +1055,7 @@ func TestRunPublishXHSParsesStandardMediaFlags(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("publish opts = %#v, want %#v", got, want)
 	}
-	for _, want := range []string{"xiaohongshu only-self-visible published", "account: creator-a", "media: standard"} {
+	for _, want := range []string{"xiaohongshu immediate publish submitted", "account: creator-a", "media: standard"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
 		}
@@ -1043,17 +1112,17 @@ func TestRunPublishXHSPrintsOnlySelfVisiblePublished(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
-	for _, want := range []string{"xiaohongshu only-self-visible published", "account: creator-a", "media: standard"} {
+	for _, want := range []string{"xiaohongshu immediate publish submitted", "account: creator-a", "media: standard"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
 		}
 	}
 }
 
-func TestPrintPublishXHSResultOnlySelfVisibleSummary(t *testing.T) {
+func TestPrintPublishXHSResultImmediateSummaryIncludesModeAndVisibility(t *testing.T) {
 	result := app.PublishResult{
-		Request: xhs.PublishRequest{Account: "creator-a"},
-		Result:  xhs.PublishResult{Mode: xhs.PublishModeOnlySelf, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true},
+		Request: xhs.PublishRequest{Account: "creator-a", Mode: xhs.PublishModeImmediate, Visibility: xhs.PublishVisibilityPublic},
+		Result:  xhs.PublishResult{Mode: xhs.PublishModeImmediate, MediaKind: xhs.MediaKindStandard, OnlySelfPublished: true},
 	}
 
 	var stdout bytes.Buffer
@@ -1061,7 +1130,7 @@ func TestPrintPublishXHSResultOnlySelfVisibleSummary(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("printPublishXHSResult() = %d, want 0", code)
 	}
-	for _, want := range []string{"xiaohongshu only-self-visible published", "account: creator-a", "media: standard"} {
+	for _, want := range []string{"xiaohongshu immediate publish submitted", "account: creator-a", "mode: immediate", "visibility: public", "media: standard"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
 		}
@@ -1111,7 +1180,7 @@ func TestRunPublishXHSPrintsLiveMediaKind(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
-	for _, want := range []string{"xiaohongshu only-self-visible published", "account: creator-live", "media: live", "attached: 2", "items: p01-cover,p02-bullets"} {
+	for _, want := range []string{"xiaohongshu immediate publish submitted", "account: creator-live", "media: live", "attached: 2", "items: p01-cover,p02-bullets"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want substring %q", stdout.String(), want)
 		}
@@ -1174,7 +1243,7 @@ func TestRunPublishXHSRejectsInvalidMode(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("run() = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "mode must be only-self or schedule") {
+	if !strings.Contains(stderr.String(), "mode must be immediate or schedule") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -1227,7 +1296,8 @@ func TestRunPublishXHSUsesConfigDefaultsWhenFlagsOmitted(t *testing.T) {
 			Headless:    &headless,
 			BrowserPath: "/tmp/publish-chrome",
 			ProfileDir:  "/tmp/from-config",
-			Mode:        "only-self",
+			Mode:        "immediate",
+			Collection:  "AI科技日报",
 			ChromeArgs:  []string{"no-first-run"},
 		}}}, nil
 	}
@@ -1243,7 +1313,7 @@ func TestRunPublishXHSUsesConfigDefaultsWhenFlagsOmitted(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
-	if got.Account != "walker" || got.Headless != false || got.ChromePath != "/tmp/publish-chrome" || got.ProfileDir != "/tmp/from-config" || got.Mode != string(xhs.PublishModeOnlySelf) {
+	if got.Account != "walker" || got.Headless != false || got.ChromePath != "/tmp/publish-chrome" || got.ProfileDir != "/tmp/from-config" || got.Mode != string(xhs.PublishModeOnlySelf) || got.Collection != "AI科技日报" {
 		t.Fatalf("merged opts = %#v", got)
 	}
 	if !reflect.DeepEqual(got.ChromeArgs, []string{"no-first-run"}) {
@@ -1268,6 +1338,7 @@ func TestRunPublishXHSCLIOverridesConfigDefaults(t *testing.T) {
 			ProfileDir:  "/tmp/from-config",
 			Mode:        "schedule",
 			ScheduleAt:  "2026-05-01 20:30:00",
+			Collection:  "配置合集",
 		}}}, nil
 	}
 
@@ -1279,7 +1350,7 @@ func TestRunPublishXHSCLIOverridesConfigDefaults(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"publish-xhs", "--account", "writer", "--headless=true", "--chrome", "/tmp/cli-chrome", "--profile-dir", "/tmp/from-cli", "--mode", "schedule", "--schedule-at", "2026-04-16 10:00:00", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	code := run([]string{"publish-xhs", "--account", "writer", "--headless=true", "--chrome", "/tmp/cli-chrome", "--profile-dir", "/tmp/from-cli", "--mode", "schedule", "--schedule-at", "2026-04-16 10:00:00", "--collection", "AI科技日报", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
 	}
@@ -1288,6 +1359,9 @@ func TestRunPublishXHSCLIOverridesConfigDefaults(t *testing.T) {
 	}
 	if got.ScheduleAt != "2026-04-16 10:00:00" {
 		t.Fatalf("ScheduleAt = %q, want CLI value", got.ScheduleAt)
+	}
+	if got.Collection != "AI科技日报" {
+		t.Fatalf("Collection = %q, want CLI value", got.Collection)
 	}
 }
 
@@ -1451,7 +1525,7 @@ func TestBuildAutoPublishXHSOptionsUsesScheduleAtFromCLIOverride(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(`xhs:
   publish:
     account: walker
-    mode: only-self
+    mode: immediate
     schedule_at: "2026-05-01 20:30:00"
 `), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
@@ -1471,6 +1545,73 @@ func TestBuildAutoPublishXHSOptionsUsesScheduleAtFromCLIOverride(t *testing.T) {
 	}
 	if got.Mode != string(xhs.PublishModeSchedule) || got.ScheduleAt != "2026-05-07 07:00:00" {
 		t.Fatalf("opts = %#v", got)
+	}
+}
+
+func TestBuildAutoPublishXHSOptionsUsesVisibilityFromCLIOverride(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "article.md")
+	imagePath := filepath.Join(dir, "p01-cover.png")
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(inputPath, []byte("# 自动发布标题\n\n正文"), 0o644); err != nil {
+		t.Fatalf("WriteFile(input) error = %v", err)
+	}
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`xhs:
+  publish:
+    account: walker
+    visibility: only-self
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{
+		InputPath:            inputPath,
+		ConfigPath:           configPath,
+		XHSTags:              []string{"AI代理"},
+		XHSVisibility:        string(xhs.PublishVisibilityPublic),
+		XHSVisibilityChanged: true,
+	}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if got.Visibility != string(xhs.PublishVisibilityPublic) {
+		t.Fatalf("Visibility = %q, want public", got.Visibility)
+	}
+}
+
+func TestBuildAutoPublishXHSOptionsPassesStopBeforeSubmit(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "article.md")
+	imagePath := filepath.Join(dir, "p01-cover.png")
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(inputPath, []byte("# 自动发布标题\n\n正文"), 0o644); err != nil {
+		t.Fatalf("WriteFile(input) error = %v", err)
+	}
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`xhs:
+  publish:
+    account: walker
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{
+		InputPath:               inputPath,
+		ConfigPath:              configPath,
+		XHSTags:                 []string{"AI代理"},
+		StopBeforeSubmit:        true,
+		StopBeforeSubmitChanged: true,
+	}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if !got.StopBeforeSubmit {
+		t.Fatalf("StopBeforeSubmit = false, want true")
 	}
 }
 
