@@ -375,14 +375,55 @@ func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) e
 		}
 	}
 	defaultXHSLogger("only-self publish click submit")
-	clicked, err := p.clickByText("button", "^发布$")
+	clicked, err := p.clickOnlySelfPublishButton()
 	if err != nil {
 		return err
+	}
+	if !clicked {
+		clicked, err = p.clickByText("button", "^发布$")
+		if err != nil {
+			return err
+		}
 	}
 	if !clicked {
 		return fmt.Errorf("only-self publish action not found")
 	}
 	return nil
+}
+
+func (p *rodPage) clickOnlySelfPublishButton() (bool, error) {
+	clicked := false
+	err := rodTry(func() {
+		clicked = p.page.MustEval(`() => {
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const fire = (node, type) => node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: 0 }));
+			const nodes = Array.from(document.querySelectorAll('xhs-publish-btn[is-publish="true"][submit-disabled="false"]'));
+			for (const node of nodes) {
+				if (!isVisible(node)) continue;
+				const submitText = (node.getAttribute('submit-text') || '').replace(/\s+/g, ' ').trim();
+				const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+				if (submitText !== '发布' && text !== '发布') continue;
+				node.scrollIntoView({ block: 'center' });
+				fire(node, 'mousedown');
+				fire(node, 'mouseup');
+				node.click();
+				return true;
+			}
+			return false;
+		}`).Bool()
+		if clicked {
+			p.page.MustWaitStable()
+		}
+	})
+	if err != nil {
+		return false, err
+	}
+	return clicked, nil
 }
 
 func (p *rodPage) ConfirmOnlySelfPublished(ctx context.Context) error {
