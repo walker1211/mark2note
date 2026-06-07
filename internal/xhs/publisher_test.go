@@ -77,6 +77,56 @@ func testPage(t *testing.T) *rod.Page {
 	return page
 }
 
+func TestClickOnlySelfPublishButtonClicksCustomElement(t *testing.T) {
+	page := testPage(t)
+	html := `<!doctype html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>
+<xhs-publish-btn is-publish="true" submit-disabled="false" submit-text="发布" style="display:block;width:120px;height:40px;" onclick="window.clickedPublish = true"></xhs-publish-btn>
+</body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	clicked, err := (&rodPage{page: page}).clickOnlySelfPublishButton()
+	if err != nil {
+		t.Fatalf("clickOnlySelfPublishButton() error = %v", err)
+	}
+	if !clicked {
+		t.Fatal("clickOnlySelfPublishButton() clicked = false, want true")
+	}
+	if !page.MustEval(`() => window.clickedPublish === true`).Bool() {
+		t.Fatal("custom publish element was not clicked")
+	}
+}
+
+func TestClickOnlySelfPublishButtonIgnoresDisabledCustomElement(t *testing.T) {
+	page := testPage(t)
+	html := `<!doctype html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>
+<xhs-publish-btn is-publish="true" submit-disabled="true" submit-text="发布" style="display:block;width:120px;height:40px;" onclick="window.clickedPublish = true"></xhs-publish-btn>
+</body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	clicked, err := (&rodPage{page: page}).clickOnlySelfPublishButton()
+	if err != nil {
+		t.Fatalf("clickOnlySelfPublishButton() error = %v", err)
+	}
+	if clicked {
+		t.Fatal("clickOnlySelfPublishButton() clicked disabled element")
+	}
+	if page.MustEval(`() => window.clickedPublish === true`).Bool() {
+		t.Fatal("disabled custom publish element was clicked")
+	}
+}
+
 type fakePublishPage struct {
 	calls                   []string
 	uploaded                []string
