@@ -2,8 +2,6 @@
 
 # mark2note
 
-[Landing Page](./README.md) | [中文](./README.zh-CN.md)
-
 `mark2note` converts Markdown into presentation assets through the flow: Markdown -> AI deck JSON -> HTML / PNG.
 
 It calls the AI CLI configured in your config file to generate deck JSON, renders HTML, and captures PNG images from the rendered pages. The default primary output remains stable HTML + PNG. When `--animated` or `render.animated.enabled` is enabled, it additionally tries to export one Animated WebP or MP4 per page as an enhancement output. For Xiaohongshu workflows, MP4 is currently the more practical intermediate format before converting to Live Photo. The experimental `--live` / `render.live.enabled` mode additionally tries to build one Live package directory per page and is mainly intended for macOS / iPhone import workflows.
