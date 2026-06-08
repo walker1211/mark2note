@@ -2,8 +2,6 @@
 
 # mark2note
 
-[English](./README.md)
-
 `mark2note` 用于把 Markdown 内容转换为演示稿资源，主流程为：Markdown -> AI deck JSON -> HTML / PNG。
 
 它会先调用配置文件中指定的 AI CLI，把 Markdown 解析为 deck JSON，再渲染为 HTML，并通过截图生成 PNG。默认主输出仍然是稳定的 HTML + PNG；显式开启 `--animated` 或 `render.animated.enabled` 时，会为每页额外尝试导出 Animated WebP 或 MP4 作为增强产物。对小红书链路，当前更推荐把 MP4 作为中间产物，再继续转 Live Photo；实验性的 `--live` / `render.live.enabled` 会额外尝试生成每页一个 Live package 目录，主要面向 macOS / iPhone 导入链路。
