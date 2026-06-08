@@ -380,7 +380,7 @@ func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) e
 		return err
 	}
 	if !clicked {
-		clicked, err = p.clickByText("button", "^发布$")
+		clicked, err = p.clickByText("button, xhs-publish-btn", "^发布$")
 		if err != nil {
 			return err
 		}
@@ -401,17 +401,14 @@ func (p *rodPage) clickOnlySelfPublishButton() (bool, error) {
 				const style = window.getComputedStyle(node);
 				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
 			};
-			const fire = (node, type) => node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: 0 }));
 			const nodes = Array.from(document.querySelectorAll('xhs-publish-btn[is-publish="true"][submit-disabled="false"]'));
 			for (const node of nodes) {
 				if (!isVisible(node)) continue;
 				const submitText = (node.getAttribute('submit-text') || '').replace(/\s+/g, ' ').trim();
 				const text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
 				if (submitText !== '发布' && text !== '发布') continue;
-				node.scrollIntoView({ block: 'center' });
-				fire(node, 'mousedown');
-				fire(node, 'mouseup');
-				node.click();
+				node.scrollIntoView({ block: 'center', behavior: 'instant' });
+				node.dispatchEvent(new CustomEvent('publish', { bubbles: true, cancelable: true, composed: true }));
 				return true;
 			}
 			return false;
@@ -1771,7 +1768,34 @@ func (p *rodPage) setOnlySelfVisible() error {
 	return nil
 }
 
+func (p *rodPage) isPublishEditorActive() bool {
+	active := false
+	_ = rodTry(func() {
+		active = p.page.MustEval(`() => {
+			const isVisible = (node) => {
+				if (!node) return false;
+				const rect = node.getBoundingClientRect();
+				const style = window.getComputedStyle(node);
+				return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+			};
+			const hasTitleInput = Array.from(document.querySelectorAll('input[placeholder="填写标题会有更多赞哦"], input[placeholder*="填写标题"], input[placeholder*="标题"]')).some(isVisible);
+			const hasContentEditor = Array.from(document.querySelectorAll('div.tiptap.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"], div[contenteditable="true"][role="textbox"]')).some(isVisible);
+			const hasPublishButton = Array.from(document.querySelectorAll('button, xhs-publish-btn[is-publish="true"]')).some((el) => {
+				if (!isVisible(el)) return false;
+				if (el.getAttribute('submit-disabled') === 'true' || el.disabled === true) return false;
+				const text = ((el.getAttribute('submit-text') || '') + ' ' + (el.innerText || el.textContent || '')).replace(/\s+/g, ' ').trim();
+				return /发布/.test(text);
+			});
+			return hasTitleInput || hasContentEditor || hasPublishButton;
+		}`).Bool()
+	})
+	return active
+}
+
 func (p *rodPage) isPublishSuccessState() bool {
+	if p.isPublishEditorActive() {
+		return false
+	}
 	success := false
 	_ = rodTry(func() {
 		success = p.page.MustEval(`() => {
@@ -1780,15 +1804,9 @@ func (p *rodPage) isPublishSuccessState() bool {
 			if (href.includes('/new/note-manager')) return true;
 
 			const text = document.body ? document.body.innerText : '';
+			if (/发布成功|提交成功|笔记发布成功/.test(text)) return true;
 			if (/笔记管理|草稿箱/.test(text)) return true;
-
-			const hasPublishEntry = /上传视频|上传图文|写长文/.test(text);
-			const hasTitleInput = !!document.querySelector('input[placeholder="填写标题会有更多赞哦"], input[placeholder*="填写标题"], input[placeholder*="标题"]');
-			const hasContentEditor = !!document.querySelector('div.tiptap.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"], div[contenteditable="true"][role="textbox"]');
-			const buttons = Array.from(document.querySelectorAll('button')).map((el) => (el.innerText || el.textContent || '').trim());
-			const hasPublishButton = buttons.some((text) => /发布/.test(text));
-
-			return hasPublishEntry && !hasTitleInput && !hasContentEditor && !hasPublishButton;
+			return /上传视频|上传图文|写长文/.test(text);
 		}`).Bool()
 	})
 	return success
@@ -1806,7 +1824,7 @@ func (p *rodPage) waitForPublishConfirmation(ctx context.Context, pattern string
 				const text = document.body ? document.body.innerText : '';
 				return new RegExp(pattern).test(text);
 			}`, pattern).Bool()
-		}); err == nil && matched {
+		}); err == nil && matched && !p.isPublishEditorActive() {
 			return nil
 		}
 		if p.isPublishSuccessState() {
