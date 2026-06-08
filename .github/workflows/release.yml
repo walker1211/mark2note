@@ -68,7 +68,7 @@ jobs:
           package="mark2note-${SUFFIX}"
           mkdir -p "dist/${package}/configs"
           GOOS="${GOOS}" GOARCH="${GOARCH}" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/${package}/mark2note" ./cmd/mark2note
-          cp README.md README.zh-CN.md README.en.md LICENSE "dist/${package}/"
+          cp README.md README.zh-CN.md LICENSE "dist/${package}/"
           cp configs/config.example.yaml "dist/${package}/configs/config.example.yaml"
           tar -C dist -czf "dist/${package}.tar.gz" "${package}"
 

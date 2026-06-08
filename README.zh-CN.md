@@ -1,6 +1,8 @@
+[English](./README.md)
+
 # mark2note
 
-[入口页](./README.md) | [English](./README.en.md)
+[English](./README.md)
 
 `mark2note` 用于把 Markdown 内容转换为演示稿资源，主流程为：Markdown -> AI deck JSON -> HTML / PNG。
 
