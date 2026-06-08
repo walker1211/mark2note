@@ -1,12 +1,39 @@
+[中文](./README.zh-CN.md)
+
 # mark2note
 
-[中文](./README.zh-CN.md) | [English](./README.en.md)
+[Landing Page](./README.md) | [中文](./README.zh-CN.md)
 
-`mark2note` converts Markdown into presentation assets through the flow: Markdown -> AI deck JSON -> HTML / PNG, with optional animated, Live Photo, Apple Photos, and Xiaohongshu publishing workflows.
+`mark2note` converts Markdown into presentation assets through the flow: Markdown -> AI deck JSON -> HTML / PNG.
+
+It calls the AI CLI configured in your config file to generate deck JSON, renders HTML, and captures PNG images from the rendered pages. The default primary output remains stable HTML + PNG. When `--animated` or `render.animated.enabled` is enabled, it additionally tries to export one Animated WebP or MP4 per page as an enhancement output. For Xiaohongshu workflows, MP4 is currently the more practical intermediate format before converting to Live Photo. The experimental `--live` / `render.live.enabled` mode additionally tries to build one Live package directory per page and is mainly intended for macOS / iPhone import workflows.
+
+The `capture-html` command is also a public CLI subcommand that converts existing HTML files, or HTML files inside a directory, into sibling PNG files. In directory mode, it only scans the current directory, does not recurse into subdirectories, only processes lowercase `.html` files, and writes PNG output next to the source HTML files. It does not export Animated WebP, MP4, or Live packages.
+
+## Features
+
+- Markdown -> AI deck JSON -> HTML / PNG
+- Optional Animated WebP / MP4 export
+- Optional experimental Live package export and Apple Live Photo assembly
+- Convert existing HTML files into sibling PNG files
+- Publish standard image posts or Live-photo assets to Xiaohongshu through `publish-xhs`
+- Prepare Xiaohongshu publish metadata after the main PNG render with `--prepare-xhs`, without publishing
+- Publish to Xiaohongshu automatically after the main PNG render with `--publish-xhs`
+- Add work poster covers to list-style decks with `posters.yaml` or `--auto-posters`
+
+## Requirements
+
+- Go 1.25+
+- An AI CLI that can be invoked with `-p <prompt>`
+- Google Chrome, or a compatible browser binary that supports `--headless=new`
+- `img2webp` (required only when Animated WebP export is enabled)
+- `ffmpeg` (required when MP4 or Live export is enabled)
+- `exiftool` (required when Live package export is enabled)
+- `makelive` (required only when final Apple Live Photo assembly is enabled)
 
 ## Install
 
-Download the archive for your platform from [GitHub Releases](https://github.com/walker1211/mark2note/releases), for example:
+Prefer downloading the archive for your platform from [GitHub Releases](https://github.com/walker1211/mark2note/releases), for example:
 
 ```bash
 tar -xzf mark2note_<tag>_<os>_<arch>.tar.gz
@@ -20,18 +47,470 @@ bash ./build.sh
 ./mark2note --help
 ```
 
-## Quick start
+## Quick Start
+
+### 1. Initialize the config
 
 ```bash
 cp configs/config.example.yaml configs/config.yaml
+```
+
+### 2. Configure the AI CLI and defaults
+
+The default config path is `configs/config.yaml`. Update it as needed for your AI CLI, output directory, theme, author, and watermark.
+
+### 3. Build the binary
+
+```bash
+go build -o ./mark2note ./cmd/mark2note
+```
+
+### 4. Generate presentation assets
+
+Prepare a Markdown file first, for example `./article.md`, then run:
+
+```bash
 ./mark2note --input ./article.md
 ```
 
-Update `configs/config.yaml` for your AI CLI, output directory, theme, author, and watermark before running real workloads.
+Notes:
 
-## Output notes
+- The repository root `./config.yaml` is not the default path; the default path is always `configs/config.yaml`
+- If you still need the legacy root-level config behavior, pass it explicitly with `--config ./config.yaml`
+- You can also use `--config` to point to any other config file
 
-HTML + PNG remain the primary stable outputs. Optional animation features can export Animated WebP or MP4, or experimental Live packages when `render.live.enabled` is enabled. Animated WebP export needs `img2webp`; MP4 and Live export need `ffmpeg`; Live package export also needs `exiftool`. The `capture-html` command does not export Animated WebP, MP4, or Live packages.
+## Regenerate from a saved layout
+
+Successful renders write `deck.json` and `render-meta.json` to the output directory. Use `--from-deck` to regenerate HTML/PNG from that saved layout without rereading Markdown or rerunning AI layout:
+
+```bash
+./mark2note --from-deck ./output/preview/deck.json
+```
+
+To keep the saved layout and only change the theme, rerender from `deck.json` with `--theme`:
+
+```bash
+./mark2note \
+  --from-deck ./output/preview/deck.json \
+  --theme plum-ink \
+  --out ./output/preview-plum-ink
+```
+
+The rerender path reuses the same post-render flows:
+
+```bash
+./mark2note --from-deck ./output/preview/deck.json --import-photos --import-album "mark2note"
+./mark2note --from-deck ./output/preview/deck.json --live --live-assemble --live-import-photos
+```
+
+Without `--out`, mark2note creates a new timestamped directory from the original deck directory name. If a sibling `render-meta.json` exists, it restores theme, viewport, author, and watermark. `--theme` can override the restored theme for one run. `--prompt-extra` is only valid with `--input`, not `--from-deck`.
+
+## Work poster covers
+
+List-style articles, book lists, manga lists, and drama recommendations can render work covers on content pages. The shortest workflow is to search covers during render and prepare Xiaohongshu metadata at the same time:
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs \
+  --prompt-extra "make it suitable for Xiaohongshu: restrained, clean, and non-graphic"
+```
+
+To generate scheduled publish metadata for a single run, override the Xiaohongshu publish mode and schedule time on the main command:
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs \
+  --xhs-mode schedule \
+  --xhs-schedule-at "2026-05-07 07:00:00"
+```
+
+This writes HTML/PNG plus `<out>/xhs-publish-meta.json`, but does not publish. After reviewing the PNG files, replay the metadata:
+
+```bash
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
+
+If important covers need human review, generate and inspect a `posters.yaml` manifest first, then render:
+
+```bash
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml
+./mark2note --input ./article.md --asset-manifest ./posters.yaml --prepare-xhs
+```
+
+`posters.yaml` format:
+
+```yaml
+posters:
+  Usogui:
+    src: https://example.com/usogui.jpg
+    source: manual
+  Death Note: ./assets/death-note.jpg
+```
+
+`src` accepts `http://`, `https://`, `data:image/...`, and local image paths relative to the manifest file. Local files are converted to data URIs before rendering so screenshots can read them consistently. Use manifests only from trusted sources to avoid embedding unintended local images into the output.
+
+The built-in providers are currently `bilibili`, `bangumi`, `anilist`, and `mydramalist`; use `--poster-sources bilibili,bangumi,anilist,mydramalist` to restrict sources. When `--asset-manifest` and `--auto-posters` are used together, the manual manifest overrides automatic candidates. This is useful when you want to pin important covers and let automatic search fill gaps. `--auto-posters` is supported only with `--input`, not `--from-deck`.
+
+## Theme Notes
+
+- Stable themes: `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `sage-mist`, `fresh-green`
+- `deck.theme_mode: weekly` chooses a fixed theme from `deck.weekly_themes` by local weekday; `deck.theme` remains the fallback
+- `--theme` overrides fixed or weekly selection for one run
+- Unknown theme names fall back to `default`
+
+## Configuration
+
+Default config file: `configs/config.yaml`
+
+Key fields:
+
+- `output.dir`: default output root directory
+- `ai.command` / `ai.args`: AI CLI command and arguments used to generate deck JSON
+- `deck.theme_mode`: theme selection mode, supporting `fixed` and `weekly`; `weekly` reads `deck.weekly_themes` by local weekday
+- `deck.theme`: default / fallback theme, supporting `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `sage-mist`, and `fresh-green`; unknown names fall back to `default`
+- `deck.weekly_themes`: weekday-to-theme map for weekly mode, such as `mon` and `tue`
+- `deck.author`: default cover author value
+- `deck.watermark.enabled`: enables the page watermark, on by default
+- `deck.watermark.text`: watermark text, defaulting to `walker1211/mark2note`
+- `deck.watermark.position`: watermark position, supporting `bottom-right` and `bottom-left`
+- `render.viewport.width`: export width, default `1242`
+- `render.viewport.height`: export height, default `1656`
+- `render.animated.enabled`: whether to additionally export one animated asset per page, off by default
+- `render.animated.format`: animated format, supporting `webp` and `mp4`
+- `render.animated.duration_ms`: total page animation timeline duration, default `2400`; when Live export is enabled it also affects `motion.mov`
+- `render.animated.fps`: animation capture density, default `8`; it affects Animated WebP / MP4 output and also Live frame sampling density
+- `render.import_photos`: whether to import generated PNG files into Apple Photos, off by default
+- `render.import_album`: Apple Photos album name for PNG import; when empty, `mark2note-photos-<timestamp>` is generated
+- `render.import_timeout`: PNG import timeout, default `2m`; supports Go duration strings such as `45s` and `2m`
+- `render.live.enabled`: whether to additionally export one experimental Live package per page, off by default
+- `render.live.photo_format`: Live still photo format, currently emitted as `jpeg`
+- `render.live.cover_frame`: Live cover frame strategy, supporting `first`, `middle`, and `last`
+- `render.live.assemble`: whether to call `makelive` after `.live/` packages are generated, off by default
+- `render.live.output_dir`: final Apple Live Photo output directory; when empty it defaults to `<out>/apple-live/`
+- `render.live.import_photos`: whether to import assembled Live Photos into Apple Photos, off by default; requires `render.live.assemble`
+- `render.live.import_album`: Apple Photos album name for Live import; when empty, `mark2note-live-<timestamp>` is generated
+- `render.live.import_timeout`: Live import timeout, default `2m`; supports Go duration strings such as `45s` and `2m`
+- `xhs.publish.account`: default account for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
+- `xhs.publish.headless`: default browser headless mode for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
+- `xhs.publish.browser_path`: default browser executable path for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`; CLI `--chrome` can override it for one run
+- `xhs.publish.profile_dir`: default browser profile directory for `publish-xhs`, `--publish-xhs`, and `--prepare-xhs`
+- `xhs.publish.mode`: publish timing/flow, not page visibility; supports `immediate` (normal immediate publish flow) and `schedule` (scheduled publish flow); main render commands can override it for one run with `--xhs-mode`
+- `xhs.publish.visibility`: Xiaohongshu page visibility, not publish timing; supports `public` and `only-self`
+- `xhs.publish.schedule_at`: default scheduled publish time for `mode: schedule`, using `YYYY-MM-DD HH:MM:SS` and parsed in Asia/Shanghai; main render commands can override it for one run with `--xhs-schedule-at`
+- `xhs.publish.topic_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to generate 3-6 Xiaohongshu topics when `--xhs-tags` is omitted, on by default
+- `xhs.publish.title_generation.enabled`: whether `--publish-xhs` / `--prepare-xhs` calls AI to rewrite titles that exceed `max_runes`, on by default
+- `xhs.publish.title_generation.max_runes`: auto-publish title limit, default `20`; counted with an approximate Xiaohongshu-style length, where half-width ASCII letters, digits, and punctuation count as about 0.5 characters, and non-ASCII characters count as about 1
+- `xhs.publish.chrome_args`: extra Chrome launch arguments used only by Xiaohongshu publishing
+
+Additional notes:
+
+- The example value for `deck.author` can be changed; leave it blank if you do not want the author to be shown
+- The example author value is not a built-in program default
+- Watermark is enabled by default and rendered directly in HTML, so PNG files captured from HTML include the same watermark
+- `deck.watermark.position` only supports `bottom-right` and `bottom-left`
+- `render.viewport.width` / `render.viewport.height` affect both the HTML viewport and the PNG / animated capture size; when omitted they fall back to `1242 x 1656`
+- If you want to test a Xiaohongshu-friendly portrait pipeline, try `720 x 960` or `1080 x 1440` first
+- HTML + PNG remain the primary stable outputs; Animated WebP, MP4, and Live are optional enhancement outputs
+- CLI import flags override config defaults when explicitly passed, including `--import-photos=false` and `--live-import-photos=false`
+- Animated WebP export requires `img2webp`; MP4 export requires `ffmpeg`; if either tool is missing, the command keeps successful HTML + PNG output and prints a warning
+- `render.animated.duration_ms` / `--animated-duration` is not only for `.webp/.mp4`; when Live export is enabled it also affects the overall `motion.mov` timeline
+- `render.animated.fps` / `--animated-fps` is most intuitive for Animated WebP / MP4; in Live mode it means capture density rather than a fixed final playback FPS for `motion.mov`
+- Live package export requires `ffmpeg + exiftool`; the current implementation is mainly intended for macOS / iPhone import workflows, and writes `cover.jpg`, `motion.mov`, and `manifest.json` in each page package directory
+- When `render.live.assemble` or `--live-assemble` is also enabled, `makelive` must be available; if it is missing, the command only prints a warning and still keeps HTML + PNG and `.live/` package output
+- `<page>.live/` is an intermediate package, not the final directly importable asset; after assembly, final outputs are written to `<out>/apple-live/` or the directory specified by `render.live.output_dir` / `--live-output-dir`
+- When only Live export is enabled, the renderer still captures frames on the animation timeline, but it does not emit root-level `.webp` or `.mp4` files
+- `capture-html` still only converts existing HTML into PNG files; if you want it to reuse configured export dimensions, pass `--config` so it can read `render.viewport.width/height`
+- `--theme` supports one-off theme overrides, including the theme selected by weekly mode
+- `--author` supports one-off author overrides
+- `--config` can explicitly select another config file
+- `--prompt-extra` appends one-off natural-language guidance for the Markdown -> deck JSON stage, such as pacing, tone, or structure
+- `--prompt-extra` only affects deck generation; it does not directly change HTML rendering, PNG capture, Animated / Live export, or `publish-xhs` behavior
+- `--asset-manifest` reads a YAML / JSON poster manifest before rendering and hydrates matching work covers into suitable pages; local image paths are resolved relative to the manifest file
+- `enrich-posters` extracts titles from `《work title》` text and bold list leads, searches providers, and writes a manifest; review it before final renders when accuracy matters
+- `--auto-posters` searches poster candidates during a single `--input` render and hydrates the deck immediately; when combined with `--asset-manifest`, the manual manifest wins
+- `--poster-sources` restricts providers for `enrich-posters` / `--auto-posters`; by default it searches `bilibili`, `bangumi`, `anilist`, then `mydramalist`; currently supported values are `bilibili`, `bangumi`, `anilist`, and `mydramalist`
+- `--prepare-xhs` writes `<out>/xhs-publish-meta.json` after the main render flow successfully generates standard PNG files; it reuses the same title rewriting, topic generation, and validation as `--publish-xhs`, but does not open the browser or publish
+- `--publish-xhs` publishes to Xiaohongshu after the main render flow successfully generates standard PNG files; the title comes from the Markdown H1 and the body contains only 3-6 topic hashtags
+- When the auto-publish title exceeds `xhs.publish.title_generation.max_runes`, `--publish-xhs` / `--prepare-xhs` uses the same `ai.command` / `ai.args` to rewrite it according to `xhs.publish.title_generation.enabled`; code validates the length but does not truncate it locally
+- When `--xhs-tags` is omitted, `--publish-xhs` / `--prepare-xhs` uses the same `ai.command` / `ai.args` to generate topics according to `xhs.publish.topic_generation.enabled`; AI command failures, invalid JSON, or no valid topics skip preparation / publishing and return an error instead of falling back to local rule-based inference
+- `--xhs-tags` manually overrides AI topics, for example `--xhs-tags "AI agent,data safety,engineering reflection"`; it is valid only with `--publish-xhs` or `--prepare-xhs` and skips AI topic generation
+- `--xhs-mode` / `--xhs-schedule-at` override the automatic Xiaohongshu publish mode and schedule time for one run; they are valid only with `--publish-xhs` or `--prepare-xhs`
+- When `xhs.publish.chrome_args` is omitted, Xiaohongshu publishing uses `disable-background-networking`, `disable-component-update`, `no-first-run`, and `no-default-browser-check`; set `chrome_args: []` to launch without extra args for debugging
+- `xhs.publish.chrome_args` entries may include or omit the leading `--`, and `name=value` arguments are supported
+
+## AI CLI examples
+
+Using `ccs`:
+
+```yaml
+ai:
+  command: ccs
+  args:
+    - codex
+    - --bare
+```
+
+Using `claude`:
+
+```yaml
+ai:
+  command: claude
+  args:
+    - -p
+```
+
+Note: adjust the arguments to match your local AI CLI setup, as long as `mark2note` can use it to generate deck JSON.
+
+## Common commands
+
+```bash
+./mark2note --help
+./mark2note --input ./article.md
+./mark2note --input ./article.md --out ./output/preview
+./mark2note --input ./article.md --config ./configs/config.yaml
+./mark2note --input ./article.md --config ./config.yaml
+./mark2note --input ./article.md --theme warm-paper --author "Your Name"
+./mark2note --input ./article.md --theme plum-ink
+./mark2note --input ./article.md --theme sage-mist
+./mark2note --from-deck ./output/preview/deck.json --theme plum-ink --out ./output/preview-plum-ink
+./mark2note --input ./article.md --prompt-extra "make the cover more attention-grabbing and frame it like an experience recap"
+./mark2note --input ./article.md --auto-posters --prepare-xhs
+./mark2note --input ./article.md --auto-posters --prepare-xhs --xhs-mode schedule --xhs-schedule-at "2026-05-07 07:00:00"
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+./mark2note enrich-posters --input ./article.md --out ./posters.yaml
+./mark2note --input ./article.md --asset-manifest ./posters.yaml --prepare-xhs
+./mark2note --input ./article.md --theme fresh-green --prompt-extra "make the output concise but keep image pages" --live=false --publish-xhs
+./mark2note --input ./article.md --theme fresh-green --prepare-xhs --xhs-tags "AI agent,data safety,engineering reflection"
+./mark2note --input ./article.md --animated --animated-format webp --animated-duration 2400 --animated-fps 8
+./mark2note --input ./article.md --animated --animated-format mp4 --animated-duration 2400 --animated-fps 8
+./mark2note --input ./article.md --import-photos --import-album "mark2note"
+./mark2note --input ./article.md --live --live-cover-frame middle
+./mark2note --input ./article.md --live --live-assemble --live-import-photos --live-import-album "mark2note-live"
+./mark2note --input ./article.md --live --live-assemble --live-output-dir ./output/apple-live
+./mark2note capture-html --input ./output/preview/p02-quote.html
+./mark2note capture-html --input ./output/preview
+./mark2note publish-xhs --account main --title "Title" --content "Body" --images ./cover.jpg
+./mark2note publish-xhs --account main --mode schedule --schedule-at "2026-04-18 20:30:00" --title-file ./title.txt --content-file ./body.md --images ./cover.jpg,./detail.jpg
+./mark2note publish-xhs --account main --title-file ./title.txt --content-file ./body.md --live-report ./output/report.json --live-pages p01-cover,p02-bullets
+```
+
+Note: in directory mode, `capture-html` only scans the current directory, does not recurse into subdirectories, only processes lowercase `.html`, and writes PNG output next to the source HTML files.
+
+## Xiaohongshu publishing
+
+### Recommended: prepare publish metadata first with `--prepare-xhs`
+
+The safer workflow is to generate PNG files and publish metadata first, review the images, then replay the metadata:
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --auto-posters \
+  --prepare-xhs
+
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
+
+`--prepare-xhs` reuses `xhs.publish` defaults for account, browser path, browser profile, headless mode, publish mode, originality declaration, and content-copy preference. It generates and validates the title, topics, and image list, then writes `<out>/xhs-publish-meta.json`. It does not open the browser or publish. For scheduled metadata on a single run, add `--xhs-mode schedule --xhs-schedule-at "2026-05-07 07:00:00"`.
+
+### Auto-publish after render with `--publish-xhs`
+
+The main render command can also automatically invoke the Xiaohongshu publish flow after standard PNG files are generated successfully. This flow reuses `xhs.publish` defaults for account, browser path, browser profile, headless mode, publish mode, originality declaration, and content-copy preference. It publishes the standard PNG pages from the current render, not Live Photo artifacts.
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --theme fresh-green \
+  --prompt-extra "make the output concise but keep image pages" \
+  --live=false \
+  --publish-xhs
+```
+
+Auto-publish behavior:
+
+- the title comes from the first Markdown H1; when absent, it falls back to the cleaned input filename
+- titles within `xhs.publish.title_generation.max_runes` are used as-is; longer titles trigger AI rewriting, and empty or still-too-long results stop publishing with an error
+- the body contains only topic hashtags, for example `#AI代理 #数据安全 #工程反思`
+- topics are generated by AI, and automatic results target 3-6 topics
+- use `--xhs-tags` to manually override AI topics; manual values skip topic generation and are still rendered as body hashtags:
+
+```bash
+./mark2note \
+  --input ./article.md \
+  --theme fresh-green \
+  --publish-xhs \
+  --xhs-tags "AI agent,data safety,engineering reflection"
+```
+
+Rules:
+
+- `--publish-xhs` and `--prepare-xhs` are supported only with `--input`, not `--from-deck`
+- `--publish-xhs` and `--prepare-xhs` cannot be used together
+- `--xhs-tags` is accepted only with `--publish-xhs` or `--prepare-xhs`
+- render failures skip metadata preparation and publishing
+- if no generated standard PNG is found, or a listed PNG path is missing, the command prints the render summary first and then returns an error
+
+### Standalone publish subcommand `publish-xhs`
+
+`publish-xhs` publishes generated image assets or Live Photo outputs to Xiaohongshu Creator Center.
+
+Current behavior:
+
+- `immediate` mode uses the normal publish flow; page visibility is controlled separately by `visibility`
+- `schedule` mode submits a scheduled publish
+- media source is exclusive: use `--images` for standard image posts or `--live-report` for the Live pipeline
+
+### Usage
+
+```bash
+mark2note publish-xhs --account <name> [flags]
+mark2note publish-xhs --meta <file>
+mark2note publish-xhs --help
+```
+
+### Flags
+
+- `--config <file>`: config file path, default `configs/config.yaml`
+- `--meta <file>`: replay metadata written by `--prepare-xhs` / `--publish-xhs` (usually `<out>/xhs-publish-meta.json`); `--meta` must be used standalone and cannot be combined with manual publish fields
+- `--account <name>`: publish account / profile target; when omitted it falls back to `xhs.publish.account`
+- `--title <text>`: inline title text; exactly one of `--title` / `--title-file` is required
+- `--title-file <file>`: title file path
+- `--content <text>`: inline content text; exactly one of `--content` / `--content-file` is required
+- `--content-file <file>`: content file path
+- `--tags <csv>`: comma-separated tags
+- `--mode <name>`: publish timing/flow, supporting `immediate` and `schedule`; when omitted it falls back to `xhs.publish.mode`, otherwise defaults to `immediate`
+- `--schedule-at <time>`: scheduled publish time in `YYYY-MM-DD HH:MM:SS`, parsed in Asia/Shanghai; when omitted it can fall back to `xhs.publish.schedule_at`
+- `--images <csv>`: comma-separated image paths for standard image posts
+- `--live-report <file>`: Live delivery report path used to resolve publishable Live assets
+- `--live-pages <csv>`: ordered Live page subset; valid only with `--live-report`
+- `--chrome <path>`: Chrome binary path; when omitted it first falls back to `xhs.publish.browser_path`
+- `--headless`: run browser automation headless; the built-in default is `true`, but `xhs.publish.headless` can override it
+- `--profile-dir <dir>`: browser profile directory; when omitted it first falls back to `xhs.publish.profile_dir`
+- `--stop-before-submit`: upload assets, fill fields, set schedule if needed, then stop before clicking the final publish/scheduled publish button; the browser is kept open for manual inspection. Use it with `--headless=false`, or set `xhs.publish.headless: false`, when you need to inspect the page manually
+
+### What `--profile-dir` does
+
+`publish-xhs` uses a dedicated browser user-data directory to keep the Xiaohongshu Creator Center login state, cookies, and session data. `--profile-dir` points to that browser profile directory.
+
+Its precedence is:
+
+1. CLI `--profile-dir`
+2. config `xhs.publish.profile_dir`
+3. if both are absent, after the final `account` is resolved it automatically falls back to `os.UserConfigDir()/mark2note/xhs/profiles/<account>`
+
+Why it matters:
+
+- after you log in once by QR scan, reusing the same profile usually avoids repeated login
+- different accounts can use different persistent browser profiles
+- account-specific session problems are easier to isolate and debug
+
+Notes:
+
+- `--profile-dir` and `xhs.publish.profile_dir` now support `~` expansion, so `~/.config/...` works directly
+- the automatic fallback path still depends on the OS; only explicit `~/.config/...` configuration forces that directory style
+- if you explicitly point multiple accounts to the same `profile_dir`, they will share the same browser session directory, which is bad for isolation and debugging
+
+Example config:
+
+```yaml
+xhs:
+  publish:
+    account: walker
+    headless: false
+    browser_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+    profile_dir: ~/.config/mark2note/xhs/profiles/walker
+    # mode controls publish timing/flow; values: immediate = normal immediate flow, schedule = scheduled flow.
+    mode: immediate
+    # visibility controls page visibility; values: public = public, only-self = visible only to yourself.
+    visibility: public
+    schedule_at: ""
+```
+
+Example command:
+
+```bash
+./mark2note publish-xhs \
+  --account walker \
+  --profile-dir ~/.config/mark2note/xhs/profiles/walker \
+  --title "Published this card set today" \
+  --content "Post body" \
+  --images ./output/cover.jpg,./output/detail.jpg
+```
+
+### Validation rules
+
+- `--meta` replays saved publish metadata and must be used standalone, without `--title`, `--content`, `--tags`, `--images`, `--account`, or other manual publish fields
+- without `--meta`, exactly one of `--title` / `--title-file` is required
+- without `--meta`, content may come from `--content` / `--content-file`; if `--tags` is provided, content may be omitted
+- exactly one media source is required: `--images` or `--live-report`
+- `--mode schedule` requires `--schedule-at` or `xhs.publish.schedule_at`
+- `--live-pages` is accepted only with `--live-report`
+
+### Metadata replay
+
+`--prepare-xhs` renders Markdown, handles the title and topics, and writes `xhs-publish-meta.json`; `--publish-xhs` writes the same metadata before browser automation starts. The standalone command can replay that file without regenerating PNG files or topics:
+
+```bash
+./mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json
+```
+
+### Standard image publish
+
+```bash
+./mark2note publish-xhs \
+  --account main \
+  --title "Title" \
+  --content "Body" \
+  --tags "efficiency,AI" \
+  --images ./cover.jpg,./detail.jpg
+```
+
+### Scheduled publish
+
+```bash
+./mark2note publish-xhs \
+  --account main \
+  --mode schedule \
+  --schedule-at "2026-04-18 20:30:00" \
+  --title-file ./title.txt \
+  --content-file ./body.md \
+  --images ./cover.jpg
+```
+
+### Live Photo publish
+
+```bash
+./mark2note publish-xhs \
+  --account main \
+  --title-file ./title.txt \
+  --content-file ./body.md \
+  --live-report ./output/report.json \
+  --live-pages p01-cover,p02-bullets
+```
+
+### Login and session notes
+
+If the command prints a message similar to “not logged in to Xiaohongshu creator center”, the current browser profile does not have a valid login session yet. Open the browser with the same profile directory, complete the QR login to Xiaohongshu Creator Center, then retry the publish command.
+
+For first-time login or expired sessions, it is best to disable `--headless`, or set `xhs.publish.headless: false` in config, complete the QR login once, and then reuse the same profile directory.
+
+## Development / testing
+
+```bash
+go test ./...
+go build -o ./mark2note ./cmd/mark2note
+```
+
+To inspect CLI help:
+
+```bash
+./mark2note --help
+./mark2note publish-xhs --help
+```
 
 ## License
 
