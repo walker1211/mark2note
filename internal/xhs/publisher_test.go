@@ -83,7 +83,10 @@ func TestClickOnlySelfPublishButtonClicksCustomElement(t *testing.T) {
 <html>
 <head><meta charset="utf-8"></head>
 <body>
-<xhs-publish-btn is-publish="true" submit-disabled="false" submit-text="发布" style="display:block;width:120px;height:40px;" onclick="window.clickedPublish = true"></xhs-publish-btn>
+<xhs-publish-btn is-publish="true" submit-disabled="false" submit-text="发布" style="display:block;width:120px;height:40px;"></xhs-publish-btn>
+<script>
+document.querySelector('xhs-publish-btn').addEventListener('publish', () => { window.clickedPublish = true; });
+</script>
 </body>
 </html>`
 	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
@@ -1745,6 +1748,34 @@ func TestConfirmOnlySelfPublishedAcceptsPublishedRedirect(t *testing.T) {
 	rodPage := &rodPage{page: page}
 	if err := rodPage.ConfirmOnlySelfPublished(context.Background()); err != nil {
 		t.Fatalf("ConfirmOnlySelfPublished() error = %v", err)
+	}
+}
+
+func TestPublishSuccessStateRejectsActiveEditorWithSidebarText(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <nav>首页 笔记管理 数据看板 草稿箱</nav>
+    <main>
+      <input placeholder="填写标题会有更多赞哦" value="AI科技晚报 | 26.06.08 18:00">
+      <div class="tiptap ProseMirror" contenteditable="true" role="textbox">#AI资讯[话题]#</div>
+      <xhs-publish-btn is-publish="true" submit-disabled="false" submit-text="发布" style="display:block;width:680px;height:90px;"></xhs-publish-btn>
+    </main>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if !rodPage.isPublishEditorActive() {
+		t.Fatal("publish editor should be active")
+	}
+	if rodPage.isPublishSuccessState() {
+		t.Fatal("active publish editor with sidebar text must not be treated as success")
 	}
 }
 
