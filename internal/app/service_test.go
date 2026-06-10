@@ -213,6 +213,74 @@ func TestServiceGeneratePreviewSuccess(t *testing.T) {
 	}
 }
 
+func TestServiceGeneratePreviewBuildsElectronicPicklesDeckWithoutAI(t *testing.T) {
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, Deck: config.DeckCfg{MaxPages: 12}}
+	titles := []string{
+		"歌剧老师锐评《乘风破浪的姐姐2026》四公（上）",
+		"2026新一卷数学！难出天际？？？！",
+		"摔麦喷媒体，空降看球赛，特朗普还有多少活要整？",
+		"【某幻】《盛世天下》再返深宫，活下来！",
+		"现实里得体，拍照又上镜的妆容。(含发型)",
+		"《别替我吹了》",
+		"12 个脑洞大开的美食制作方式，有手就会！",
+		"新三国up锐评老三国01：这才叫真正的三国！",
+		"和日本女友去她丈母娘家里",
+		"有人职场内耗你 有人教你放宽心",
+	}
+	var markdown strings.Builder
+	markdown.WriteString("# 每日电子榨菜｜2026-06-10\n\n## 小红书卡片\n")
+	for i, title := range titles {
+		markdown.WriteString(fmt.Sprintf("\n### 第 %d 页｜%s（点赞 1,000｜收藏 200｜投币 30）\n\n", i+1, title))
+		markdown.WriteString(fmt.Sprintf("![视频封面](https://example.com/cover-%02d.jpg)\n\n", i+1))
+		markdown.WriteString("* **内容概览**：这是一条视频内容概览。\n")
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:   func(string) ([]byte, error) { return []byte(markdown.String()), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			t.Fatal("BuildDeckJSON called for electronic pickles markdown")
+			return "", nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	result, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if result.PageCount != 11 || len(r.rendered.Pages) != 11 {
+		t.Fatalf("page count = result:%d rendered:%d, want 11", result.PageCount, len(r.rendered.Pages))
+	}
+	cover := r.rendered.Pages[0]
+	if cover.Variant != "cover" || cover.Content.Title != "每日电子榨菜｜2026-06-10" {
+		t.Fatalf("cover = %#v", cover)
+	}
+	wantSubtitle := strings.Join([]string{"今日彩蛋", "1. " + titles[0], "2. " + titles[1], "3. " + titles[2], "4. " + titles[3], "5. " + titles[4], "6. " + titles[5]}, "\n")
+	if cover.Content.Subtitle != wantSubtitle {
+		t.Fatalf("cover subtitle = %q, want %q", cover.Content.Subtitle, wantSubtitle)
+	}
+	if cover.Meta.CTA != "B站热门" {
+		t.Fatalf("cover cta = %q", cover.Meta.CTA)
+	}
+	firstVideo := r.rendered.Pages[1]
+	if firstVideo.Variant != "image-caption" || firstVideo.Content.Title != titles[0] {
+		t.Fatalf("first video page = %#v", firstVideo)
+	}
+	if !strings.Contains(firstVideo.Meta.Badge, "点赞 1,000｜收藏 200｜投币 30") {
+		t.Fatalf("first video badge = %q, want interaction stats", firstVideo.Meta.Badge)
+	}
+	if firstVideo.Meta.CTA != "B站热门" {
+		t.Fatalf("first video cta = %q", firstVideo.Meta.CTA)
+	}
+	if len(firstVideo.Content.Images) != 1 || firstVideo.Content.Images[0].Src != "https://example.com/cover-01.jpg" {
+		t.Fatalf("first video images = %#v", firstVideo.Content.Images)
+	}
+	if firstVideo.Content.Body != "这是一条视频内容概览。" {
+		t.Fatalf("first video body = %q", firstVideo.Content.Body)
+	}
+}
+
 func TestServiceGeneratePreviewMovesLeadingMarkdownImageToCover(t *testing.T) {
 	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}}
 	coverImage := "https://example.com/cover.png"

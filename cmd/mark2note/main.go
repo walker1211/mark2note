@@ -85,6 +85,7 @@ Flags:
   --xhs-mode <mode>          override Xiaohongshu publish timing mode for --publish-xhs/--prepare-xhs (immediate or schedule)
   --xhs-visibility <name>    override Xiaohongshu visibility for --publish-xhs/--prepare-xhs (public or only-self)
   --xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs (YYYY-MM-DD HH:MM:SS)
+  --collection <name>        override Xiaohongshu collection for --publish-xhs/--prepare-xhs
   --import-photos            import generated PNG files into Apple Photos after export
   --import-album <name>      Apple Photos album name for imported PNG files
   --import-timeout <d>       Apple Photos PNG import timeout (default: 2m0s)
@@ -252,6 +253,7 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.XHSMode, "xhs-mode", opts.XHSMode, "Xiaohongshu publish mode for auto publish")
 	fs.StringVar(&opts.XHSVisibility, "xhs-visibility", opts.XHSVisibility, "Xiaohongshu visibility for auto publish")
 	fs.StringVar(&opts.XHSScheduleAt, "xhs-schedule-at", opts.XHSScheduleAt, "Xiaohongshu schedule time for auto publish")
+	fs.StringVar(&opts.XHSCollection, "collection", opts.XHSCollection, "Xiaohongshu collection name for auto publish")
 	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
 	fs.StringVar(&opts.ImportAlbum, "import-album", opts.ImportAlbum, "Apple Photos album name for imported PNG files")
 	fs.DurationVar(&opts.ImportTimeout, "import-timeout", opts.ImportTimeout, "Apple Photos PNG import timeout")
@@ -323,6 +325,7 @@ func parseOptions(args []string) (Options, error) {
 	xhsModeChanged := false
 	xhsVisibilityChanged := false
 	xhsScheduleAtChanged := false
+	xhsCollectionChanged := false
 	stopBeforeSubmitChanged := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -368,6 +371,8 @@ func parseOptions(args []string) (Options, error) {
 			xhsVisibilityChanged = true
 		case "xhs-schedule-at":
 			xhsScheduleAtChanged = true
+		case "collection":
+			xhsCollectionChanged = true
 		case "stop-before-submit":
 			stopBeforeSubmitChanged = true
 		}
@@ -393,12 +398,16 @@ func parseOptions(args []string) (Options, error) {
 	opts.XHSModeChanged = xhsModeChanged
 	opts.XHSVisibilityChanged = xhsVisibilityChanged
 	opts.XHSScheduleAtChanged = xhsScheduleAtChanged
+	opts.XHSCollectionChanged = xhsCollectionChanged
 	opts.StopBeforeSubmitChanged = stopBeforeSubmitChanged
 	if opts.XHSTagsChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--xhs-tags requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
 	}
 	if (opts.XHSModeChanged || opts.XHSVisibilityChanged || opts.XHSScheduleAtChanged) && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--xhs-mode/--xhs-visibility/--xhs-schedule-at require --publish-xhs or --prepare-xhs\n\n%s", usageText())
+	}
+	if opts.XHSCollectionChanged && !opts.PublishXHS && !opts.PrepareXHS {
+		return Options{}, fmt.Errorf("--collection requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
 	}
 	if opts.StopBeforeSubmitChanged && !opts.PublishXHS {
 		return Options{}, fmt.Errorf("--stop-before-submit requires --publish-xhs\n\n%s", usageText())
@@ -809,6 +818,7 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		return app.PublishOptions{}, fmt.Errorf("%w: %v", app.ErrReadMarkdown, err)
 	}
 	markdown := string(markdownBytes)
+	electronicPickles := isElectronicPicklesMarkdown(markdown)
 	title := xhs.MarkdownPublishTitle(markdown, renderOpts.InputPath)
 	cliOpts := publishXHSCLIOptions{
 		PublishOptions: app.PublishOptions{
@@ -847,8 +857,20 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 	if renderOpts.XHSScheduleAtChanged {
 		cliOpts.ScheduleAt = strings.TrimSpace(renderOpts.XHSScheduleAt)
 	}
+	if renderOpts.XHSCollectionChanged {
+		cliOpts.Collection = strings.TrimSpace(renderOpts.XHSCollection)
+		cliOpts.CollectionChanged = true
+	}
 	if renderOpts.StopBeforeSubmitChanged {
 		cliOpts.StopBeforeSubmit = renderOpts.StopBeforeSubmit
+	}
+	if electronicPickles {
+		cliOpts.DeclareOriginal = true
+		cliOpts.DeclareOriginalChanged = true
+		cliOpts.OriginalDeclarationType = xhs.OriginalDeclarationTypeAIGenerated
+		cliOpts.OriginalDeclarationTypeChanged = true
+		cliOpts.AllowContentCopy = false
+		cliOpts.AllowContentCopyChanged = true
 	}
 	publishOpts := mergePublishXHSDefaults(cliOpts, cfg)
 	if err := validatePublishXHSOptions(publishOpts); err != nil {
@@ -902,6 +924,9 @@ func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string,
 	if len(overrideTags) > 0 {
 		return xhs.NormalizePublishTopics(overrideTags), nil
 	}
+	if topics := buildElectronicPicklesXHSTopics(markdown); len(topics) > 0 {
+		return topics, nil
+	}
 	if cfg.XHS.Publish.TopicGeneration.Enabled == nil || !*cfg.XHS.Publish.TopicGeneration.Enabled {
 		return nil, fmt.Errorf("xhs publish topic generation is disabled; pass --xhs-tags or enable xhs.publish.topic_generation.enabled")
 	}
@@ -914,6 +939,87 @@ func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string,
 		return nil, fmt.Errorf("generate xhs publish topics: no valid topics returned")
 	}
 	return topics, nil
+}
+
+func isElectronicPicklesMarkdown(markdown string) bool {
+	return strings.Contains(markdown, "电子榨菜") && strings.Contains(markdown, "## 小红书卡片")
+}
+
+func buildElectronicPicklesXHSTopics(markdown string) []string {
+	if !isElectronicPicklesMarkdown(markdown) {
+		return nil
+	}
+	topics := []string{"电子榨菜"}
+	topics = append(topics, electronicPicklesRelatedTopics(markdown)...)
+	return xhs.NormalizePublishTopics(topics)
+}
+
+func electronicPicklesRelatedTopics(markdown string) []string {
+	sectionStart := strings.Index(markdown, "## 小红书卡片")
+	if sectionStart < 0 {
+		return nil
+	}
+	lines := strings.Split(markdown[sectionStart:], "\n")
+	out := make([]string, 0, 4)
+	seen := map[string]bool{}
+	add := func(topic string) {
+		if len(out) >= 4 {
+			return
+		}
+		normalized := xhs.NormalizePublishTopics([]string{topic})
+		if len(normalized) == 0 || seen[normalized[0]] {
+			return
+		}
+		seen[normalized[0]] = true
+		out = append(out, normalized[0])
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") && !strings.HasPrefix(trimmed, "## 小红书卡片") {
+			break
+		}
+		if !strings.HasPrefix(trimmed, "### ") {
+			continue
+		}
+		if _, title, ok := strings.Cut(trimmed, "｜"); ok {
+			for _, topic := range electronicPicklesTitleTopics(title) {
+				add(topic)
+			}
+		}
+	}
+	return out
+}
+
+func electronicPicklesTitleTopics(title string) []string {
+	title = strings.TrimSpace(title)
+	if before, _, ok := strings.Cut(title, "（点赞 "); ok {
+		title = strings.TrimSpace(before)
+	}
+	checks := []struct {
+		marker string
+		topic  string
+	}{
+		{"乘风破浪", "乘风破浪的姐姐"},
+		{"高考", "高考数学"},
+		{"新一卷", "高考数学"},
+		{"数学", "高考数学"},
+		{"特朗普", "特朗普"},
+		{"盛世天下", "盛世天下"},
+		{"三国", "三国"},
+		{"职场", "职场内耗"},
+		{"妆容", "妆容教程"},
+		{"发型", "妆容教程"},
+		{"美食", "美食制作"},
+		{"日本", "日本生活"},
+		{"藏獒", "萌宠"},
+		{"鬼獒", "萌宠"},
+	}
+	for _, check := range checks {
+		if strings.Contains(title, check.marker) {
+			return []string{check.topic}
+		}
+	}
+	return []string{title}
 }
 
 type xhsPublishMeta struct {
