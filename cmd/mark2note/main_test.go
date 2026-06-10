@@ -111,6 +111,7 @@ func TestUsageTextMentionsAutoPublishXHSFlags(t *testing.T) {
 		"--xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs/--prepare-xhs",
 		"--xhs-mode <mode>          override Xiaohongshu publish timing mode for --publish-xhs/--prepare-xhs",
 		"--xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs",
+		"--collection <name>        override Xiaohongshu collection for --publish-xhs/--prepare-xhs",
 		"mark2note --input ./example.md --auto-posters --prepare-xhs",
 		"mark2note publish-xhs --meta ./output/preview/xhs-publish-meta.json",
 	} {
@@ -309,13 +310,23 @@ func TestParseOptionsParsesXHSVisibilityWithPrepareXHS(t *testing.T) {
 	}
 }
 
-func TestParseOptionsParsesStopBeforeSubmitWithPublishXHS(t *testing.T) {
-	opts, err := parseOptions([]string{"--input", "article.md", "--publish-xhs", "--stop-before-submit"})
+func TestParseOptionsParsesXHSCollectionWithPrepareXHS(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs", "--collection", "每日电子榨菜"})
 	if err != nil {
 		t.Fatalf("parseOptions() error = %v", err)
 	}
-	if !opts.PublishXHS || !opts.StopBeforeSubmit || !opts.StopBeforeSubmitChanged {
-		t.Fatalf("opts = %#v, want publish-xhs stop-before-submit override", opts)
+	if !opts.PrepareXHS || opts.XHSCollection != "每日电子榨菜" || !opts.XHSCollectionChanged {
+		t.Fatalf("opts = %#v, want prepare-xhs collection override", opts)
+	}
+}
+
+func TestParseOptionsParsesStopBeforeSubmitWithPublishXHS(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--publish-xhs", "--collection", "每日电子榨菜", "--stop-before-submit"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.PublishXHS || !opts.StopBeforeSubmit || !opts.StopBeforeSubmitChanged || opts.XHSCollection != "每日电子榨菜" || !opts.XHSCollectionChanged {
+		t.Fatalf("opts = %#v, want publish-xhs stop-before-submit and collection override", opts)
 	}
 }
 
@@ -345,6 +356,16 @@ func TestParseOptionsRejectsXHSTagsWithoutPublishOrPrepareXHS(t *testing.T) {
 		t.Fatalf("parseOptions() error = nil, want non-nil")
 	}
 	if !strings.Contains(err.Error(), "--xhs-tags requires --publish-xhs or --prepare-xhs") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseOptionsRejectsXHSCollectionWithoutPublishOrPrepareXHS(t *testing.T) {
+	_, err := parseOptions([]string{"--input", "article.md", "--collection", "每日电子榨菜"})
+	if err == nil {
+		t.Fatalf("parseOptions() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "--collection requires --publish-xhs or --prepare-xhs") {
 		t.Fatalf("error = %v", err)
 	}
 }

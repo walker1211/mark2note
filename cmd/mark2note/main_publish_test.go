@@ -388,6 +388,73 @@ func TestRunAutoPublishXHSRewritesLongTitleWithAI(t *testing.T) {
 	}
 }
 
+func TestBuildAutoPublishXHSTopicsUsesElectronicPicklesTitles(t *testing.T) {
+	originalBuildPublishTopics := buildPublishTopics
+	defer func() { buildPublishTopics = originalBuildPublishTopics }()
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		t.Fatal("buildPublishTopics called for electronic pickles markdown")
+		return nil, nil
+	}
+	markdown := "# 每日电子榨菜｜2026-06-10\n\n## 小红书卡片\n\n" +
+		"### 第 1 页｜歌剧老师锐评《乘风破浪的姐姐2026》四公（上）（点赞 1｜收藏 1｜投币 1）\n\n" +
+		"### 第 2 页｜2026新一卷数学！难出天际？？？！（点赞 1｜收藏 1｜投币 1）\n\n" +
+		"### 第 3 页｜摔麦喷媒体，空降看球赛，特朗普还有多少活要整？（点赞 1｜收藏 1｜投币 1）\n\n" +
+		"### 第 4 页｜【某幻】《盛世天下》再返深宫，活下来！（点赞 1｜收藏 1｜投币 1）\n"
+
+	got, err := buildAutoPublishXHSTopics(config.Config{}, markdown, "每日电子榨菜", nil)
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSTopics() error = %v", err)
+	}
+	want := []string{"电子榨菜", "乘风破浪的姐姐", "高考数学", "特朗普", "盛世天下"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("topics = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildAutoPublishXHSOptionsDeclaresElectronicPicklesAIGenerated(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 每日电子榨菜｜2026-06-10\n\n## 小红书卡片\n\n### 第 1 页｜歌剧老师锐评《乘风破浪的姐姐2026》四公（上）（点赞 1｜收藏 1｜投币 1）\n"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker"}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		t.Fatal("buildPublishTopics called for electronic pickles markdown")
+		return nil, nil
+	}
+	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+		t.Fatal("buildPublishTitle called for title within limit")
+		return "", nil
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if !got.DeclareOriginal || got.OriginalDeclarationType != "ai_generated" || got.AllowContentCopy {
+		t.Fatalf("originality flags = declare:%v type:%q copy:%v", got.DeclareOriginal, got.OriginalDeclarationType, got.AllowContentCopy)
+	}
+	wantTags := []string{"电子榨菜", "乘风破浪的姐姐"}
+	if !reflect.DeepEqual(got.Tags, wantTags) {
+		t.Fatalf("Tags = %#v, want %#v", got.Tags, wantTags)
+	}
+}
+
 func TestRunAutoPublishXHSKeepsTitleWithinXHSLengthLimit(t *testing.T) {
 	originalReadFile := readFile
 	originalLoadConfig := loadConfig
@@ -1579,6 +1646,40 @@ func TestBuildAutoPublishXHSOptionsUsesVisibilityFromCLIOverride(t *testing.T) {
 	}
 	if got.Visibility != string(xhs.PublishVisibilityPublic) {
 		t.Fatalf("Visibility = %q, want public", got.Visibility)
+	}
+}
+
+func TestBuildAutoPublishXHSOptionsUsesCollectionFromCLIOverride(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "article.md")
+	imagePath := filepath.Join(dir, "p01-cover.png")
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(inputPath, []byte("# 自动发布标题\n\n正文"), 0o644); err != nil {
+		t.Fatalf("WriteFile(input) error = %v", err)
+	}
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`xhs:
+  publish:
+    account: walker
+    collection: AI科技日报
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{
+		InputPath:            inputPath,
+		ConfigPath:           configPath,
+		XHSTags:              []string{"AI代理"},
+		XHSCollection:        "每日电子榨菜",
+		XHSCollectionChanged: true,
+	}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if got.Collection != "每日电子榨菜" {
+		t.Fatalf("Collection = %q, want 每日电子榨菜", got.Collection)
 	}
 }
 

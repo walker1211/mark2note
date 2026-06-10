@@ -65,6 +65,8 @@ type Options struct {
 	XHSVisibilityChanged     bool
 	XHSScheduleAt            string
 	XHSScheduleAtChanged     bool
+	XHSCollection            string
+	XHSCollectionChanged     bool
 	Animated                 AnimatedOptions
 	Live                     LiveOptions
 	ImportPhotos             bool
@@ -146,20 +148,27 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrReadMarkdown, err)
 	}
+	markdown := string(markdownBytes)
 
-	s.PromptExtra = opts.PromptExtra
-	rawJSON, err := s.effectiveBuildDeckJSON()(cfg, string(markdownBytes))
+	rawJSON, matched, err := buildElectronicPicklesDeckJSON(markdown)
 	if err != nil {
-		return Result{}, fmt.Errorf("%w: %w", ErrBuildDeckJSON, err)
+		return Result{}, fmt.Errorf("%w: %v", ErrBuildDeckJSON, err)
+	}
+	if !matched {
+		s.PromptExtra = opts.PromptExtra
+		rawJSON, err = s.effectiveBuildDeckJSON()(cfg, markdown)
+		if err != nil {
+			return Result{}, fmt.Errorf("%w: %w", ErrBuildDeckJSON, err)
+		}
 	}
 
 	d, err := deck.FromJSONWithMaxPages(rawJSON, opts.OutDir, cfg.Deck.MaxPages)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
-	d = moveLeadingMarkdownImageToCover(d, string(markdownBytes))
+	d = moveLeadingMarkdownImageToCover(d, markdown)
 	var posterWarnings []string
-	if d, posterWarnings, err = s.hydratePosters(opts, d, string(markdownBytes)); err != nil {
+	if d, posterWarnings, err = s.hydratePosters(opts, d, markdown); err != nil {
 		return Result{}, err
 	}
 	d = hydrateLocalImageAssets(d, filepath.Dir(opts.InputPath))
