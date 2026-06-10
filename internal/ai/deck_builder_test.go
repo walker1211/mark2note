@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeRunner struct {
@@ -371,6 +372,7 @@ func TestBuildPublishTopicsRetriesTransientAILockError(t *testing.T) {
 	}}
 	b := TopicBuilder{Runner: runner}
 	b.SetCommand("ccs", []string{"codex"})
+	b.SetRetryDelays([]time.Duration{0})
 
 	got, err := b.BuildPublishTopics("# 标题", "标题")
 	if err != nil {
@@ -429,6 +431,7 @@ func TestBuildPublishTitleRetriesTransientAILockError(t *testing.T) {
 	}}
 	b := TitleBuilder{Runner: runner}
 	b.SetCommand("ccs", []string{"codex"})
+	b.SetRetryDelays([]time.Duration{0})
 
 	got, err := b.BuildPublishTitle("# 标题", "标题", 20)
 	if err != nil {
@@ -503,6 +506,7 @@ func TestBuildDeckJSONRetriesTransientAILockError(t *testing.T) {
 	}}
 	b := Builder{Runner: runner}
 	b.SetCommand("ccs", []string{"codex"})
+	b.SetRetryDelays([]time.Duration{0})
 
 	got, err := b.BuildDeckJSON("# title")
 	if err != nil {
@@ -513,6 +517,25 @@ func TestBuildDeckJSONRetriesTransientAILockError(t *testing.T) {
 	}
 	if runner.count != 2 {
 		t.Fatalf("runner calls = %d, want 2", runner.count)
+	}
+}
+
+func TestBuildDeckJSONUsesConfiguredRetryDelays(t *testing.T) {
+	runner := &sequenceRunner{calls: []runnerCall{
+		{stderr: "timeout", err: errors.New("exit status 1")},
+		{stderr: "timeout", err: errors.New("exit status 1")},
+		{stdout: `{"pages":[]}`},
+	}}
+	b := Builder{Runner: runner}
+	b.SetCommand("custom-ai", nil)
+	b.SetRetryDelays([]time.Duration{0, 0})
+
+	_, err := b.BuildDeckJSON("# title")
+	if err != nil {
+		t.Fatalf("BuildDeckJSON() error = %v", err)
+	}
+	if runner.count != 3 {
+		t.Fatalf("runner calls = %d, want len(delays)+1", runner.count)
 	}
 }
 

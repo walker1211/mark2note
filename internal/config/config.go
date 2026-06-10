@@ -23,8 +23,13 @@ type OutputCfg struct {
 }
 
 type AICfg struct {
-	Command string   `yaml:"command"`
-	Args    []string `yaml:"args"`
+	Command string     `yaml:"command"`
+	Args    []string   `yaml:"args"`
+	Retry   AIRetryCfg `yaml:"retry"`
+}
+
+type AIRetryCfg struct {
+	Delays []time.Duration `yaml:"delays"`
 }
 
 const (
@@ -188,6 +193,21 @@ func parseConfigDuration(value string) (time.Duration, error) {
 	return parsed, nil
 }
 
+var defaultAIRetryDelays = []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 9 * time.Second, 17 * time.Second}
+
+func cloneDurations(values []time.Duration) []time.Duration {
+	return append([]time.Duration(nil), values...)
+}
+
+func validateAIRetryDelays(delays []time.Duration) error {
+	for i, delay := range delays {
+		if delay <= 0 {
+			return fmt.Errorf("validate ai.retry.delays[%d]: must be > 0", i)
+		}
+	}
+	return nil
+}
+
 var defaultDeckWeeklyThemes = map[string]string{
 	"mon": "default",
 	"tue": "warm-paper",
@@ -278,6 +298,14 @@ func Load(configPath string) (*Config, error) {
 	}
 	if len(cfg.AI.Args) == 0 {
 		cfg.AI.Args = []string{"codex", "--bare"}
+	}
+	if cfg.AI.Retry.Delays == nil {
+		cfg.AI.Retry.Delays = cloneDurations(defaultAIRetryDelays)
+	} else {
+		cfg.AI.Retry.Delays = cloneDurations(cfg.AI.Retry.Delays)
+	}
+	if err := validateAIRetryDelays(cfg.AI.Retry.Delays); err != nil {
+		return nil, err
 	}
 	if cfg.Deck.Theme == "" {
 		cfg.Deck.Theme = "default"

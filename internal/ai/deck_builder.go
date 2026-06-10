@@ -64,6 +64,7 @@ type Builder struct {
 	Args        []string
 	PromptExtra string
 	MaxPages    int
+	RetryDelays []time.Duration
 	Runner      CommandRunner
 }
 
@@ -103,21 +104,33 @@ func (execRunner) Run(name string, args ...string) (string, string, error) {
 	return "", "", err
 }
 
-var aiCommandRetryDelays = []time.Duration{time.Second, 3 * time.Second}
+var defaultAICommandRetryDelays = []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 9 * time.Second, 17 * time.Second}
 
-func runAICommand(runner CommandRunner, name string, args ...string) (string, string, error) {
+func cloneDurations(values []time.Duration) []time.Duration {
+	return append([]time.Duration(nil), values...)
+}
+
+func effectiveAICommandRetryDelays(delays []time.Duration) []time.Duration {
+	if delays == nil {
+		return cloneDurations(defaultAICommandRetryDelays)
+	}
+	return cloneDurations(delays)
+}
+
+func runAICommand(runner CommandRunner, name string, retryDelays []time.Duration, args ...string) (string, string, error) {
 	var stdout string
 	var stderr string
 	var err error
-	for attempt := 0; attempt <= len(aiCommandRetryDelays); attempt++ {
+	delays := effectiveAICommandRetryDelays(retryDelays)
+	for attempt := 0; attempt <= len(delays); attempt++ {
 		stdout, stderr, err = runner.Run(name, args...)
 		if err == nil {
 			return stdout, stderr, nil
 		}
-		if attempt == len(aiCommandRetryDelays) || !isTransientAICommandError(err, stdout, stderr) {
+		if attempt == len(delays) || !isTransientAICommandError(err, stdout, stderr) {
 			return stdout, stderr, err
 		}
-		time.Sleep(aiCommandRetryDelays[attempt])
+		time.Sleep(delays[attempt])
 	}
 	return stdout, stderr, err
 }
@@ -151,6 +164,10 @@ func (b *Builder) SetCommand(command string, args []string) {
 	b.Args = append([]string(nil), args...)
 }
 
+func (b *Builder) SetRetryDelays(delays []time.Duration) {
+	b.RetryDelays = cloneDurations(delays)
+}
+
 func (b Builder) effectiveRunner() CommandRunner {
 	if b.Runner != nil {
 		return b.Runner
@@ -164,7 +181,7 @@ func (b Builder) BuildDeckJSON(markdown string) (string, error) {
 		args = append(args, "--bare")
 	}
 	args = append(args, "-p", buildDeckPromptWithMaxPages(markdown, b.PromptExtra, b.MaxPages))
-	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, args...)
+	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, b.RetryDelays, args...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
 	}

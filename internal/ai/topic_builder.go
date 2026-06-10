@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 const topicPromptTemplate = `你是一个小红书发布话题生成器。
@@ -24,9 +25,10 @@ Markdown 如下：
 %s`
 
 type TopicBuilder struct {
-	Command string
-	Args    []string
-	Runner  CommandRunner
+	Command     string
+	Args        []string
+	RetryDelays []time.Duration
+	Runner      CommandRunner
 }
 
 type topicResponse struct {
@@ -42,6 +44,10 @@ func (b *TopicBuilder) SetCommand(command string, args []string) {
 	b.Args = append([]string(nil), args...)
 }
 
+func (b *TopicBuilder) SetRetryDelays(delays []time.Duration) {
+	b.RetryDelays = cloneDurations(delays)
+}
+
 func (b TopicBuilder) effectiveRunner() CommandRunner {
 	if b.Runner != nil {
 		return b.Runner
@@ -55,7 +61,7 @@ func (b TopicBuilder) BuildPublishTopics(markdown, title string) ([]string, erro
 		args = append(args, "--bare")
 	}
 	args = append(args, "-p", buildTopicPrompt(markdown, title))
-	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, args...)
+	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, b.RetryDelays, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
 	}

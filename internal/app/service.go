@@ -582,6 +582,7 @@ func (s Service) effectiveBuildDeckJSON() func(*config.Config, string) (string, 
 	return func(cfg *config.Config, markdown string) (string, error) {
 		b := ai.Builder{PromptExtra: s.PromptExtra, MaxPages: cfg.Deck.MaxPages, Runner: s.AICommandRunner}
 		b.SetCommand(cfg.AI.Command, cfg.AI.Args)
+		b.SetRetryDelays(cfg.AI.Retry.Delays)
 		return b.BuildDeckJSON(markdown)
 	}
 }
