@@ -165,6 +165,7 @@ var allowedContentFieldsByVariant = map[string]map[string]struct{}{
 	"cover": {
 		"title":    {},
 		"subtitle": {},
+		"images":   {},
 	},
 	"quote": {
 		"title": {},
@@ -510,6 +511,14 @@ func validateContent(page Page) error {
 		if content.Title == "" {
 			return pageErr(page.Name, page.Variant, "title is required")
 		}
+		if len(content.Images) > 1 {
+			return pageErr(page.Name, page.Variant, "images accepts at most 1 item")
+		}
+		for i, image := range content.Images {
+			if image.Src == "" || image.Alt == "" {
+				return pageErr(page.Name, page.Variant, "images[%d].src and images[%d].alt are required", i, i)
+			}
+		}
 	case "quote":
 		if content.Title == "" {
 			return pageErr(page.Name, page.Variant, "title is required")
@@ -521,8 +530,8 @@ func validateContent(page Page) error {
 		if content.Title == "" {
 			return pageErr(page.Name, page.Variant, "title is required")
 		}
-		if len(content.Images) == 0 {
-			return pageErr(page.Name, page.Variant, "images requires exactly 1 item")
+		if len(content.Images) == 0 && content.Body == "" {
+			return pageErr(page.Name, page.Variant, "images or body is required")
 		}
 		if len(content.Images) > 1 {
 			return pageErr(page.Name, page.Variant, "images accepts at most 1 item")

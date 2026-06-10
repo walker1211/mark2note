@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -156,6 +157,7 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
+	d = moveLeadingMarkdownImageToCover(d, string(markdownBytes))
 	var posterWarnings []string
 	if d, posterWarnings, err = s.hydratePosters(opts, d, string(markdownBytes)); err != nil {
 		return Result{}, err
@@ -282,6 +284,73 @@ func appendMissingPosterWarning(warnings []string, title string) []string {
 		}
 	}
 	return append(warnings, warning)
+}
+
+var markdownImagePattern = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)(?:\s+[^)]*)?\)`)
+
+func moveLeadingMarkdownImageToCover(d deck.Deck, markdown string) deck.Deck {
+	if len(d.Pages) == 0 || d.Pages[0].Variant != "cover" || len(d.Pages[0].Content.Images) > 0 {
+		return d
+	}
+	image, ok := leadingMarkdownImage(markdown)
+	if !ok {
+		return d
+	}
+	coverImage := image
+	for pageIndex := 1; pageIndex < len(d.Pages); pageIndex++ {
+		images := d.Pages[pageIndex].Content.Images
+		kept := images[:0]
+		for _, existing := range images {
+			if strings.TrimSpace(existing.Src) == image.Src {
+				if strings.TrimSpace(existing.Alt) != "" {
+					coverImage.Alt = strings.TrimSpace(existing.Alt)
+				}
+				continue
+			}
+			kept = append(kept, existing)
+		}
+		if len(kept) != len(images) {
+			d.Pages[pageIndex].Content.Images = kept
+			if d.Pages[pageIndex].Variant == "image-caption" && strings.TrimSpace(d.Pages[pageIndex].Content.Body) == "" {
+				d.Pages[pageIndex].Content.Body = coverImage.Alt
+			}
+		}
+	}
+	d.Pages[0].Content.Images = []deck.ImageBlock{coverImage}
+	return d
+}
+
+func leadingMarkdownImage(markdown string) (deck.ImageBlock, bool) {
+	match := markdownImagePattern.FindStringSubmatchIndex(markdown)
+	if match == nil {
+		return deck.ImageBlock{}, false
+	}
+	prefix := markdown[:match[0]]
+	for _, line := range strings.Split(prefix, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "# ") {
+			continue
+		}
+		return deck.ImageBlock{}, false
+	}
+	parts := markdownImagePattern.FindStringSubmatch(markdown[match[0]:match[1]])
+	if len(parts) < 3 {
+		return deck.ImageBlock{}, false
+	}
+	alt := strings.TrimSpace(parts[1])
+	if !isCoverImageAlt(alt) {
+		return deck.ImageBlock{}, false
+	}
+	src := strings.TrimSpace(parts[2])
+	if src == "" {
+		return deck.ImageBlock{}, false
+	}
+	return deck.ImageBlock{Src: src, Alt: alt}, true
+}
+
+func isCoverImageAlt(alt string) bool {
+	alt = strings.ToLower(strings.TrimSpace(alt))
+	return strings.Contains(alt, "封面") || strings.Contains(alt, "cover")
 }
 
 func hydrateLocalImageAssets(d deck.Deck, baseDir string) deck.Deck {

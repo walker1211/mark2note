@@ -55,7 +55,7 @@ func (b TopicBuilder) BuildPublishTopics(markdown, title string) ([]string, erro
 		args = append(args, "--bare")
 	}
 	args = append(args, "-p", buildTopicPrompt(markdown, title))
-	stdout, stderr, err := b.effectiveRunner().Run(b.Command, args...)
+	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
 	}

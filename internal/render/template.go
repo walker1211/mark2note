@@ -217,8 +217,11 @@ func withVariantData(page deck.Page) (deck.Page, error) {
 		}
 		return page, nil
 	case "image-caption":
-		if len(page.Content.Images) != 1 {
-			return deck.Page{}, fmt.Errorf("variant %q requires exactly one image for page %q", page.Variant, page.Name)
+		if len(page.Content.Images) > 1 {
+			return deck.Page{}, fmt.Errorf("variant %q accepts at most one image for page %q", page.Variant, page.Name)
+		}
+		if len(page.Content.Images) == 0 && strings.TrimSpace(page.Content.Body) == "" {
+			return deck.Page{}, fmt.Errorf("variant %q requires an image or body for page %q", page.Variant, page.Name)
 		}
 		return page, nil
 	case "text-caption":
