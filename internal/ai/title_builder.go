@@ -55,7 +55,7 @@ func (b TitleBuilder) BuildPublishTitle(markdown, title string, maxRunes int) (s
 		args = append(args, "--bare")
 	}
 	args = append(args, "-p", buildPublishTitlePrompt(markdown, title, maxRunes))
-	stdout, stderr, err := b.effectiveRunner().Run(b.Command, args...)
+	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, args...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
 	}

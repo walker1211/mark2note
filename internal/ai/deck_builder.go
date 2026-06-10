@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 )
 
 const defaultMaxPages = 12
@@ -24,9 +25,9 @@ const deckPromptConstraintsTemplate = `你是一个严格的 JSON 生成器。
 8. meta.theme 保留为兼容字段，可使用 default；实际整套卡片颜色由顶层 theme 决定
 9. variant 只能使用：cover、quote、image-caption、text-caption、bullets、compare、gallery-steps、ending
 10. content 字段按 variant 严格约束：
-   - cover 只能使用 title/subtitle，且 cover 的 title 必填
+   - cover 只能使用 title/subtitle/images，且 cover 的 title 必填；如果提供 images，最多 1 项，每个 image 都必须包含 src 和 alt
    - quote 只能使用 title/quote/note/tip，且 quote 的 title 和 quote 必填
-   - image-caption 只能使用 title/body/images，且 image-caption 的 title 必填、image-caption 的 images 必须正好 1 项，每个 image 都必须包含 src 和 alt
+   - image-caption 只能使用 title/body/images，且 image-caption 的 title 必填、image-caption 的 images 最多 1 项、image-caption 必须提供 body 或 images，每个 image 都必须包含 src 和 alt
    - text-caption 只能使用 title/body/tip，且 text-caption 的 title 和 body 必填
    - bullets 只能使用 title/items，且 bullets 的 title 必填、items 至少 1 项
    - compare 只能使用 title/compare，且 compare 的 title 必填、compare 必须使用 compare{leftLabel,rightLabel,rows}、compare.leftLabel/rightLabel 必填、rows 至少 1 项，且每个 rows 项都必须包含 left 和 right
@@ -42,7 +43,8 @@ const deckPromptConstraintsTemplate = `你是一个严格的 JSON 生成器。
 18. 每页可见内容必须完整放进 1242x1656 竖版卡片，不能依赖浏览器裁切
 19. 长正文和长代码块必须保留原文完整内容，不要用省略号、省略说明或伪代码替代 fenced code block
 20. 需要容纳长内容时优先选择 text-caption、image-caption 或 ending，由渲染层缩小字号和间距；不要为了排版删减原文代码
-21. fenced code block 过长时不要强行塞进单页；拆成连续的 text-caption 或 image-caption 页面，每页保留连续、完整、可执行的原始代码片段，不得用省略号替代被拆分的代码`
+21. fenced code block 过长时不要强行塞进单页；拆成连续的 text-caption 或 image-caption 页面，每页保留连续、完整、可执行的原始代码片段，不得用省略号替代被拆分的代码
+22. Markdown 开头第一张 alt 包含“封面”或 cover 的图应放入第一页 cover.images，作为视觉封面；不要再把同一张图重复放入后续 image-caption 页面`
 
 const deckPromptMarkdownFooter = "\n\nMarkdown 如下：\n"
 const promptExtraIntro = "以下是本次生成的额外约束，只能用于控制风格、安全边界和取舍；不得原文复制、不得改写、不得概括到 JSON 的任何可见字段里，包括 title、subtitle、body、quote、note、tip、cta、items、steps、compare、images.alt。可见文案只能来自 Markdown 原文："
@@ -101,6 +103,49 @@ func (execRunner) Run(name string, args ...string) (string, string, error) {
 	return "", "", err
 }
 
+var aiCommandRetryDelays = []time.Duration{time.Second, 3 * time.Second}
+
+func runAICommand(runner CommandRunner, name string, args ...string) (string, string, error) {
+	var stdout string
+	var stderr string
+	var err error
+	for attempt := 0; attempt <= len(aiCommandRetryDelays); attempt++ {
+		stdout, stderr, err = runner.Run(name, args...)
+		if err == nil {
+			return stdout, stderr, nil
+		}
+		if attempt == len(aiCommandRetryDelays) || !isTransientAICommandError(err, stdout, stderr) {
+			return stdout, stderr, err
+		}
+		time.Sleep(aiCommandRetryDelays[attempt])
+	}
+	return stdout, stderr, err
+}
+
+func isTransientAICommandError(err error, stdout, stderr string) bool {
+	if err == nil {
+		return false
+	}
+	combined := strings.ToLower(strings.Join([]string{err.Error(), stdout, stderr}, "\n"))
+	for _, marker := range []string{
+		"lock file is already being held",
+		"failed to acquire startup lock",
+		"another ccs process may be starting cliproxy",
+		"elocked",
+		"enotacquired",
+		"temporarily unavailable",
+		"timeout",
+		"timed out",
+		"connection reset",
+		"connection refused",
+	} {
+		if strings.Contains(combined, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *Builder) SetCommand(command string, args []string) {
 	b.Command = command
 	b.Args = append([]string(nil), args...)
@@ -119,7 +164,7 @@ func (b Builder) BuildDeckJSON(markdown string) (string, error) {
 		args = append(args, "--bare")
 	}
 	args = append(args, "-p", buildDeckPromptWithMaxPages(markdown, b.PromptExtra, b.MaxPages))
-	stdout, stderr, err := b.effectiveRunner().Run(b.Command, args...)
+	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, args...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
 	}

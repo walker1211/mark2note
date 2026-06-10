@@ -21,6 +21,26 @@ func (r *fakeRunner) Run(name string, args ...string) (string, string, error) {
 	return r.stdout, r.stderr, r.err
 }
 
+type runnerCall struct {
+	stdout string
+	stderr string
+	err    error
+}
+
+type sequenceRunner struct {
+	calls []runnerCall
+	count int
+}
+
+func (r *sequenceRunner) Run(_ string, _ ...string) (string, string, error) {
+	if r.count >= len(r.calls) {
+		return "", "", errors.New("unexpected runner call")
+	}
+	call := r.calls[r.count]
+	r.count++
+	return call.stdout, call.stderr, call.err
+}
+
 func TestBuildDeckPromptKeepsLegacyLayoutWhenPromptExtraEmpty(t *testing.T) {
 	got := buildDeckPrompt("# 标题", "")
 	if !strings.Contains(got, "Markdown 如下：\n# 标题") {
@@ -128,11 +148,14 @@ func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	if strings.Contains(prompt, "meta.theme 只能使用 orange 或 green") {
 		t.Fatalf("prompt still contains old visual meta.theme constraint: %q", prompt)
 	}
-	if !strings.Contains(prompt, "cover 只能使用 title/subtitle") {
+	if !strings.Contains(prompt, "cover 只能使用 title/subtitle/images") {
 		t.Fatalf("prompt missing cover content whitelist: %q", prompt)
 	}
 	if !strings.Contains(prompt, "cover 的 title 必填") {
 		t.Fatalf("prompt missing cover required title rule: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Markdown 开头第一张 alt 包含“封面”或 cover 的图应放入第一页 cover.images") {
+		t.Fatalf("prompt missing first Markdown cover image guidance: %q", prompt)
 	}
 	if !strings.Contains(prompt, "quote 只能使用 title/quote/note/tip") {
 		t.Fatalf("prompt missing quote content whitelist: %q", prompt)
@@ -149,11 +172,14 @@ func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	if !strings.Contains(prompt, "image-caption 的 title 必填") {
 		t.Fatalf("prompt missing image-caption required title rule: %q", prompt)
 	}
-	if !strings.Contains(prompt, "image-caption 的 images 必须正好 1 项") {
-		t.Fatalf("prompt missing image-caption exact image count: %q", prompt)
+	if !strings.Contains(prompt, "image-caption 的 images 最多 1 项") {
+		t.Fatalf("prompt missing image-caption max image count: %q", prompt)
 	}
-	if strings.Contains(prompt, "image-caption 最多 1 张图") {
-		t.Fatalf("prompt should not allow image-caption without an image: %q", prompt)
+	if !strings.Contains(prompt, "image-caption 必须提供 body 或 images") {
+		t.Fatalf("prompt missing image-caption body-or-image rule: %q", prompt)
+	}
+	if strings.Contains(prompt, "image-caption 的 images 必须正好 1 项") {
+		t.Fatalf("prompt should allow image-caption without an image when body exists: %q", prompt)
 	}
 	if !strings.Contains(prompt, "每个 image 都必须包含 src 和 alt") {
 		t.Fatalf("prompt missing image src/alt rule: %q", prompt)
@@ -338,6 +364,27 @@ func TestBuildPublishTopicsRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestBuildPublishTopicsRetriesTransientAILockError(t *testing.T) {
+	runner := &sequenceRunner{calls: []runnerCall{
+		{stderr: "[X] Lock file is already being held", err: errors.New("exit status 1")},
+		{stdout: `{"topics":["AI编程"]}`},
+	}}
+	b := TopicBuilder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	got, err := b.BuildPublishTopics("# 标题", "标题")
+	if err != nil {
+		t.Fatalf("BuildPublishTopics() error = %v", err)
+	}
+	want := []string{"AI编程"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildPublishTopics() = %#v, want %#v", got, want)
+	}
+	if runner.count != 2 {
+		t.Fatalf("runner calls = %d, want 2", runner.count)
+	}
+}
+
 func TestBuildPublishTitleUsesConfiguredCommand(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"title":"把代码合进真实开源"}`}
 	b := TitleBuilder{Runner: runner}
@@ -372,6 +419,26 @@ func TestBuildPublishTitleRejectsInvalidJSON(t *testing.T) {
 	_, err := b.BuildPublishTitle("# 标题", "标题", 20)
 	if !errors.Is(err, ErrAINoJSONFound) {
 		t.Fatalf("BuildPublishTitle() error = %v, want ErrAINoJSONFound", err)
+	}
+}
+
+func TestBuildPublishTitleRetriesTransientAILockError(t *testing.T) {
+	runner := &sequenceRunner{calls: []runnerCall{
+		{stderr: "[X] Lock file is already being held", err: errors.New("exit status 1")},
+		{stdout: `{"title":"短标题"}`},
+	}}
+	b := TitleBuilder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	got, err := b.BuildPublishTitle("# 标题", "标题", 20)
+	if err != nil {
+		t.Fatalf("BuildPublishTitle() error = %v", err)
+	}
+	if got != "短标题" {
+		t.Fatalf("BuildPublishTitle() = %q, want retry title", got)
+	}
+	if runner.count != 2 {
+		t.Fatalf("runner calls = %d, want 2", runner.count)
 	}
 }
 
@@ -426,6 +493,26 @@ func TestBuildDeckJSONReturnsStderrOnRunnerError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("error = %v, want stderr included", err)
+	}
+}
+
+func TestBuildDeckJSONRetriesTransientAILockError(t *testing.T) {
+	runner := &sequenceRunner{calls: []runnerCall{
+		{stderr: "[X] Lock file is already being held", err: errors.New("exit status 1")},
+		{stdout: `{"pages":[]}`},
+	}}
+	b := Builder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+
+	got, err := b.BuildDeckJSON("# title")
+	if err != nil {
+		t.Fatalf("BuildDeckJSON() error = %v", err)
+	}
+	if got != `{"pages":[]}` {
+		t.Fatalf("BuildDeckJSON() = %q, want JSON from retry", got)
+	}
+	if runner.count != 2 {
+		t.Fatalf("runner calls = %d, want 2", runner.count)
 	}
 }
 

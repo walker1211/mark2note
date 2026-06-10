@@ -213,6 +213,59 @@ func TestServiceGeneratePreviewSuccess(t *testing.T) {
 	}
 }
 
+func TestServiceGeneratePreviewMovesLeadingMarkdownImageToCover(t *testing.T) {
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}}
+	coverImage := "https://example.com/cover.png"
+	markdown := "# 标题\n\n![封面](" + coverImage + ")\n\n## 背景\n\n正文"
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-image-caption","variant":"image-caption","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"背景","body":"正文","images":[{"src":"https://example.com/cover.png","alt":"封面"}]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte(markdown), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if got := r.rendered.Pages[0].Content.Images; !reflect.DeepEqual(got, []deck.ImageBlock{{Src: coverImage, Alt: "封面"}}) {
+		t.Fatalf("cover images = %#v", got)
+	}
+	if got := r.rendered.Pages[1].Content.Images; len(got) != 0 {
+		t.Fatalf("second page images = %#v, want image moved out", got)
+	}
+	if r.rendered.Pages[1].Content.Body != "正文" {
+		t.Fatalf("second page body = %q", r.rendered.Pages[1].Content.Body)
+	}
+}
+
+func TestServiceGeneratePreviewKeepsLeadingMarkdownImageWhenAltIsNotCover(t *testing.T) {
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}}
+	image := "https://example.com/news.png"
+	markdown := "# 标题\n\n![新闻图](" + image + ")\n\n## 背景\n\n正文"
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-image-caption","variant":"image-caption","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"背景","body":"正文","images":[{"src":"https://example.com/news.png","alt":"新闻图"}]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile:      func(string) ([]byte, error) { return []byte(markdown), nil },
+		BuildDeckJSON: func(*config.Config, string) (string, error) { return deckJSON, nil },
+		NewRenderer:   func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if got := r.rendered.Pages[0].Content.Images; len(got) != 0 {
+		t.Fatalf("cover images = %#v, want ordinary leading image kept out of cover", got)
+	}
+	if got := r.rendered.Pages[1].Content.Images; !reflect.DeepEqual(got, []deck.ImageBlock{{Src: image, Alt: "新闻图"}}) {
+		t.Fatalf("second page images = %#v, want ordinary leading image kept", got)
+	}
+}
+
 func TestServiceGeneratePreviewInlinesLocalImageAssetsBeforeRendering(t *testing.T) {
 	root := t.TempDir()
 	articleDir := filepath.Join(root, "article")
@@ -224,11 +277,11 @@ func TestServiceGeneratePreviewInlinesLocalImageAssetsBeforeRendering(t *testing
 		t.Fatalf("WriteFile(image) error = %v", err)
 	}
 	articlePath := filepath.Join(articleDir, "article.md")
-	if err := os.WriteFile(articlePath, []byte("# 标题\n\n![图](media/inline-local-001.png)\n"), 0o644); err != nil {
+	if err := os.WriteFile(articlePath, []byte("# 标题\n\n![封面](media/inline-local-001.png)\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(article) error = %v", err)
 	}
 	cfg := &config.Config{Output: config.OutputCfg{Dir: root}}
-	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-image-caption","variant":"image-caption","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"图文","images":[{"src":"media/inline-local-001.png","alt":"图"}] }},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
+	deckJSON := `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"default","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-image-caption","variant":"image-caption","meta":{"badge":"第 2 页","counter":"2/3","theme":"default","cta":"cta2"},"content":{"title":"图文","images":[{"src":"media/inline-local-001.png","alt":"封面"}] }},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"default","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`
 	r := &fakeRenderer{}
 	svc := Service{
 		LoadConfig:    func(string) (*config.Config, error) { return cfg, nil },
@@ -241,9 +294,12 @@ func TestServiceGeneratePreviewInlinesLocalImageAssetsBeforeRendering(t *testing
 	if err != nil {
 		t.Fatalf("GeneratePreview() error = %v", err)
 	}
-	got := r.rendered.Pages[1].Content.Images[0].Src
+	got := r.rendered.Pages[0].Content.Images[0].Src
 	if !strings.HasPrefix(got, "data:image/png;base64,") {
-		t.Fatalf("rendered image src = %q, want local image data URI", got)
+		t.Fatalf("rendered cover image src = %q, want local image data URI", got)
+	}
+	if len(r.rendered.Pages[1].Content.Images) != 0 {
+		t.Fatalf("second page images = %#v, want leading image moved to cover", r.rendered.Pages[1].Content.Images)
 	}
 }
 

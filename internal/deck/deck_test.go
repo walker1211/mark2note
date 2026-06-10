@@ -138,6 +138,23 @@ func TestDeckFromJSONAcceptsThreePagesWithAnchors(t *testing.T) {
 	}
 }
 
+func TestDeckFromJSONAcceptsCoverImage(t *testing.T) {
+	raw := `{
+  "pages": [
+    {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面","subtitle":"副标题","images":[{"src":"https://example.com/cover.png","alt":"封面"}]}},
+    {"name":"p02-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间页","items":["要点"]}},
+    {"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文3"}}
+  ]
+}`
+	d, err := FromJSON(raw, "/tmp/out")
+	if err != nil {
+		t.Fatalf("FromJSON() error = %v", err)
+	}
+	if got := d.Pages[0].Content.Images; !reflect.DeepEqual(got, []ImageBlock{{Src: "https://example.com/cover.png", Alt: "封面"}}) {
+		t.Fatalf("cover images = %#v", got)
+	}
+}
+
 func TestDeckFromJSONAcceptsTwelvePagesWithContentSchema(t *testing.T) {
 	raw := `{
   "pages": [
@@ -353,7 +370,21 @@ func TestDeckFromJSONRejectsUnsupportedVariant(t *testing.T) {
 	}
 }
 
-func TestDeckFromJSONRejectsImageCaptionWithoutImages(t *testing.T) {
+func TestDeckFromJSONAcceptsImageCaptionWithoutImagesWhenBodyExists(t *testing.T) {
+	raw := `{
+  "pages": [
+    {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta"},"content":{"title":"封面"}},
+    {"name":"p02-image","variant":"image-caption","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta"},"content":{"title":"图文","body":"图片移到封面，这里保留正文"}},
+    {"name":"p03-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta"},"content":{"title":"结尾","body":"总结"}}
+  ]
+}`
+
+	if _, err := FromJSON(raw, "/tmp/out"); err != nil {
+		t.Fatalf("FromJSON() error = %v", err)
+	}
+}
+
+func TestDeckFromJSONRejectsImageCaptionWithoutImagesOrBody(t *testing.T) {
 	raw := `{
   "pages": [
     {"name":"p01-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta"},"content":{"title":"封面"}},
@@ -366,7 +397,7 @@ func TestDeckFromJSONRejectsImageCaptionWithoutImages(t *testing.T) {
 	if err == nil {
 		t.Fatal("FromJSON() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), `page "p02-image" (image-caption): images requires exactly 1 item`) {
+	if !strings.Contains(err.Error(), `page "p02-image" (image-caption): images or body is required`) {
 		t.Fatalf("error = %v", err)
 	}
 }

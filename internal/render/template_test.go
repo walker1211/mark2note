@@ -143,6 +143,36 @@ func TestRenderHTMLCoverUsesDynamicTitleAndSubtitle(t *testing.T) {
 	}
 }
 
+func TestRenderHTMLCoverRendersOptionalImage(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	page := deck.Page{
+		Name:    "p01-cover",
+		Variant: "cover",
+		Meta:    deck.PageMeta{Badge: "第 1 页", Counter: "1/3", Theme: "orange", CTA: "cta"},
+		Content: deck.PageContent{
+			Title:  "自定义封面",
+			Images: []deck.ImageBlock{{Src: "https://example.com/cover.png", Alt: "封面图"}},
+		},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	for _, want := range []string{`class="cover-image-frame"`, `src="https://example.com/cover.png"`, `alt="封面图"`, `.cover-main-with-image {`, `align-items: center;`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("html missing %q", want)
+		}
+	}
+	if strings.Contains(html, `.cover-main-with-image {
+    top: 150px;
+    bottom: 330px;
+    align-items: flex-start;
+}`) {
+		t.Fatalf("cover with image should center its content block")
+	}
+}
+
 func TestRenderHTMLCoverRendersResolvedAuthor(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	d.ShowAuthor = true
@@ -412,6 +442,33 @@ func TestRenderHTMLImageCaptionUsesDynamicContentAndPreservesProvidedImageAndBod
 	}
 }
 
+func TestRenderHTMLImageCaptionWithoutImageUsesTextCard(t *testing.T) {
+	d := deck.DefaultDeck("/tmp/out")
+	page := deck.Page{
+		Name:    "p02-image-caption",
+		Variant: "image-caption",
+		Meta:    deck.PageMeta{Badge: "第 2 页", Counter: "2/3", Theme: "orange", CTA: "cta"},
+		Content: deck.PageContent{
+			Title: "背景",
+			Body:  "封面图被移到第一页后，这里保留正文。",
+		},
+	}
+
+	html, err := RenderPageHTML(d, page)
+	if err != nil {
+		t.Fatalf("RenderPageHTML() error = %v", err)
+	}
+	container := mustExtractContainerHTML(t, html, `<div class="image-caption-layout image-caption-no-image`)
+	for _, want := range []string{`class="card quote-card image-caption-text-card"`, `class="quote-wrap image-caption-text-wrap"`, `class="caption image-caption-text-caption"`, "封面图被移到第一页后，这里保留正文。"} {
+		if !strings.Contains(container, want) {
+			t.Fatalf("image-caption no-image container missing %q: %s", want, container)
+		}
+	}
+	if strings.Contains(container, `<img `) {
+		t.Fatalf("image-caption no-image container should not render img: %s", container)
+	}
+}
+
 func mustExtractContainerHTML(t *testing.T, html string, marker string) string {
 	t.Helper()
 	start := strings.Index(html, marker)
@@ -468,15 +525,18 @@ func TestRenderHTMLImageCaptionRendersImageAndBodyWithoutBottomCTA(t *testing.T)
 		`display: flex;`,
 		`flex-direction: column;`,
 		`.image-caption-image {`,
-		`height: 760px;`,
+		`max-height: var(--image-caption-image-height);`,
 		`.image-frame {`,
 		`padding: 0;`,
 		`overflow: hidden;`,
-		`object-fit: cover;`,
+		`object-fit: contain;`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("html missing image-caption layout css %q", want)
 		}
+	}
+	if strings.Contains(html, ".image-caption-image {\n    height: var(--image-caption-image-height);") || strings.Contains(html, `object-fit: cover;`) {
+		t.Fatalf("image-caption should not force fixed image height or crop images")
 	}
 	container := mustExtractContainerHTML(t, html, `<div class="image-caption-layout">`)
 	for _, want := range []string{
@@ -563,18 +623,20 @@ func TestRenderHTMLTextCaptionKeepsCTAInsideLayout(t *testing.T) {
 	}
 	for _, want := range []string{
 		`.text-caption-layout {`,
+		`min-height: 1100px;`,
 		`.text-caption-card {`,
 		`flex: 0 0 auto;`,
 		`.text-caption-cta {`,
-		`margin-top: 0;`,
+		`position: static;`,
+		`margin-top: auto;`,
 	} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("html missing text-caption snug layout css %q", want)
+			t.Fatalf("html missing text-caption safe cta layout css %q", want)
 		}
 	}
-	for _, unwanted := range []string{`.text-caption-layout {\n    height: 1220px;`, `.text-caption-cta {\n    position: static;\n    margin-top: auto;`} {
+	for _, unwanted := range []string{`.text-caption-layout {\n    height: 1220px;`, `.text-caption-cta {\n    position: absolute;`} {
 		if strings.Contains(html, unwanted) {
-			t.Fatalf("text-caption should not reserve fixed empty space %q", unwanted)
+			t.Fatalf("text-caption should not use overlapping cta layout %q", unwanted)
 		}
 	}
 	container := mustExtractContainerHTML(t, html, `<div class="text-caption-layout`)
@@ -1239,7 +1301,7 @@ func TestRenderHTMLFailsOnUnknownVariant(t *testing.T) {
 	}
 }
 
-func TestRenderHTMLRejectsImageCaptionWithNoImages(t *testing.T) {
+func TestRenderHTMLRejectsImageCaptionWithoutImagesOrBody(t *testing.T) {
 	d := deck.DefaultDeck("/tmp/out")
 	page := deck.Page{
 		Name:    "p09-extra-image",
@@ -1252,7 +1314,6 @@ func TestRenderHTMLRejectsImageCaptionWithNoImages(t *testing.T) {
 		},
 		Content: deck.PageContent{
 			Title: "自定义图文页",
-			Body:  "正文",
 		},
 	}
 
@@ -1260,7 +1321,7 @@ func TestRenderHTMLRejectsImageCaptionWithNoImages(t *testing.T) {
 	if err == nil {
 		t.Fatalf("RenderPageHTML() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), `variant "image-caption" requires exactly one image`) {
+	if !strings.Contains(err.Error(), `variant "image-caption" requires an image or body`) {
 		t.Fatalf("error = %v", err)
 	}
 }
