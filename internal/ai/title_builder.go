@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 const publishTitlePromptTemplate = `你是一个小红书发布标题改写器。
@@ -24,9 +25,10 @@ Markdown 如下：
 %s`
 
 type TitleBuilder struct {
-	Command string
-	Args    []string
-	Runner  CommandRunner
+	Command     string
+	Args        []string
+	RetryDelays []time.Duration
+	Runner      CommandRunner
 }
 
 type titleResponse struct {
@@ -42,6 +44,10 @@ func (b *TitleBuilder) SetCommand(command string, args []string) {
 	b.Args = append([]string(nil), args...)
 }
 
+func (b *TitleBuilder) SetRetryDelays(delays []time.Duration) {
+	b.RetryDelays = cloneDurations(delays)
+}
+
 func (b TitleBuilder) effectiveRunner() CommandRunner {
 	if b.Runner != nil {
 		return b.Runner
@@ -55,7 +61,7 @@ func (b TitleBuilder) BuildPublishTitle(markdown, title string, maxRunes int) (s
 		args = append(args, "--bare")
 	}
 	args = append(args, "-p", buildPublishTitlePrompt(markdown, title, maxRunes))
-	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, args...)
+	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, b.RetryDelays, args...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
 	}

@@ -6,6 +6,13 @@ ai:
   args:
     - codex
     - --bare
+  retry:
+    delays:
+      - 1s
+      - 2s
+      - 5s
+      - 9s
+      - 17s
 
 deck:
   # deck.theme_mode 可选值：fixed / weekly；weekly 会按本机星期选择 weekly_themes 中的固定主题。

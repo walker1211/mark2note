@@ -674,18 +674,21 @@ var nowFunc = time.Now
 var buildDeckJSON = func(cfg *config.Config, markdown string) (string, error) {
 	b := ai.Builder{}
 	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
+	b.SetRetryDelays(cfg.AI.Retry.Delays)
 	return b.BuildDeckJSON(markdown)
 }
 
 var buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
 	b := ai.TopicBuilder{}
 	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
+	b.SetRetryDelays(cfg.AI.Retry.Delays)
 	return b.BuildPublishTopics(markdown, title)
 }
 
 var buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
 	b := ai.TitleBuilder{}
 	b.SetCommand(cfg.AI.Command, cfg.AI.Args)
+	b.SetRetryDelays(cfg.AI.Retry.Delays)
 	return b.BuildPublishTitle(markdown, title, maxRunes)
 }
 
