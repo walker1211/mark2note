@@ -193,7 +193,7 @@ func preservedSteps(page deck.Page, selection []selectedPoster) []string {
 		return append([]string(nil), content.Steps...)
 	}
 	if content.Compare != nil {
-		steps := make([]string, 0, len(content.Compare.Rows)*2)
+		steps := make([]string, 0, len(content.Compare.Rows))
 		for _, row := range content.Compare.Rows {
 			if strings.TrimSpace(row.Left) != "" {
 				steps = append(steps, row.Left)
