@@ -347,7 +347,7 @@ func TestBuildPublishTopicsUsesConfiguredCommand(t *testing.T) {
 		t.Fatalf("args = %#v, want codex --bare -p prompt", runner.args)
 	}
 	prompt := runner.args[3]
-	for _, want := range []string{"只能输出 JSON", `{"topics":["话题1","话题2"]}`, "优先生成 3 个", "最多 4 个", "更可能已经存在的泛话题", "不要使用纯数字", "标题：标题", "Markdown 如下：\n# 标题"} {
+	for _, want := range []string{"只能输出 JSON", `{"topics":["话题1","话题2"]}`, "优先生成 3 个", "最多 4 个", "每个话题不能包含空格", "每个话题不能包含特殊符号", "不要直接复制很长的视频标题", "不要包含点赞、收藏、投币", "如果 Markdown 是“电子榨菜”内容", "更可能已经存在的泛话题", "标题：标题", "Markdown 如下：\n# 标题"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("topic prompt missing %q: %q", want, prompt)
 		}
