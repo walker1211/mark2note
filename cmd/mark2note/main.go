@@ -924,9 +924,6 @@ func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string,
 	if len(overrideTags) > 0 {
 		return xhs.NormalizePublishTopics(overrideTags), nil
 	}
-	if topics := buildElectronicPicklesXHSTopics(markdown); len(topics) > 0 {
-		return topics, nil
-	}
 	if cfg.XHS.Publish.TopicGeneration.Enabled == nil || !*cfg.XHS.Publish.TopicGeneration.Enabled {
 		return nil, fmt.Errorf("xhs publish topic generation is disabled; pass --xhs-tags or enable xhs.publish.topic_generation.enabled")
 	}
@@ -943,83 +940,6 @@ func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string,
 
 func isElectronicPicklesMarkdown(markdown string) bool {
 	return strings.Contains(markdown, "电子榨菜") && strings.Contains(markdown, "## 小红书卡片")
-}
-
-func buildElectronicPicklesXHSTopics(markdown string) []string {
-	if !isElectronicPicklesMarkdown(markdown) {
-		return nil
-	}
-	topics := []string{"电子榨菜"}
-	topics = append(topics, electronicPicklesRelatedTopics(markdown)...)
-	return xhs.NormalizePublishTopics(topics)
-}
-
-func electronicPicklesRelatedTopics(markdown string) []string {
-	sectionStart := strings.Index(markdown, "## 小红书卡片")
-	if sectionStart < 0 {
-		return nil
-	}
-	lines := strings.Split(markdown[sectionStart:], "\n")
-	out := make([]string, 0, 4)
-	seen := map[string]bool{}
-	add := func(topic string) {
-		if len(out) >= 4 {
-			return
-		}
-		normalized := xhs.NormalizePublishTopics([]string{topic})
-		if len(normalized) == 0 || seen[normalized[0]] {
-			return
-		}
-		seen[normalized[0]] = true
-		out = append(out, normalized[0])
-	}
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "## ") && !strings.HasPrefix(trimmed, "## 小红书卡片") {
-			break
-		}
-		if !strings.HasPrefix(trimmed, "### ") {
-			continue
-		}
-		if _, title, ok := strings.Cut(trimmed, "｜"); ok {
-			for _, topic := range electronicPicklesTitleTopics(title) {
-				add(topic)
-			}
-		}
-	}
-	return out
-}
-
-func electronicPicklesTitleTopics(title string) []string {
-	title = strings.TrimSpace(title)
-	if before, _, ok := strings.Cut(title, "（点赞 "); ok {
-		title = strings.TrimSpace(before)
-	}
-	checks := []struct {
-		marker string
-		topic  string
-	}{
-		{"乘风破浪", "乘风破浪的姐姐"},
-		{"高考", "高考数学"},
-		{"新一卷", "高考数学"},
-		{"数学", "高考数学"},
-		{"特朗普", "特朗普"},
-		{"盛世天下", "盛世天下"},
-		{"三国", "三国"},
-		{"职场", "职场内耗"},
-		{"妆容", "妆容教程"},
-		{"发型", "妆容教程"},
-		{"美食", "美食制作"},
-		{"日本", "日本生活"},
-		{"藏獒", "萌宠"},
-		{"鬼獒", "萌宠"},
-	}
-	for _, check := range checks {
-		if strings.Contains(title, check.marker) {
-			return []string{check.topic}
-		}
-	}
-	return []string{title}
 }
 
 type xhsPublishMeta struct {

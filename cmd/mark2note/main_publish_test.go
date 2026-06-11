@@ -83,6 +83,25 @@ func TestParsePublishXHSOptionsTracksOriginalityFlagPresence(t *testing.T) {
 	}
 }
 
+func TestBuildAutoPublishXHSTopicsKeepsManualTagsForElectronicPickles(t *testing.T) {
+	originalBuildPublishTopics := buildPublishTopics
+	defer func() { buildPublishTopics = originalBuildPublishTopics }()
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		t.Fatal("buildPublishTopics called for manual XHS tags")
+		return nil, nil
+	}
+	markdown := "# 每日电子榨菜｜2026-06-11\n\n## 小红书卡片\n\n### 第 1 页｜视频标题\n"
+
+	got, err := buildAutoPublishXHSTopics(config.Config{}, markdown, "每日电子榨菜", []string{"#手动 话题", "AI工具"})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSTopics() error = %v", err)
+	}
+	want := []string{"手动话题", "AI工具"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("topics = %#v, want %#v", got, want)
+	}
+}
+
 func TestRunAutoPublishXHSWritesMetadataBeforePublishing(t *testing.T) {
 	originalPublishXHS := publishXHS
 	originalReadFile := readFile
@@ -388,24 +407,31 @@ func TestRunAutoPublishXHSRewritesLongTitleWithAI(t *testing.T) {
 	}
 }
 
-func TestBuildAutoPublishXHSTopicsUsesElectronicPicklesTitles(t *testing.T) {
+func TestBuildAutoPublishXHSTopicsUsesAIForElectronicPickles(t *testing.T) {
 	originalBuildPublishTopics := buildPublishTopics
 	defer func() { buildPublishTopics = originalBuildPublishTopics }()
-	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
-		t.Fatal("buildPublishTopics called for electronic pickles markdown")
-		return nil, nil
-	}
+	topicGenerationEnabled := true
+	cfg := config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled}}}}
 	markdown := "# 每日电子榨菜｜2026-06-10\n\n## 小红书卡片\n\n" +
 		"### 第 1 页｜歌剧老师锐评《乘风破浪的姐姐2026》四公（上）（点赞 1｜收藏 1｜投币 1）\n\n" +
-		"### 第 2 页｜2026新一卷数学！难出天际？？？！（点赞 1｜收藏 1｜投币 1）\n\n" +
-		"### 第 3 页｜摔麦喷媒体，空降看球赛，特朗普还有多少活要整？（点赞 1｜收藏 1｜投币 1）\n\n" +
-		"### 第 4 页｜【某幻】《盛世天下》再返深宫，活下来！（点赞 1｜收藏 1｜投币 1）\n"
+		"### 第 2 页｜2026新一卷数学！难出天际？？？！（点赞 1｜收藏 1｜投币 1）\n"
+	called := false
+	buildPublishTopics = func(cfg *config.Config, gotMarkdown string, title string) ([]string, error) {
+		called = true
+		if gotMarkdown != markdown || title != "每日电子榨菜" {
+			t.Fatalf("AI topic inputs = title %q markdown %q", title, gotMarkdown)
+		}
+		return []string{"电子榨菜", "综艺", "高考 数学", "游戏!"}, nil
+	}
 
-	got, err := buildAutoPublishXHSTopics(config.Config{}, markdown, "每日电子榨菜", nil)
+	got, err := buildAutoPublishXHSTopics(cfg, markdown, "每日电子榨菜", nil)
 	if err != nil {
 		t.Fatalf("buildAutoPublishXHSTopics() error = %v", err)
 	}
-	want := []string{"电子榨菜", "乘风破浪的姐姐", "高考数学", "特朗普", "盛世天下"}
+	if !called {
+		t.Fatal("buildPublishTopics was not called")
+	}
+	want := []string{"电子榨菜", "综艺", "高考数学", "游戏"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("topics = %#v, want %#v", got, want)
 	}
@@ -431,11 +457,17 @@ func TestBuildAutoPublishXHSOptionsDeclaresElectronicPicklesAIGenerated(t *testi
 		return []byte("# 每日电子榨菜｜2026-06-10\n\n## 小红书卡片\n\n### 第 1 页｜歌剧老师锐评《乘风破浪的姐姐2026》四公（上）（点赞 1｜收藏 1｜投币 1）\n"), nil
 	}
 	loadConfig = func(path string) (*config.Config, error) {
-		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker"}}}, nil
+		topicGenerationEnabled := true
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:         "walker",
+			TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+		}}}, nil
 	}
 	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
-		t.Fatal("buildPublishTopics called for electronic pickles markdown")
-		return nil, nil
+		if title != "每日电子榨菜｜2026-06-10" {
+			t.Fatalf("topic title = %q", title)
+		}
+		return []string{"电子榨菜", "综艺"}, nil
 	}
 	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
 		t.Fatal("buildPublishTitle called for title within limit")
@@ -449,7 +481,7 @@ func TestBuildAutoPublishXHSOptionsDeclaresElectronicPicklesAIGenerated(t *testi
 	if !got.DeclareOriginal || got.OriginalDeclarationType != "ai_generated" || got.AllowContentCopy {
 		t.Fatalf("originality flags = declare:%v type:%q copy:%v", got.DeclareOriginal, got.OriginalDeclarationType, got.AllowContentCopy)
 	}
-	wantTags := []string{"电子榨菜", "乘风破浪的姐姐"}
+	wantTags := []string{"电子榨菜", "综艺"}
 	if !reflect.DeepEqual(got.Tags, wantTags) {
 		t.Fatalf("Tags = %#v, want %#v", got.Tags, wantTags)
 	}
