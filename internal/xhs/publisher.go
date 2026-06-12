@@ -176,6 +176,9 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 		}
 	}
 	if text != "" && len(topicTags) > 0 {
+		if err := focusEditableAtEnd(field); err != nil {
+			return fmt.Errorf("focus editor: %w", err)
+		}
 		if err := rodTry(func() {
 			field.MustInput("\n")
 		}); err != nil {
@@ -190,12 +193,26 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 	return nil
 }
 
+func focusEditableAtEnd(field *rod.Element) error {
+	return rodTry(func() {
+		field.MustEval(`() => {
+			const editor = this;
+			editor.focus();
+			const selection = window.getSelection();
+			if (!selection) return;
+			const range = document.createRange();
+			range.selectNodeContents(editor);
+			range.collapse(false);
+			selection.removeAllRanges();
+			selection.addRange(range);
+		}`)
+	})
+}
+
 func (p *rodPage) inputTopicByKeyboard(field *rod.Element, tag string) error {
 	timeouts := p.effectiveTimeouts()
-	if err := rodTry(func() {
-		field.MustClick()
-	}); err != nil {
-		return fmt.Errorf("click editor: %w", err)
+	if err := focusEditableAtEnd(field); err != nil {
+		return fmt.Errorf("focus editor: %w", err)
 	}
 	if err := p.typeTopicTrigger(); err != nil {
 		return fmt.Errorf("type topic trigger: %w", err)

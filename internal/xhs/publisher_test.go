@@ -1724,6 +1724,130 @@ func TestFillContentAcceptsHighlightedTopicNode(t *testing.T) {
 	}
 }
 
+func TestFillContentAppendsTopicsAfterExistingText(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+		<html>
+		  <head><meta charset="utf-8"></head>
+		  <body>
+		    <div class="tiptap-container">
+		      <div contenteditable="true" role="textbox" class="tiptap ProseMirror" tabindex="0"></div>
+		    </div>
+		    <script>
+		      const editor = document.querySelector('.tiptap.ProseMirror');
+		      let pendingTopic = '';
+		      let spaceCount = 0;
+
+		      function placeCaretAfterText(needle) {
+		        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+		        while (walker.nextNode()) {
+		          const node = walker.currentNode;
+		          const index = (node.nodeValue || '').indexOf(needle);
+		          if (index < 0) continue;
+		          const range = document.createRange();
+		          range.setStart(node, index + needle.length);
+		          range.collapse(true);
+		          const selection = window.getSelection();
+		          selection.removeAllRanges();
+		          selection.addRange(range);
+		          return true;
+		        }
+		        return false;
+		      }
+
+		      function insertSuggestionAtSelection() {
+		        const selection = window.getSelection();
+		        const range = selection.rangeCount ? selection.getRangeAt(0) : document.createRange();
+		        if (!selection.rangeCount) {
+		          range.selectNodeContents(editor);
+		          range.collapse(false);
+		        }
+		        const suggestion = document.createElement('span');
+		        suggestion.className = 'suggestion is-empty';
+		        suggestion.textContent = '#';
+		        range.deleteContents();
+		        range.insertNode(suggestion);
+		        range.setStartAfter(suggestion);
+		        range.collapse(true);
+		        selection.removeAllRanges();
+		        selection.addRange(range);
+		      }
+
+		      let movedAfterFullText = false;
+		      editor.addEventListener('input', () => {
+		        if (movedAfterFullText || !(editor.textContent || '').includes('2. 第二条')) return;
+		        movedAfterFullText = true;
+		        queueMicrotask(() => placeCaretAfterText('1. 第一条'));
+		      });
+		      editor.addEventListener('click', () => {
+		        if ((editor.textContent || '').includes('2. 第二条')) {
+		          placeCaretAfterText('1. 第一条');
+		        }
+		      });
+		      editor.addEventListener('beforeinput', (event) => {
+		        if (event.inputType !== 'insertText' || !event.data) return;
+		        const suggestion = editor.querySelector('.suggestion');
+		        if (event.data === '#') {
+		          event.preventDefault();
+		          pendingTopic = '';
+		          spaceCount = 0;
+		          insertSuggestionAtSelection();
+		          return;
+		        }
+		        if (suggestion && event.data !== ' ') {
+		          event.preventDefault();
+		          pendingTopic += event.data;
+		          suggestion.className = 'suggestion';
+		          suggestion.textContent = '#' + pendingTopic;
+		          return;
+		        }
+		        if (suggestion && event.data === ' ') {
+		          event.preventDefault();
+		        }
+		      });
+		      editor.addEventListener('keyup', (event) => {
+		        const suggestion = editor.querySelector('.suggestion');
+		        if (!suggestion || event.code !== 'Space') return;
+		        spaceCount++;
+		        if (spaceCount < 2) return;
+		        const data = JSON.stringify({id: 'topic-id', link: 'https://www.xiaohongshu.com/page/topics/topic-id?naviHidden=yes', name: pendingTopic});
+		        const topic = document.createElement('a');
+		        topic.className = 'tiptap-topic';
+		        topic.setAttribute('data-topic', data);
+		        topic.contentEditable = 'false';
+		        topic.appendChild(document.createTextNode('#' + pendingTopic));
+		        const hidden = document.createElement('span');
+		        hidden.className = 'content-hide';
+		        hidden.textContent = '[话题]#';
+		        topic.appendChild(hidden);
+		        suggestion.replaceWith(topic, document.createTextNode(' '));
+		      });
+		    </script>
+		  </body>
+		</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.FillContent(context.Background(), "1. 第一条\n2. 第二条", []string{"AI编程"}); err != nil {
+		t.Fatalf("FillContent() error = %v", err)
+	}
+
+	text := page.MustEval(`() => document.querySelector('.tiptap.ProseMirror')?.textContent || ''`).String()
+	if strings.Index(text, "#AI编程") < strings.Index(text, "2. 第二条") {
+		t.Fatalf("editor text = %q, want topic appended after existing text", text)
+	}
+	htmlOut := page.MustEval(`() => document.querySelector('.tiptap.ProseMirror')?.innerHTML || ''`).String()
+	firstIndex := strings.Index(htmlOut, "1. 第一条")
+	secondIndex := strings.Index(htmlOut, "2. 第二条")
+	breakIndex := strings.Index(htmlOut, "<br")
+	if firstIndex >= 0 && secondIndex >= 0 && breakIndex > firstIndex && breakIndex < secondIndex {
+		t.Fatalf("editor html = %q, want no empty paragraph between content lines", htmlOut)
+	}
+}
+
 func TestConfirmOnlySelfPublishedAcceptsPublishedRedirect(t *testing.T) {
 	page := testPage(t)
 
