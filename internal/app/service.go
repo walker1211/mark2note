@@ -67,6 +67,8 @@ type Options struct {
 	XHSScheduleAtChanged     bool
 	XHSCollection            string
 	XHSCollectionChanged     bool
+	XHSContentMode           string
+	XHSContentModeChanged    bool
 	Animated                 AnimatedOptions
 	Live                     LiveOptions
 	ImportPhotos             bool
