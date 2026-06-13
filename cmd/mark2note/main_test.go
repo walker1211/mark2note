@@ -276,6 +276,16 @@ func TestParseOptionsParsesPrepareXHS(t *testing.T) {
 	}
 }
 
+func TestParseOptionsParsesXHSContentModeWithPrepareXHS(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs", "--xhs-content-mode", "page-titles"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.PrepareXHS || opts.XHSContentMode != "page-titles" || !opts.XHSContentModeChanged {
+		t.Fatalf("opts = %#v, want prepare-xhs page-titles content mode", opts)
+	}
+}
+
 func TestParseOptionsAllowsXHSTagsWithPrepareXHS(t *testing.T) {
 	opts, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs", "--xhs-tags", "动漫推荐, 推理番"})
 	if err != nil {
@@ -888,11 +898,89 @@ func TestRunPrepareXHSWritesMetadataWithoutPublishing(t *testing.T) {
 	if !reflect.DeepEqual(meta.Tags, []string{"推理番", "悬疑动画"}) {
 		t.Fatalf("meta.Tags = %#v", meta.Tags)
 	}
+	if meta.Content != "" {
+		t.Fatalf("meta.Content = %q, want empty by default", meta.Content)
+	}
 	if !reflect.DeepEqual(meta.Images, imagePaths) || meta.Account != "walker" || meta.InputPath != inputPath {
 		t.Fatalf("meta = %#v", meta)
 	}
 	if meta.GeneratedAt != "2026-05-01T10:11:12Z" {
 		t.Fatalf("meta.GeneratedAt = %q", meta.GeneratedAt)
+	}
+}
+
+func TestRunPrepareXHSWritesPageTitleContentWhenRequested(t *testing.T) {
+	originalGeneratePreview := generatePreview
+	originalPublishXHS := publishXHS
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	defer func() {
+		generatePreview = originalGeneratePreview
+		publishXHS = originalPublishXHS
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+	}()
+
+	root := t.TempDir()
+	outDir := filepath.Join(root, "preview")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	inputPath := filepath.Join(root, "article.md")
+	if err := os.WriteFile(inputPath, []byte("# 每日电子榨菜\n\n正文"), 0o644); err != nil {
+		t.Fatalf("WriteFile(input) error = %v", err)
+	}
+	imagePaths := []string{filepath.Join(outDir, "p01-cover.png"), filepath.Join(outDir, "p02-image-caption.png"), filepath.Join(outDir, "p03-image-caption.png")}
+	for _, imagePath := range imagePaths {
+		if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", imagePath, err)
+		}
+	}
+	deckJSON := `{"pages":[{"name":"p01-cover","variant":"cover","content":{"title":"封面标题"}},{"name":"p02-image-caption","variant":"image-caption","content":{"title":"第一条"}},{"name":"p03-image-caption","variant":"image-caption","content":{"title":"第二条"}},{"name":"p04-image-caption","variant":"image-caption","content":{"title":"   "}}]}`
+	if err := os.WriteFile(filepath.Join(outDir, "deck.json"), []byte(deckJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(deck) error = %v", err)
+	}
+
+	generatePreview = func(opts Options) (app.Result, error) {
+		if opts.XHSContentMode != "page-titles" {
+			t.Fatalf("XHSContentMode = %q, want page-titles", opts.XHSContentMode)
+		}
+		return app.Result{PageCount: 4, OutDir: outDir, ImagePaths: imagePaths}, nil
+	}
+	publishXHS = func(app.PublishOptions) (app.PublishResult, error) {
+		t.Fatalf("publishXHS should not be called by --prepare-xhs")
+		return app.PublishResult{}, nil
+	}
+	topicEnabled := true
+	loadConfig = func(string) (*config.Config, error) {
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:         "walker",
+			TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &topicEnabled},
+		}}}, nil
+	}
+	buildPublishTopics = func(_ *config.Config, md string, title string) ([]string, error) {
+		return []string{"电子榨菜"}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--input", inputPath, "--out", outDir, "--prepare-xhs", "--xhs-content-mode", "page-titles"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, xhsPublishMetaFilename))
+	if err != nil {
+		t.Fatalf("ReadFile(meta) error = %v", err)
+	}
+	var meta xhsPublishMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("Unmarshal(meta) error = %v", err)
+	}
+	wantContent := "1. 第一条\n2. 第二条"
+	if meta.Content != wantContent {
+		t.Fatalf("meta.Content = %q, want %q", meta.Content, wantContent)
+	}
+	if !reflect.DeepEqual(meta.Tags, []string{"电子榨菜"}) {
+		t.Fatalf("meta.Tags = %#v", meta.Tags)
 	}
 }
 

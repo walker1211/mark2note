@@ -26,6 +26,11 @@ type Options = app.Options
 
 const xhsPublishMetaFilename = "xhs-publish-meta.json"
 
+const (
+	xhsContentModeNone       = "none"
+	xhsContentModePageTitles = "page-titles"
+)
+
 func defaultOptions() Options {
 	return Options{
 		OutDir:        "output",
@@ -82,6 +87,7 @@ Flags:
   --stop-before-submit       for --publish-xhs, prepare Xiaohongshu editor then stop before final submit
   --prepare-xhs              generate Xiaohongshu publish metadata after render without publishing
   --xhs-tags <csv>           override auto-generated Xiaohongshu topics for --publish-xhs/--prepare-xhs
+  --xhs-content-mode <mode>   XHS body generation for --publish-xhs/--prepare-xhs (none or page-titles)
   --xhs-mode <mode>          override Xiaohongshu publish timing mode for --publish-xhs/--prepare-xhs (immediate or schedule)
   --xhs-visibility <name>    override Xiaohongshu visibility for --publish-xhs/--prepare-xhs (public or only-self)
   --xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs (YYYY-MM-DD HH:MM:SS)
@@ -228,6 +234,17 @@ func isHelpRequest(args []string) bool {
 	return len(args) == 1 && args[0] == "help"
 }
 
+func normalizeXHSContentMode(value string) (string, error) {
+	switch strings.TrimSpace(value) {
+	case "", xhsContentModeNone:
+		return xhsContentModeNone, nil
+	case xhsContentModePageTitles:
+		return xhsContentModePageTitles, nil
+	default:
+		return "", fmt.Errorf("unsupported value %q", value)
+	}
+}
+
 func parseOptions(args []string) (Options, error) {
 	opts := defaultOptions()
 	var xhsTags string
@@ -250,6 +267,7 @@ func parseOptions(args []string) (Options, error) {
 	fs.BoolVar(&opts.StopBeforeSubmit, "stop-before-submit", opts.StopBeforeSubmit, "prepare XHS editor then stop before final submit")
 	fs.BoolVar(&opts.PrepareXHS, "prepare-xhs", opts.PrepareXHS, "generate Xiaohongshu publish metadata after render without publishing")
 	fs.StringVar(&xhsTags, "xhs-tags", xhsTags, "comma-separated Xiaohongshu topics for auto publish")
+	fs.StringVar(&opts.XHSContentMode, "xhs-content-mode", opts.XHSContentMode, "Xiaohongshu body content generation mode for auto publish")
 	fs.StringVar(&opts.XHSMode, "xhs-mode", opts.XHSMode, "Xiaohongshu publish mode for auto publish")
 	fs.StringVar(&opts.XHSVisibility, "xhs-visibility", opts.XHSVisibility, "Xiaohongshu visibility for auto publish")
 	fs.StringVar(&opts.XHSScheduleAt, "xhs-schedule-at", opts.XHSScheduleAt, "Xiaohongshu schedule time for auto publish")
@@ -326,6 +344,7 @@ func parseOptions(args []string) (Options, error) {
 	xhsVisibilityChanged := false
 	xhsScheduleAtChanged := false
 	xhsCollectionChanged := false
+	xhsContentModeChanged := false
 	stopBeforeSubmitChanged := false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -365,6 +384,8 @@ func parseOptions(args []string) (Options, error) {
 			liveImportTimeoutChanged = true
 		case "xhs-tags":
 			xhsTagsChanged = true
+		case "xhs-content-mode":
+			xhsContentModeChanged = true
 		case "xhs-mode":
 			xhsModeChanged = true
 		case "xhs-visibility":
@@ -399,6 +420,7 @@ func parseOptions(args []string) (Options, error) {
 	opts.XHSVisibilityChanged = xhsVisibilityChanged
 	opts.XHSScheduleAtChanged = xhsScheduleAtChanged
 	opts.XHSCollectionChanged = xhsCollectionChanged
+	opts.XHSContentModeChanged = xhsContentModeChanged
 	opts.StopBeforeSubmitChanged = stopBeforeSubmitChanged
 	if opts.XHSTagsChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--xhs-tags requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
@@ -408,6 +430,9 @@ func parseOptions(args []string) (Options, error) {
 	}
 	if opts.XHSCollectionChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--collection requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
+	}
+	if opts.XHSContentModeChanged && !opts.PublishXHS && !opts.PrepareXHS {
+		return Options{}, fmt.Errorf("--xhs-content-mode requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
 	}
 	if opts.StopBeforeSubmitChanged && !opts.PublishXHS {
 		return Options{}, fmt.Errorf("--stop-before-submit requires --publish-xhs\n\n%s", usageText())
@@ -425,6 +450,13 @@ func parseOptions(args []string) (Options, error) {
 			return Options{}, fmt.Errorf("--xhs-visibility: %w\n\n%s", err, usageText())
 		}
 		opts.XHSVisibility = string(visibility)
+	}
+	if opts.XHSContentModeChanged {
+		mode, err := normalizeXHSContentMode(opts.XHSContentMode)
+		if err != nil {
+			return Options{}, fmt.Errorf("--xhs-content-mode: %w\n\n%s", err, usageText())
+		}
+		opts.XHSContentMode = mode
 	}
 	return opts, nil
 }
@@ -846,6 +878,11 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		return app.PublishOptions{}, err
 	}
 	cliOpts.Tags = topics
+	content, err := buildAutoPublishXHSContent(renderOpts, renderResult)
+	if err != nil {
+		return app.PublishOptions{}, fmt.Errorf("build xhs publish content: %w", err)
+	}
+	cliOpts.Content = content
 	if renderOpts.XHSModeChanged {
 		cliOpts.Mode = strings.TrimSpace(renderOpts.XHSMode)
 		cliOpts.ModeChanged = true
@@ -940,6 +977,77 @@ func buildAutoPublishXHSTopics(cfg config.Config, markdown string, title string,
 
 func isElectronicPicklesMarkdown(markdown string) bool {
 	return strings.Contains(markdown, "电子榨菜") && strings.Contains(markdown, "## 小红书卡片")
+}
+
+type xhsContentDeckFile struct {
+	Pages []xhsContentDeckPage `json:"pages"`
+}
+
+type xhsContentDeckPage struct {
+	Name    string `json:"name"`
+	Variant string `json:"variant"`
+	Content struct {
+		Title string `json:"title"`
+	} `json:"content"`
+}
+
+func buildAutoPublishXHSContent(renderOpts Options, renderResult app.Result) (string, error) {
+	switch strings.TrimSpace(renderOpts.XHSContentMode) {
+	case "", xhsContentModeNone:
+		return "", nil
+	case xhsContentModePageTitles:
+		return buildXHSPublishContentFromDeck(filepath.Join(renderResult.OutDir, "deck.json"))
+	default:
+		return "", fmt.Errorf("unsupported xhs content mode %q", renderOpts.XHSContentMode)
+	}
+}
+
+func buildXHSPublishContentFromDeck(deckPath string) (string, error) {
+	data, err := os.ReadFile(deckPath)
+	if err != nil {
+		return "", err
+	}
+	var deck xhsContentDeckFile
+	if err := json.Unmarshal(data, &deck); err != nil {
+		return "", err
+	}
+	return formatXHSNumberedContent(xhsDeckPageTitlesForPublish(deck)), nil
+}
+
+func xhsDeckPageTitlesForPublish(deck xhsContentDeckFile) []string {
+	titles := make([]string, 0, len(deck.Pages))
+	for index, page := range deck.Pages {
+		if isXHSCoverDeckPage(index, page) {
+			continue
+		}
+		title := strings.TrimSpace(page.Content.Title)
+		if title == "" {
+			continue
+		}
+		titles = append(titles, title)
+	}
+	return titles
+}
+
+func isXHSCoverDeckPage(index int, page xhsContentDeckPage) bool {
+	if strings.EqualFold(strings.TrimSpace(page.Variant), "cover") {
+		return true
+	}
+	return index == 0 && strings.Contains(strings.ToLower(strings.TrimSpace(page.Name)), "cover")
+}
+
+func formatXHSNumberedContent(titles []string) string {
+	if len(titles) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for index, title := range titles {
+		if index > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(fmt.Sprintf("%d. %s", index+1, title))
+	}
+	return b.String()
 }
 
 type xhsPublishMeta struct {
