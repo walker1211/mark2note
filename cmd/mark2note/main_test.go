@@ -936,7 +936,7 @@ func TestRunPrepareXHSWritesPageTitleContentWhenRequested(t *testing.T) {
 			t.Fatalf("WriteFile(%q) error = %v", imagePath, err)
 		}
 	}
-	deckJSON := `{"pages":[{"name":"p01-cover","variant":"cover","content":{"title":"封面标题"}},{"name":"p02-image-caption","variant":"image-caption","content":{"title":"第一条"}},{"name":"p03-image-caption","variant":"image-caption","content":{"title":"第二条"}},{"name":"p04-image-caption","variant":"image-caption","content":{"title":"   "}}]}`
+	deckJSON := `{"pages":[{"name":"p01-cover","variant":"cover","content":{"title":"封面标题"}},{"name":"p02-image-caption","variant":"image-caption","content":{"title":"第一条  中间\t多空格"}},{"name":"p03-image-caption","variant":"image-caption","content":{"title":"第二条\n跨行"}},{"name":"p04-image-caption","variant":"image-caption","content":{"title":"   "}}]}`
 	if err := os.WriteFile(filepath.Join(outDir, "deck.json"), []byte(deckJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(deck) error = %v", err)
 	}
@@ -975,7 +975,7 @@ func TestRunPrepareXHSWritesPageTitleContentWhenRequested(t *testing.T) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		t.Fatalf("Unmarshal(meta) error = %v", err)
 	}
-	wantContent := "1. 第一条\n2. 第二条"
+	wantContent := "1. 第一条 中间 多空格\n2. 第二条 跨行"
 	if meta.Content != wantContent {
 		t.Fatalf("meta.Content = %q, want %q", meta.Content, wantContent)
 	}
