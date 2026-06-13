@@ -1020,13 +1020,17 @@ func xhsDeckPageTitlesForPublish(deck xhsContentDeckFile) []string {
 		if isXHSCoverDeckPage(index, page) {
 			continue
 		}
-		title := strings.TrimSpace(page.Content.Title)
+		title := normalizeXHSPublishTitle(page.Content.Title)
 		if title == "" {
 			continue
 		}
 		titles = append(titles, title)
 	}
 	return titles
+}
+
+func normalizeXHSPublishTitle(title string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(title)), " ")
 }
 
 func isXHSCoverDeckPage(index int, page xhsContentDeckPage) bool {
