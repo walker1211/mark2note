@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/walker1211/mark2note/internal/timing"
 	"github.com/walker1211/mark2note/internal/xhs"
 )
 
@@ -63,15 +64,24 @@ var (
 	ErrPublishExecute        = errors.New("publish execute failed")
 )
 
-func (s PublishService) Publish(opts PublishOptions) (PublishResult, error) {
+func (s PublishService) Publish(opts PublishOptions) (result PublishResult, err error) {
+	done := timing.Stage("app.PublishService.Publish", timing.Field("images", len(opts.ImagePaths)), timing.Field("live", strings.TrimSpace(opts.LiveReportPath) != ""))
+	defer func() { done(err) }()
+
+	resolveDone := timing.Stage("app.PublishService.resolve_title_content")
 	title, err := s.resolveTextInput(opts.Title, opts.TitleFile, "title")
-	if err != nil {
-		return PublishResult{}, err
+	if err == nil {
+		content, err := s.resolveOptionalTextInput(opts.Content, opts.ContentFile, "content")
+		if err == nil {
+			resolveDone(nil)
+			return s.publishResolved(opts, title, content)
+		}
 	}
-	content, err := s.resolveOptionalTextInput(opts.Content, opts.ContentFile, "content")
-	if err != nil {
-		return PublishResult{}, err
-	}
+	resolveDone(err)
+	return PublishResult{}, err
+}
+
+func (s PublishService) publishResolved(opts PublishOptions, title string, content string) (PublishResult, error) {
 	mode, err := xhs.ValidateMode(opts.Mode)
 	if err != nil {
 		return PublishResult{}, fmt.Errorf("%w: %v", ErrPublishRequestInvalid, err)
@@ -81,15 +91,22 @@ func (s PublishService) Publish(opts PublishOptions) (PublishResult, error) {
 	if err != nil {
 		return PublishResult{}, fmt.Errorf("%w: %v", ErrPublishRequestInvalid, err)
 	}
+	buildDone := timing.Stage("app.PublishService.build_request")
 	request, err := buildPublishRequest(opts, title, content, mode, scheduleTime)
+	if err == nil {
+		err = request.Validate(now)
+		if err != nil {
+			err = fmt.Errorf("%w: %v", ErrPublishRequestInvalid, err)
+		}
+	}
+	buildDone(err)
 	if err != nil {
 		return PublishResult{}, err
 	}
-	if err := request.Validate(now); err != nil {
-		return PublishResult{}, fmt.Errorf("%w: %v", ErrPublishRequestInvalid, err)
-	}
 	runtime := PublishRuntimeOptions{ChromePath: strings.TrimSpace(opts.ChromePath), Headless: opts.Headless, ProfileDir: strings.TrimSpace(opts.ProfileDir), ChromeArgs: trimOptionalSlice(opts.ChromeArgs)}
+	publishDone := timing.Stage("app.PublishService.orchestrator_publish", timing.Field("media", request.MediaKind), timing.Field("mode", request.Mode))
 	result, err := s.effectiveNewOrchestrator()(runtime).Publish(request, runtime)
+	publishDone(err)
 	if err != nil {
 		return PublishResult{Request: request, Result: result}, fmt.Errorf("%w: %w", ErrPublishExecute, err)
 	}

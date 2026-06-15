@@ -10,6 +10,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/walker1211/mark2note/internal/timing"
 )
 
 var (
@@ -46,29 +47,50 @@ type onlySelfPreSubmitPage interface {
 
 type Publisher struct{}
 
-func (Publisher) PublishStandardOnlySelf(ctx context.Context, page PublishPage, request PublishRequest) error {
+func (Publisher) PublishStandardOnlySelf(ctx context.Context, page PublishPage, request PublishRequest) (err error) {
+	done := timing.Stage("xhs.Publisher.PublishStandardOnlySelf", timing.Field("images", len(request.ImagePaths)), timing.Field("topics", len(request.Tags)))
+	defer func() { done(err) }()
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := page.Open(ctx); err != nil {
+	openDone := timing.Stage("xhs.Publisher.open_page")
+	err = page.Open(ctx)
+	openDone(err)
+	if err != nil {
 		return err
 	}
-	if err := page.UploadImages(ctx, request.ImagePaths); err != nil {
+	uploadDone := timing.Stage("xhs.Publisher.UploadImages", timing.Field("images", len(request.ImagePaths)))
+	err = page.UploadImages(ctx, request.ImagePaths)
+	uploadDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrUploadFailed, err)
 	}
-	if err := page.FillTitle(ctx, request.Title); err != nil {
+	fillTitleDone := timing.Stage("xhs.Publisher.FillTitle")
+	err = page.FillTitle(ctx, request.Title)
+	fillTitleDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
 	}
-	if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
+	fillContentDone := timing.Stage("xhs.Publisher.FillContent", timing.Field("topics", len(request.Tags)))
+	err = page.FillContent(ctx, request.Content, request.Tags)
+	fillContentDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
 	}
 	if request.StopBeforeSubmit {
 		return prepareOnlySelfBeforeSubmit(page, request)
 	}
-	if err := page.PublishOnlySelf(ctx, request); err != nil {
+	publishDone := timing.Stage("xhs.Publisher.PublishOnlySelf")
+	err = page.PublishOnlySelf(ctx, request)
+	publishDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
-	if err := page.ConfirmOnlySelfPublished(ctx); err != nil {
+	confirmDone := timing.Stage("xhs.Publisher.ConfirmOnlySelfPublished")
+	err = page.ConfirmOnlySelfPublished(ctx)
+	confirmDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
 	return nil
@@ -124,7 +146,10 @@ func (p *rodPage) Open(ctx context.Context) error {
 	return p.Navigate(xhsPublishURL)
 }
 
-func (p *rodPage) UploadImages(ctx context.Context, paths []string) error {
+func (p *rodPage) UploadImages(ctx context.Context, paths []string) (err error) {
+	done := timing.Stage("xhs.rodPage.UploadImages", timing.Field("images", len(paths)))
+	defer func() { done(err) }()
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -146,7 +171,10 @@ func (p *rodPage) UploadImages(ctx context.Context, paths []string) error {
 	return p.waitForEditorReady(ctx, 30*time.Second)
 }
 
-func (p *rodPage) FillTitle(ctx context.Context, title string) error {
+func (p *rodPage) FillTitle(ctx context.Context, title string) (err error) {
+	done := timing.Stage("xhs.rodPage.FillTitle")
+	defer func() { done(err) }()
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -159,7 +187,10 @@ func (p *rodPage) FillTitle(ctx context.Context, title string) error {
 	})
 }
 
-func (p *rodPage) FillContent(ctx context.Context, content string, tags []string) error {
+func (p *rodPage) FillContent(ctx context.Context, content string, tags []string) (err error) {
+	done := timing.Stage("xhs.rodPage.FillContent", timing.Field("tags", len(tags)))
+	defer func() { done(err) }()
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -185,10 +216,17 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 			return err
 		}
 	}
+	topicInputDone := timing.Stage("xhs.rodPage.FillContent.input_topics", timing.Field("count", len(topicTags)))
+	var topicErr error
 	for _, tag := range topicTags {
 		if err := p.inputTopicByKeyboard(field, tag); err != nil {
-			return fmt.Errorf("input topic %q: %w", tag, err)
+			topicErr = fmt.Errorf("input topic: %w", err)
+			break
 		}
+	}
+	topicInputDone(topicErr)
+	if topicErr != nil {
+		return topicErr
 	}
 	return nil
 }
@@ -365,7 +403,10 @@ func shouldSetOnlySelfVisibility(request PublishRequest) bool {
 	return visibility == PublishVisibilityOnlySelf
 }
 
-func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) error {
+func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) (err error) {
+	done := timing.Stage("xhs.rodPage.PublishOnlySelf", timing.Field("visibility", request.Visibility))
+	defer func() { done(err) }()
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -440,7 +481,10 @@ func (p *rodPage) clickOnlySelfPublishButton() (bool, error) {
 	return clicked, nil
 }
 
-func (p *rodPage) ConfirmOnlySelfPublished(ctx context.Context) error {
+func (p *rodPage) ConfirmOnlySelfPublished(ctx context.Context) (err error) {
+	done := timing.Stage("xhs.rodPage.ConfirmOnlySelfPublished")
+	defer func() { done(err) }()
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -452,38 +496,62 @@ func (p *rodPage) ConfirmOnlySelfPublished(ctx context.Context) error {
 	return fmt.Errorf("only-self publish confirmation not observed")
 }
 
-func (Publisher) PublishStandardScheduled(ctx context.Context, page PublishPage, request PublishRequest) error {
+func (Publisher) PublishStandardScheduled(ctx context.Context, page PublishPage, request PublishRequest) (err error) {
+	done := timing.Stage("xhs.Publisher.PublishStandardScheduled", timing.Field("images", len(request.ImagePaths)), timing.Field("topics", len(request.Tags)))
+	defer func() { done(err) }()
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if request.ScheduleTime == nil {
 		return fmt.Errorf("%w: schedule time is required", ErrScheduleFailed)
 	}
-	if err := page.Open(ctx); err != nil {
+	openDone := timing.Stage("xhs.Publisher.open_page")
+	err = page.Open(ctx)
+	openDone(err)
+	if err != nil {
 		return err
 	}
-	if err := page.UploadImages(ctx, request.ImagePaths); err != nil {
+	uploadDone := timing.Stage("xhs.Publisher.UploadImages", timing.Field("images", len(request.ImagePaths)))
+	err = page.UploadImages(ctx, request.ImagePaths)
+	uploadDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrUploadFailed, err)
 	}
-	if err := page.FillTitle(ctx, request.Title); err != nil {
+	fillTitleDone := timing.Stage("xhs.Publisher.FillTitle")
+	err = page.FillTitle(ctx, request.Title)
+	fillTitleDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
 	}
-	if err := page.FillContent(ctx, request.Content, request.Tags); err != nil {
+	fillContentDone := timing.Stage("xhs.Publisher.FillContent", timing.Field("topics", len(request.Tags)))
+	err = page.FillContent(ctx, request.Content, request.Tags)
+	fillContentDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFillFailed, err)
 	}
 	if err := runScheduledPreSubmitHooks(page, request); err != nil {
 		return err
 	}
-	if err := page.SetSchedule(ctx, *request.ScheduleTime); err != nil {
+	setScheduleDone := timing.Stage("xhs.Publisher.SetSchedule")
+	err = page.SetSchedule(ctx, *request.ScheduleTime)
+	setScheduleDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrScheduleFailed, err)
 	}
 	if request.StopBeforeSubmit {
 		return nil
 	}
-	if err := page.SubmitScheduled(ctx); err != nil {
+	submitDone := timing.Stage("xhs.Publisher.SubmitScheduled")
+	err = page.SubmitScheduled(ctx)
+	submitDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
-	if err := page.ConfirmScheduledSubmitted(ctx); err != nil {
+	confirmDone := timing.Stage("xhs.Publisher.ConfirmScheduledSubmitted")
+	err = page.ConfirmScheduledSubmitted(ctx)
+	confirmDone(err)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSubmitFailed, err)
 	}
 	return nil

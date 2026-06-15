@@ -18,6 +18,7 @@ import (
 	"github.com/walker1211/mark2note/internal/deck"
 	"github.com/walker1211/mark2note/internal/poster"
 	"github.com/walker1211/mark2note/internal/render"
+	"github.com/walker1211/mark2note/internal/timing"
 )
 
 type AnimatedOptions struct {
@@ -131,8 +132,13 @@ var (
 	ErrRenderPreview      = errors.New("render preview failed")
 )
 
-func (s Service) GeneratePreview(opts Options) (Result, error) {
+func (s Service) GeneratePreview(opts Options) (result Result, err error) {
+	done := timing.Stage("app.GeneratePreview")
+	defer func() { done(err) }()
+
+	loadConfigDone := timing.Stage("app.GeneratePreview.load_config")
 	cfg, err := s.effectiveLoadConfig()(opts.ConfigPath)
+	loadConfigDone(err)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrLoadConfig, err)
 	}
@@ -146,7 +152,9 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 		}
 	}
 
+	readMarkdownDone := timing.Stage("app.GeneratePreview.read_markdown")
 	markdownBytes, err := s.effectiveReadFile()(opts.InputPath)
+	readMarkdownDone(err)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrReadMarkdown, err)
 	}
@@ -158,30 +166,44 @@ func (s Service) GeneratePreview(opts Options) (Result, error) {
 	}
 	if !matched {
 		s.PromptExtra = opts.PromptExtra
+		buildDeckDone := timing.Stage("app.GeneratePreview.ai_build_deck_json")
 		rawJSON, err = s.effectiveBuildDeckJSON()(cfg, markdown)
+		buildDeckDone(err)
 		if err != nil {
 			return Result{}, fmt.Errorf("%w: %w", ErrBuildDeckJSON, err)
 		}
 	}
 
+	parseDeckDone := timing.Stage("app.GeneratePreview.parse_deck")
 	d, err := deck.FromJSONWithMaxPages(rawJSON, opts.OutDir, cfg.Deck.MaxPages)
+	parseDeckDone(err)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
 	d = moveLeadingMarkdownImageToCover(d, markdown)
 	var posterWarnings []string
-	if d, posterWarnings, err = s.hydratePosters(opts, d, markdown); err != nil {
+	hydratePostersDone := timing.Stage("app.GeneratePreview.hydrate_posters")
+	d, posterWarnings, err = s.hydratePosters(opts, d, markdown)
+	hydratePostersDone(err)
+	if err != nil {
 		return Result{}, err
 	}
 	d = hydrateLocalImageAssets(d, filepath.Dir(opts.InputPath))
 
-	result, err := s.renderDeck(opts, cfg, d, sourceRenderMeta{})
+	renderDeckDone := timing.Stage("app.GeneratePreview.render_deck")
+	result, err = s.renderDeck(opts, cfg, d, sourceRenderMeta{})
+	renderDeckDone(err)
 	result.Warnings = append(posterWarnings, result.Warnings...)
 	return result, err
 }
 
-func (s Service) GenerateFromDeck(opts Options) (Result, error) {
+func (s Service) GenerateFromDeck(opts Options) (result Result, err error) {
+	done := timing.Stage("app.GenerateFromDeck")
+	defer func() { done(err) }()
+
+	loadConfigDone := timing.Stage("app.GenerateFromDeck.load_config")
 	cfg, err := s.effectiveLoadConfig()(opts.ConfigPath)
+	loadConfigDone(err)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrLoadConfig, err)
 	}
@@ -193,24 +215,35 @@ func (s Service) GenerateFromDeck(opts Options) (Result, error) {
 			opts.OutDir = abs
 		}
 	}
+	readDeckDone := timing.Stage("app.GenerateFromDeck.read_deck")
 	deckBytes, err := s.effectiveReadFile()(opts.FromDeckPath)
+	readDeckDone(err)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrReadDeck, err)
 	}
+	parseDeckDone := timing.Stage("app.GenerateFromDeck.parse_deck")
 	d, err := deck.FromJSONWithMaxPages(string(deckBytes), opts.OutDir, cfg.Deck.MaxPages)
+	parseDeckDone(err)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrParseDeck, err)
 	}
 	var posterWarnings []string
-	if d, posterWarnings, err = s.hydratePosters(opts, d, ""); err != nil {
-		return Result{}, err
-	}
-	d = hydrateLocalImageAssets(d, filepath.Dir(opts.FromDeckPath))
-	meta, err := s.readRenderMetaForDeck(opts.FromDeckPath)
+	hydratePostersDone := timing.Stage("app.GenerateFromDeck.hydrate_posters")
+	d, posterWarnings, err = s.hydratePosters(opts, d, "")
+	hydratePostersDone(err)
 	if err != nil {
 		return Result{}, err
 	}
-	result, err := s.renderDeck(opts, cfg, d, sourceRenderMeta{FromDeck: true, Meta: meta})
+	d = hydrateLocalImageAssets(d, filepath.Dir(opts.FromDeckPath))
+	readMetaDone := timing.Stage("app.GenerateFromDeck.read_render_meta")
+	meta, err := s.readRenderMetaForDeck(opts.FromDeckPath)
+	readMetaDone(err)
+	if err != nil {
+		return Result{}, err
+	}
+	renderDeckDone := timing.Stage("app.GenerateFromDeck.render_deck")
+	result, err = s.renderDeck(opts, cfg, d, sourceRenderMeta{FromDeck: true, Meta: meta})
+	renderDeckDone(err)
 	result.Warnings = append(posterWarnings, result.Warnings...)
 	return result, err
 }

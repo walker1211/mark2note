@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/walker1211/mark2note/internal/deck"
+	"github.com/walker1211/mark2note/internal/timing"
 )
 
 const defaultChromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -92,7 +93,10 @@ func (execRunner) Run(name string, args ...string) error {
 	return cmd.Run()
 }
 
-func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
+func (r Renderer) Render(d deck.Deck) (result RenderResult, err error) {
+	done := timing.Stage("render.Render", timing.Field("pages", len(d.Pages)))
+	defer func() { done(err) }()
+
 	if len(d.Pages) == 0 {
 		return RenderResult{}, fmt.Errorf("deck must contain at least 1 page for render")
 	}
@@ -105,10 +109,16 @@ func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 	mode, animatedResult := r.normalizedAnimated()
 	liveMode, liveWarnings := normalizeLiveOptions(r.Live)
 	captureMode, captureWarnings := r.normalizedCaptureTiming(mode, liveMode.Enabled)
-	if err := r.renderHTMLPages(d, captureMode); err != nil {
+	renderHTMLDone := timing.Stage("render.Render.renderHTMLPages", timing.Field("pages", len(d.Pages)))
+	err = r.renderHTMLPages(d, captureMode)
+	renderHTMLDone(err)
+	if err != nil {
 		return RenderResult{}, err
 	}
-	if err := r.CapturePNGs(d.Pages, outDir); err != nil {
+	captureDone := timing.Stage("render.Render.CapturePNGs", timing.Field("pages", len(d.Pages)))
+	err = r.CapturePNGs(d.Pages, outDir)
+	captureDone(err)
+	if err != nil {
 		return RenderResult{}, err
 	}
 	imagePaths := generatedPNGPaths(d.Pages, outDir)
@@ -116,11 +126,16 @@ func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 	warnings = append(warnings, liveWarnings...)
 	warnings = append(warnings, captureWarnings...)
 	if captureMode.Enabled && (mode.Enabled || liveMode.Enabled) {
-		warnings = append(warnings, r.runAnimatedExports(d.Pages, outDir, captureMode, mode, liveMode)...)
+		animatedDone := timing.Stage("render.Render.animated_live_exports", timing.Field("pages", len(d.Pages)), timing.Field("animated", mode.Enabled), timing.Field("live", liveMode.Enabled))
+		animatedWarnings := r.runAnimatedExports(d.Pages, outDir, captureMode, mode, liveMode)
+		animatedDone(nil)
+		warnings = append(warnings, animatedWarnings...)
 	}
-	result := RenderResult{Warnings: warnings, ImagePaths: imagePaths}
+	result = RenderResult{Warnings: warnings, ImagePaths: imagePaths}
 	if r.ImportPhotos {
+		importDone := timing.Stage("render.Render.import_photos", timing.Field("pages", len(d.Pages)))
 		delivery, err := r.deliverPNGImport(outDir, d.Pages)
+		importDone(err)
 		result.ImportReport = &delivery.Report
 		result.ImportReportPath = delivery.ReportPath
 		if err != nil {
@@ -128,8 +143,10 @@ func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 		}
 	}
 	if liveMode.Enabled && liveMode.Assemble && liveMode.ImportPhotos {
+		liveImportDone := timing.Stage("render.Render.live_import_photos", timing.Field("pages", len(d.Pages)))
 		sourceDir, importDir, err := r.liveImportSourceDirs(outDir, d.Pages, liveMode)
 		if err != nil {
+			liveImportDone(err)
 			return result, err
 		}
 		delivery, err := r.liveDeliveryOrchestrator().Deliver(liveDeliveryRequest{
@@ -138,6 +155,7 @@ func (r Renderer) Render(d deck.Deck) (RenderResult, error) {
 			AlbumName:     liveMode.ImportAlbum,
 			ImportTimeout: liveMode.ImportTimeout,
 		})
+		liveImportDone(err)
 		result.DeliveryReport = &delivery.Report
 		result.DeliveryReportPath = delivery.ReportPath
 		if err != nil {
@@ -351,7 +369,10 @@ func (r Renderer) CaptureHTMLPath(inputPath string) error {
 	return r.runCaptureTasksWithJobs(tasks, r.effectiveJobs())
 }
 
-func (r Renderer) runAnimatedExports(pages []deck.Page, outDir string, captureMode normalizedAnimatedOptions, animated normalizedAnimatedOptions, live normalizedLiveOptions) []string {
+func (r Renderer) runAnimatedExports(pages []deck.Page, outDir string, captureMode normalizedAnimatedOptions, animated normalizedAnimatedOptions, live normalizedLiveOptions) (warnings []string) {
+	done := timing.Stage("render.runAnimatedExports", timing.Field("pages", len(pages)), timing.Field("animated", animated.Enabled), timing.Field("live", live.Enabled))
+	defer func() { done(nil) }()
+
 	tasks := buildAnimatedCaptureTasks(pages, outDir, captureMode)
 	warningsList := make([]string, 0, 3)
 	if len(tasks) == 0 {
@@ -452,14 +473,18 @@ func (r Renderer) runAnimatedExports(pages []deck.Page, outDir string, captureMo
 		// while frame capture within a single page stays serial (1) to preserve frame
 		// order. Concurrent makelive invocations have shown intermittent segfaults in
 		// practice, so assemble runs sequentially here in original page order.
+		assembleDone := timing.Stage("render.runAnimatedExports.live_assemble", timing.Field("pages", len(assembleTasks)))
+		var assembleErr error
 		for _, task := range assembleTasks {
 			if task == nil {
 				continue
 			}
 			if err := liveAssembler.Assemble(*task); err != nil {
+				assembleErr = err
 				collected = append(collected, fmt.Sprintf("live assemble failed for %s: %v", task.PageName, err))
 			}
 		}
+		assembleDone(assembleErr)
 	}
 	sort.Strings(collected)
 	return collected
