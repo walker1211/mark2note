@@ -3,6 +3,8 @@ package xhs
 import (
 	"context"
 	"fmt"
+
+	"github.com/walker1211/mark2note/internal/timing"
 )
 
 type Orchestrator struct {
@@ -15,25 +17,36 @@ func NewOrchestrator(session BrowserSession) *Orchestrator {
 	return &Orchestrator{session: session, publisher: Publisher{}, liveBridge: newDefaultLiveBridge()}
 }
 
-func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (PublishResult, error) {
+func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (result PublishResult, err error) {
+	done := timing.Stage("xhs.Orchestrator.Publish", timing.Field("mode", request.Mode), timing.Field("media", request.MediaKind))
+	defer func() { done(err) }()
+
 	defaultXHSLogger("publish start account=%s mode=%s media=%s", request.Account, request.Mode, request.MediaKind)
-	result := PublishResult{
+	result = PublishResult{
 		TargetAccount: request.Account,
 		Mode:          request.Mode,
 		MediaKind:     request.MediaKind,
 		ScheduleTime:  request.ScheduleTime,
 	}
 	defaultXHSLogger("publish open session")
-	if err := o.session.Open(ctx); err != nil {
+	openDone := timing.Stage("xhs.Orchestrator.session_open")
+	err = o.session.Open(ctx)
+	openDone(err)
+	if err != nil {
 		return result, err
 	}
 	defaultXHSLogger("publish ensure login")
-	if err := o.session.EnsureLoggedIn(ctx); err != nil {
+	loginDone := timing.Stage("xhs.Orchestrator.ensure_login")
+	err = o.session.EnsureLoggedIn(ctx)
+	loginDone(err)
+	if err != nil {
 		result.BrowserKept = true
 		return result, err
 	}
 	defaultXHSLogger("publish get publisher page")
+	pageDone := timing.Stage("xhs.Orchestrator.get_publisher_page")
 	page, err := o.session.PublisherPage(ctx)
+	pageDone(err)
 	if err != nil {
 		result.BrowserKept = true
 		return result, err
@@ -46,7 +59,9 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (Pub
 			return result, err
 		}
 		defaultXHSLogger("publish live attach run album=%s items=%d", attachRequest.AlbumName, len(attachRequest.Items))
+		attachDone := timing.Stage("xhs.Orchestrator.live_attach", timing.Field("items", len(attachRequest.Items)))
 		attachResult, err := o.liveBridge.Attach(ctx, attachRequest)
+		attachDone(err)
 		if err != nil {
 			result.BrowserKept = true
 			return result, err
@@ -57,7 +72,10 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (Pub
 	}
 	switch request.Mode {
 	case PublishModeOnlySelf:
-		if err := o.publishOnlySelf(ctx, page, request); err != nil {
+		publishDone := timing.Stage("xhs.Orchestrator.publish_only_self", timing.Field("media", request.MediaKind))
+		err = o.publishOnlySelf(ctx, page, request)
+		publishDone(err)
+		if err != nil {
 			result.BrowserKept = true
 			return result, err
 		}
@@ -65,7 +83,10 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (Pub
 			result.OnlySelfPublished = true
 		}
 	case PublishModeSchedule:
-		if err := o.publishScheduled(ctx, page, request); err != nil {
+		publishDone := timing.Stage("xhs.Orchestrator.publish_scheduled", timing.Field("media", request.MediaKind))
+		err = o.publishScheduled(ctx, page, request)
+		publishDone(err)
+		if err != nil {
 			result.BrowserKept = true
 			return result, err
 		}
@@ -78,7 +99,10 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (Pub
 		result.BrowserKept = true
 		return result, nil
 	}
-	if err := o.session.Close(); err != nil {
+	closeDone := timing.Stage("xhs.Orchestrator.session_close")
+	err = o.session.Close()
+	closeDone(err)
+	if err != nil {
 		return result, err
 	}
 	return result, nil

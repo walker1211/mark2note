@@ -18,6 +18,7 @@ import (
 	"github.com/walker1211/mark2note/internal/deck"
 	"github.com/walker1211/mark2note/internal/poster"
 	"github.com/walker1211/mark2note/internal/render"
+	"github.com/walker1211/mark2note/internal/timing"
 	"github.com/walker1211/mark2note/internal/xhs"
 	"gopkg.in/yaml.v3"
 )
@@ -1175,7 +1176,9 @@ func runPrepareXHS(renderOpts Options, renderResult app.Result, stdout io.Writer
 }
 
 func runAutoPublishXHS(renderOpts Options, renderResult app.Result, stdout io.Writer, stderr io.Writer) int {
+	buildDone := timing.Stage("cmd.runAutoPublishXHS.build_options", timing.Field("images", len(renderResult.ImagePaths)))
 	publishOpts, err := buildAutoPublishXHSOptions(renderOpts, renderResult)
+	buildDone(err)
 	if err != nil {
 		switch {
 		case errors.Is(err, app.ErrLoadConfig):
@@ -1191,7 +1194,9 @@ func runAutoPublishXHS(renderOpts Options, renderResult app.Result, stdout io.Wr
 		fmt.Fprintf(stderr, "auto publish xhs failed: write xhs publish metadata: %v\n", err)
 		return 1
 	}
+	publishDone := timing.Stage("cmd.runAutoPublishXHS.publish", timing.Field("images", len(publishOpts.ImagePaths)), timing.Field("mode", publishOpts.Mode))
 	result, err := publishXHS(publishOpts)
+	publishDone(err)
 	if err != nil {
 		printPublishXHSError(stderr, err)
 		return 1
@@ -1210,7 +1215,7 @@ func nonEmptyStrings(values []string) []string {
 	return result
 }
 
-func run(args []string, stdout io.Writer, stderr io.Writer) int {
+func run(args []string, stdout io.Writer, stderr io.Writer) (code int) {
 	if len(args) > 0 {
 		switch args[0] {
 		case "capture-html":
@@ -1235,6 +1240,15 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
 		return 1
 	}
+
+	done := timing.Stage("cmd.run")
+	defer func() {
+		var err error
+		if code != 0 {
+			err = errors.New("exit_nonzero")
+		}
+		done(err)
+	}()
 
 	generate := generatePreview
 	if strings.TrimSpace(opts.FromDeckPath) != "" {
@@ -1446,7 +1460,9 @@ func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error parsing flags: --meta cannot be combined with manual publish fields: %s\n", strings.Join(cliOpts.MetaConflictFlags, ", "))
 			return 1
 		}
+		metaDone := timing.Stage("cmd.runPublishXHS.read_metadata")
 		opts, err := readXHSPublishMeta(cliOpts.MetaPath)
+		metaDone(err)
 		if err != nil {
 			fmt.Fprintf(stderr, "error reading xhs publish metadata: %v\n", err)
 			return 1
@@ -1460,7 +1476,9 @@ func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "error validating xhs publish metadata: %v\n", err)
 			return 1
 		}
+		publishDone := timing.Stage("cmd.runPublishXHS.publish_metadata", timing.Field("images", len(opts.ImagePaths)), timing.Field("mode", opts.Mode))
 		result, err := publishXHS(opts)
+		publishDone(err)
 		if err != nil {
 			printPublishXHSError(stderr, err)
 			return 1
@@ -1477,7 +1495,9 @@ func runPublishXHS(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
 		return 1
 	}
+	publishDone := timing.Stage("cmd.runPublishXHS.publish", timing.Field("images", len(opts.ImagePaths)), timing.Field("mode", opts.Mode))
 	result, err := publishXHS(opts)
+	publishDone(err)
 	if err != nil {
 		printPublishXHSError(stderr, err)
 		return 1
