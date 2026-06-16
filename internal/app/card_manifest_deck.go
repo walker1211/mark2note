@@ -98,7 +98,7 @@ func buildCardManifestDeckJSON(data []byte) (string, error) {
 			CTA:     cardManifestCoverCTA(manifest.SourceApp),
 		},
 		Content: deck.PageContent{
-			Title:    strings.TrimSpace(manifest.Document.Title),
+			Title:    cardManifestCoverTitle(manifest.Document),
 			Subtitle: cardManifestCoverSubtitle(manifest.Document),
 		},
 	})
@@ -151,6 +151,15 @@ func cardManifestItemPage(item cardManifestItem, pageNumber int, pageCount int) 
 		},
 		Content: content,
 	}, nil
+}
+
+func cardManifestCoverTitle(document cardManifestDocument) string {
+	title := strings.TrimSpace(document.Title)
+	before, after, ok := strings.Cut(title, "｜")
+	if ok && strings.Contains(before, "电子榨菜") && strings.TrimSpace(after) != "" {
+		return strings.TrimSpace(before) + "\n" + strings.TrimSpace(after)
+	}
+	return title
 }
 
 func cardManifestCoverSubtitle(document cardManifestDocument) string {
