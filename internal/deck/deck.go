@@ -415,7 +415,7 @@ func (d Deck) ValidateWithMaxPages(configuredMaxPages int) error {
 		configuredMaxPages = maxPages
 	}
 	if len(d.Pages) < minPages || len(d.Pages) > configuredMaxPages {
-		return fmt.Errorf("deck must contain %d to %d pages", minPages, configuredMaxPages)
+		return fmt.Errorf("deck must contain %d to %d pages (got %d)", minPages, configuredMaxPages, len(d.Pages))
 	}
 	if d.Pages[0].Variant != "cover" {
 		return fmt.Errorf("first page must use cover variant")
