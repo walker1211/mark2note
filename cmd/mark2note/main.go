@@ -835,18 +835,29 @@ func absolutePath(path string) string {
 
 func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (app.PublishOptions, error) {
 	imagePaths := nonEmptyStrings(renderResult.ImagePaths)
+	validateImagesDone := timing.Stage("cmd.buildAutoPublishXHSOptions.validate_images", timing.Field("images", len(imagePaths)))
 	if len(imagePaths) == 0 {
-		return app.PublishOptions{}, fmt.Errorf("no generated PNG files found")
+		err := fmt.Errorf("no generated PNG files found")
+		validateImagesDone(err)
+		return app.PublishOptions{}, err
 	}
 	for _, imagePath := range imagePaths {
-		if _, err := os.Stat(imagePath); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return app.PublishOptions{}, fmt.Errorf("generated PNG file not found: %s", imagePath)
+		if _, statErr := os.Stat(imagePath); statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				err := fmt.Errorf("generated PNG file not found: %s", imagePath)
+				validateImagesDone(err)
+				return app.PublishOptions{}, err
 			}
-			return app.PublishOptions{}, fmt.Errorf("generated PNG file unavailable: %s: %v", imagePath, err)
+			err := fmt.Errorf("generated PNG file unavailable: %s: %v", imagePath, statErr)
+			validateImagesDone(err)
+			return app.PublishOptions{}, err
 		}
 	}
+	validateImagesDone(nil)
+
+	readMarkdownDone := timing.Stage("cmd.buildAutoPublishXHSOptions.read_markdown")
 	markdownBytes, err := readFile(renderOpts.InputPath)
+	readMarkdownDone(err)
 	if err != nil {
 		return app.PublishOptions{}, fmt.Errorf("%w: %v", app.ErrReadMarkdown, err)
 	}
@@ -865,25 +876,43 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		ConfigPath:        renderOpts.ConfigPath,
 		ChromePathChanged: renderOpts.ChromePathChanged,
 	}
+
+	loadConfigDone := timing.Stage("cmd.buildAutoPublishXHSOptions.load_config")
 	cfg, err := loadPublishXHSConfig(cliOpts.ConfigPath, true)
+	loadConfigDone(err)
 	if err != nil {
 		return app.PublishOptions{}, err
 	}
+
+	generateTitleDone := timing.Stage("cmd.buildAutoPublishXHSOptions.generate_title")
 	title, err = buildAutoPublishXHSTitle(*cfg, markdown, title)
+	generateTitleDone(err)
 	if err != nil {
 		return app.PublishOptions{}, err
 	}
 	cliOpts.Title = title
+
+	topicSource := "ai"
+	if len(renderOpts.XHSTags) > 0 {
+		topicSource = "manual"
+	}
+	generateTopicsDone := timing.Stage("cmd.buildAutoPublishXHSOptions.generate_topics", timing.Field("source", topicSource))
 	topics, err := buildAutoPublishXHSTopics(*cfg, markdown, title, renderOpts.XHSTags)
+	generateTopicsDone(err)
 	if err != nil {
 		return app.PublishOptions{}, err
 	}
 	cliOpts.Tags = topics
+
+	buildContentDone := timing.Stage("cmd.buildAutoPublishXHSOptions.build_content", timing.Field("content_mode", renderOpts.XHSContentMode))
 	content, err := buildAutoPublishXHSContent(renderOpts, renderResult)
+	buildContentDone(err)
 	if err != nil {
 		return app.PublishOptions{}, fmt.Errorf("build xhs publish content: %w", err)
 	}
 	cliOpts.Content = content
+
+	mergeDefaultsDone := timing.Stage("cmd.buildAutoPublishXHSOptions.merge_defaults")
 	if renderOpts.XHSModeChanged {
 		cliOpts.Mode = strings.TrimSpace(renderOpts.XHSMode)
 		cliOpts.ModeChanged = true
@@ -911,9 +940,14 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		cliOpts.AllowContentCopyChanged = true
 	}
 	publishOpts := mergePublishXHSDefaults(cliOpts, cfg)
+	mergeDefaultsDone(nil)
+
+	validateOptionsDone := timing.Stage("cmd.buildAutoPublishXHSOptions.validate_options")
 	if err := validatePublishXHSOptions(publishOpts); err != nil {
+		validateOptionsDone(err)
 		return app.PublishOptions{}, err
 	}
+	validateOptionsDone(nil)
 	return publishOpts, nil
 }
 
