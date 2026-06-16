@@ -189,7 +189,7 @@ func TestDeckFromJSONRejectsTooFewPages(t *testing.T) {
 	if err == nil {
 		t.Fatalf("FromJSON() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), "must contain 3 to 12 pages") {
+	if !strings.Contains(err.Error(), "must contain 3 to 12 pages (got 2)") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -207,7 +207,7 @@ func TestDeckFromJSONRejectsThirteenPages(t *testing.T) {
 	if err == nil {
 		t.Fatalf("FromJSON() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), "deck must contain 3 to 12 pages") {
+	if !strings.Contains(err.Error(), "deck must contain 3 to 12 pages (got 13)") {
 		t.Fatalf("error = %v", err)
 	}
 }
