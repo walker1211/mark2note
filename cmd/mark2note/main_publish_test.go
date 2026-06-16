@@ -13,6 +13,7 @@ import (
 
 	"github.com/walker1211/mark2note/internal/app"
 	"github.com/walker1211/mark2note/internal/config"
+	"github.com/walker1211/mark2note/internal/timing"
 	"github.com/walker1211/mark2note/internal/xhs"
 )
 
@@ -707,6 +708,47 @@ func TestRunAutoPublishXHSUsesManualTagsWithoutTopicGeneration(t *testing.T) {
 	want := []string{"AI代理", "数据安全"}
 	if !reflect.DeepEqual(got.Tags, want) || got.Content != "" {
 		t.Fatalf("publish topics = %#v content=%q", got.Tags, got.Content)
+	}
+}
+
+func TestBuildAutoPublishXHSOptionsReportsTopicGenerationTiming(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+	}()
+
+	var timingOutput bytes.Buffer
+	oldTimingOutput := timing.SetOutput(&timingOutput)
+	defer timing.SetOutput(oldTimingOutput)
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 标题\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		enabled := true
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker", TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &enabled}}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		return []string{"AI新闻", "科技日报"}, nil
+	}
+
+	_, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml"}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	output := timingOutput.String()
+	for _, want := range []string{"stage=cmd.buildAutoPublishXHSOptions.generate_topics", "source=ai", "status=ok"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("timing output missing %q:\n%s", want, output)
+		}
 	}
 }
 
