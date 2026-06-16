@@ -194,10 +194,10 @@ func cardManifestItemBody(item cardManifestItem, maxRunes int) string {
 	summary, impact := cardManifestFitSummaryImpact(item.Summary, item.Impact, maxRunes)
 	parts := make([]string, 0, 2)
 	if summary != "" {
-		parts = append(parts, "摘要："+summary)
+		parts = append(parts, cardManifestLabelPrefix("摘要")+summary)
 	}
 	if impact != "" {
-		parts = append(parts, "影响："+impact)
+		parts = append(parts, cardManifestLabelPrefix("影响")+impact)
 	}
 	return strings.Join(parts, "\n\n")
 }
@@ -279,7 +279,11 @@ func cardManifestSectionText(section cardManifestBodySection) string {
 	if section.Label == "" {
 		return section.Body
 	}
-	return section.Label + "：" + section.Body
+	return cardManifestLabelPrefix(section.Label) + section.Body
+}
+
+func cardManifestLabelPrefix(label string) string {
+	return "**" + label + "：** "
 }
 
 func cardManifestSectionsFixedRuneCount(sections []cardManifestBodySection) int {
@@ -289,7 +293,7 @@ func cardManifestSectionsFixedRuneCount(sections []cardManifestBodySection) int 
 			count += runeCount("\n\n")
 		}
 		if section.Label != "" {
-			count += runeCount(section.Label + "：")
+			count += runeCount(cardManifestLabelPrefix(section.Label))
 		}
 	}
 	return count
@@ -349,15 +353,15 @@ func cardManifestFitSummaryImpact(summary string, impact string, maxRunes int) (
 		return "", ""
 	}
 	if summary == "" {
-		impactBudget := maxRunes - runeCount("影响：")
+		impactBudget := maxRunes - runeCount(cardManifestLabelPrefix("影响"))
 		return "", cardManifestFitText(impact, impactBudget)
 	}
 	if impact == "" {
-		summaryBudget := maxRunes - runeCount("摘要：")
+		summaryBudget := maxRunes - runeCount(cardManifestLabelPrefix("摘要"))
 		return cardManifestFitText(summary, summaryBudget), ""
 	}
 
-	contentBudget := maxRunes - runeCount("摘要：\n\n影响：")
+	contentBudget := maxRunes - runeCount(cardManifestLabelPrefix("摘要")+"\n\n"+cardManifestLabelPrefix("影响"))
 	if contentBudget < 2 {
 		return "", ""
 	}
@@ -392,10 +396,10 @@ func cardManifestBodyRuneCount(summary string, impact string) int {
 func cardManifestBodyText(summary string, impact string) string {
 	parts := make([]string, 0, 2)
 	if summary != "" {
-		parts = append(parts, "摘要："+summary)
+		parts = append(parts, cardManifestLabelPrefix("摘要")+summary)
 	}
 	if impact != "" {
-		parts = append(parts, "影响："+impact)
+		parts = append(parts, cardManifestLabelPrefix("影响")+impact)
 	}
 	return strings.Join(parts, "\n\n")
 }

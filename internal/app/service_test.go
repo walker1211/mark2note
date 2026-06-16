@@ -266,7 +266,7 @@ func TestServiceGeneratePreviewBuildsCardManifestDeckWithoutAI(t *testing.T) {
 	if imagePage.Variant != "image-caption" || imagePage.Content.Title != "OpenAI 发布新模型" {
 		t.Fatalf("image page = %#v", imagePage)
 	}
-	if imagePage.Content.Body != "摘要：模型能力提升。\n\n影响：应用开发门槛下降。" {
+	if imagePage.Content.Body != "**摘要：** 模型能力提升。\n\n**影响：** 应用开发门槛下降。" {
 		t.Fatalf("image page body = %q", imagePage.Content.Body)
 	}
 	if imagePage.Meta.CTA != "来源：The Verge / 2026-06-16 11:00" {
@@ -390,7 +390,7 @@ func TestServiceGeneratePreviewBuildsCardManifestSectionsWithoutSummaryImpactLab
 		t.Fatalf("GeneratePreview() error = %v", err)
 	}
 	body := r.rendered.Pages[1].Content.Body
-	want := "内容概览：这是一段海底生存游戏实况解说。\n\n互动数据：点赞 12,345｜收藏 6,789｜投币 2,345"
+	want := "**内容概览：** 这是一段海底生存游戏实况解说。\n\n**互动数据：** 点赞 12,345｜收藏 6,789｜投币 2,345"
 	if body != want {
 		t.Fatalf("section body = %q, want %q", body, want)
 	}
