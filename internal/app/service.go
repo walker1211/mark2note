@@ -52,6 +52,7 @@ type Options struct {
 	Author                   string
 	PromptExtra              string
 	AssetManifestPath        string
+	CardManifestPath         string
 	AutoPosters              bool
 	PosterSources            []string
 	PublishXHS               bool
@@ -160,17 +161,28 @@ func (s Service) GeneratePreview(opts Options) (result Result, err error) {
 	}
 	markdown := string(markdownBytes)
 
-	rawJSON, matched, err := buildElectronicPicklesDeckJSON(markdown)
-	if err != nil {
-		return Result{}, fmt.Errorf("%w: %v", ErrBuildDeckJSON, err)
-	}
-	if !matched {
-		s.PromptExtra = opts.PromptExtra
-		buildDeckDone := timing.Stage("app.GeneratePreview.ai_build_deck_json")
-		rawJSON, err = s.effectiveBuildDeckJSON()(cfg, markdown)
-		buildDeckDone(err)
+	var rawJSON string
+	if strings.TrimSpace(opts.CardManifestPath) != "" {
+		buildManifestDone := timing.Stage("app.GeneratePreview.build_card_manifest_deck")
+		rawJSON, err = s.buildCardManifestDeckJSON(opts.CardManifestPath)
+		buildManifestDone(err)
 		if err != nil {
-			return Result{}, fmt.Errorf("%w: %w", ErrBuildDeckJSON, err)
+			return Result{}, fmt.Errorf("%w: %v", ErrBuildDeckJSON, err)
+		}
+	} else {
+		var matched bool
+		rawJSON, matched, err = buildElectronicPicklesDeckJSON(markdown)
+		if err != nil {
+			return Result{}, fmt.Errorf("%w: %v", ErrBuildDeckJSON, err)
+		}
+		if !matched {
+			s.PromptExtra = opts.PromptExtra
+			buildDeckDone := timing.Stage("app.GeneratePreview.ai_build_deck_json")
+			rawJSON, err = s.effectiveBuildDeckJSON()(cfg, markdown)
+			buildDeckDone(err)
+			if err != nil {
+				return Result{}, fmt.Errorf("%w: %w", ErrBuildDeckJSON, err)
+			}
 		}
 	}
 
@@ -188,7 +200,11 @@ func (s Service) GeneratePreview(opts Options) (result Result, err error) {
 	if err != nil {
 		return Result{}, err
 	}
-	d = hydrateLocalImageAssets(d, filepath.Dir(opts.InputPath))
+	imageBaseDir := filepath.Dir(opts.InputPath)
+	if strings.TrimSpace(opts.CardManifestPath) != "" {
+		imageBaseDir = filepath.Dir(opts.CardManifestPath)
+	}
+	d = hydrateLocalImageAssets(d, imageBaseDir)
 
 	renderDeckDone := timing.Stage("app.GeneratePreview.render_deck")
 	result, err = s.renderDeck(opts, cfg, d, sourceRenderMeta{})

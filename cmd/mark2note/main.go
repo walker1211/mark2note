@@ -82,6 +82,7 @@ Flags:
   --author <name>            one-off cover author input (blank falls back to deck.author) (default from deck.author)
   --prompt-extra <text>      extra natural-language guidance for deck generation
   --asset-manifest <file>    poster asset manifest for list/article cover cards
+  --card-manifest <file>     card article manifest json input path; skips AI deck generation
   --auto-posters             automatically search poster candidates and hydrate cover cards
   --poster-sources <csv>     poster providers for --auto-posters (default: bilibili,bangumi,anilist,mydramalist)
   --publish-xhs              publish generated PNG files to Xiaohongshu after render
@@ -262,6 +263,7 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.Author, "author", opts.Author, "one-off cover author input (blank falls back to deck.author)")
 	fs.StringVar(&opts.PromptExtra, "prompt-extra", opts.PromptExtra, "extra natural-language guidance for deck generation")
 	fs.StringVar(&opts.AssetManifestPath, "asset-manifest", opts.AssetManifestPath, "poster asset manifest for list/article cover cards")
+	fs.StringVar(&opts.CardManifestPath, "card-manifest", opts.CardManifestPath, "card article manifest json input path")
 	fs.BoolVar(&opts.AutoPosters, "auto-posters", opts.AutoPosters, "automatically search poster candidates and hydrate cover cards")
 	fs.StringVar(&posterSources, "poster-sources", posterSources, "comma-separated poster providers for --auto-posters")
 	fs.BoolVar(&opts.PublishXHS, "publish-xhs", opts.PublishXHS, "publish generated PNG files to Xiaohongshu after render")
@@ -307,6 +309,9 @@ func parseOptions(args []string) (Options, error) {
 	}
 	if hasFromDeck && strings.TrimSpace(opts.PromptExtra) != "" {
 		return Options{}, fmt.Errorf("--prompt-extra can only be used with --input\n\n%s", usageText())
+	}
+	if hasFromDeck && strings.TrimSpace(opts.CardManifestPath) != "" {
+		return Options{}, fmt.Errorf("--card-manifest can only be used with --input\n\n%s", usageText())
 	}
 	if hasFromDeck && opts.PublishXHS {
 		return Options{}, fmt.Errorf("--publish-xhs can only be used with --input\n\n%s", usageText())

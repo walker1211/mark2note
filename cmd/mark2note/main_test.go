@@ -225,6 +225,16 @@ func TestParseOptionsParsesAssetManifest(t *testing.T) {
 	}
 }
 
+func TestParseOptionsParsesCardManifest(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--card-manifest", "manifest.json"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if opts.CardManifestPath != "manifest.json" {
+		t.Fatalf("CardManifestPath = %q, want manifest.json", opts.CardManifestPath)
+	}
+}
+
 func TestParseOptionsParsesAutoPostersAndSources(t *testing.T) {
 	opts, err := parseOptions([]string{"--input", "article.md", "--auto-posters", "--poster-sources", "anilist, mydramalist"})
 	if err != nil {
