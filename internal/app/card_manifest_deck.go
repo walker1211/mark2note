@@ -31,6 +31,8 @@ type cardManifestDocument struct {
 	Period   string   `json:"period"`
 	Summary  []string `json:"summary"`
 	Subtitle string   `json:"subtitle"`
+	Source   string   `json:"source"`
+	Badge    string   `json:"badge"`
 }
 
 type cardManifestItem struct {
@@ -95,7 +97,7 @@ func buildCardManifestDeckJSON(data []byte) (string, error) {
 			Badge:   cardManifestCoverBadge(manifest.Document),
 			Counter: fmt.Sprintf("1/%d", pageCount),
 			Theme:   deck.ThemeDefault,
-			CTA:     cardManifestCoverCTA(manifest.SourceApp),
+			CTA:     cardManifestCoverCTA(manifest),
 		},
 		Content: deck.PageContent{
 			Title:    cardManifestCoverTitle(manifest.Document),
@@ -156,16 +158,24 @@ func cardManifestItemPage(item cardManifestItem, pageNumber int, pageCount int) 
 func cardManifestCoverTitle(document cardManifestDocument) string {
 	title := strings.TrimSpace(document.Title)
 	before, after, ok := strings.Cut(title, "｜")
-	if ok && strings.Contains(before, "电子榨菜") && strings.TrimSpace(after) != "" {
+	if ok && cardManifestShouldBreakCoverTitle(document, before) && strings.TrimSpace(after) != "" {
 		return strings.TrimSpace(before) + "\n" + strings.TrimSpace(after)
 	}
 	return title
 }
 
+func cardManifestShouldBreakCoverTitle(document cardManifestDocument, prefix string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if strings.Contains(prefix, "电子榨菜") || prefix == "每日热门" || prefix == "每周必看" {
+		return true
+	}
+	return cardManifestIsElectronicPicklesDocument(document)
+}
+
 func cardManifestCoverSubtitle(document cardManifestDocument) string {
 	bullets := make([]string, 0, minInt(len(document.Summary), cardManifestCoverSummaryMaxItems))
 	for _, item := range document.Summary {
-		item = cardManifestFitText(item, cardManifestCoverSummaryItemMaxRunes)
+		item = cardManifestCoverSummaryItem(document, item)
 		if item == "" {
 			continue
 		}
@@ -180,6 +190,17 @@ func cardManifestCoverSubtitle(document cardManifestDocument) string {
 	return cardManifestFitText(document.Subtitle, cardManifestCoverSummaryItemMaxRunes*cardManifestCoverSummaryMaxItems)
 }
 
+func cardManifestCoverSummaryItem(document cardManifestDocument, item string) string {
+	if cardManifestIsElectronicPicklesDocument(document) {
+		return cardManifestNormalizeText(item)
+	}
+	return cardManifestFitText(item, cardManifestCoverSummaryItemMaxRunes)
+}
+
+func cardManifestIsElectronicPicklesDocument(document cardManifestDocument) bool {
+	return strings.Contains(strings.TrimSpace(document.Title), "电子榨菜") || strings.Contains(strings.TrimSpace(document.Badge), "电子榨菜")
+}
+
 func cardManifestBodyMaxRunes(variant string) int {
 	if variant == "image-caption" {
 		return cardManifestImageCaptionBodyMaxRunes
@@ -191,6 +212,9 @@ func cardManifestItemBody(item cardManifestItem, maxRunes int) string {
 	if body := cardManifestSectionsBody(item.Sections, maxRunes); body != "" {
 		return body
 	}
+	if source := cardManifestItemSourceText(item); source != "" {
+		return cardManifestFitSections(cardManifestNewsBodySections(item, source), maxRunes)
+	}
 	summary, impact := cardManifestFitSummaryImpact(item.Summary, item.Impact, maxRunes)
 	parts := make([]string, 0, 2)
 	if summary != "" {
@@ -200,6 +224,22 @@ func cardManifestItemBody(item cardManifestItem, maxRunes int) string {
 		parts = append(parts, cardManifestLabelPrefix("影响")+impact)
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func cardManifestNewsBodySections(item cardManifestItem, source string) []cardManifestBodySection {
+	sections := make([]cardManifestBodySection, 0, 3)
+	sections = appendCardManifestBodySection(sections, "摘要", item.Summary)
+	sections = appendCardManifestBodySection(sections, "影响", item.Impact)
+	sections = appendCardManifestBodySection(sections, "来源", source)
+	return sections
+}
+
+func appendCardManifestBodySection(sections []cardManifestBodySection, label string, body string) []cardManifestBodySection {
+	body = cardManifestNormalizeText(body)
+	if body == "" {
+		return sections
+	}
+	return append(sections, cardManifestBodySection{Label: label, Body: body})
 }
 
 func cardManifestSectionsBody(sections []cardManifestSection, maxRunes int) string {
@@ -467,6 +507,13 @@ func minInt(a int, b int) int {
 }
 
 func cardManifestSourceMarker(item cardManifestItem) string {
+	if source := cardManifestItemSourceText(item); source != "" {
+		return "来源：" + source
+	}
+	return "来源：未标注"
+}
+
+func cardManifestItemSourceText(item cardManifestItem) string {
 	parts := make([]string, 0, 2)
 	if source := strings.TrimSpace(item.Source); source != "" {
 		parts = append(parts, source)
@@ -474,10 +521,7 @@ func cardManifestSourceMarker(item cardManifestItem) string {
 	if published := formatCardManifestPublishedAt(item.PublishedAt); published != "" {
 		parts = append(parts, published)
 	}
-	if len(parts) == 0 {
-		return "来源：未标注"
-	}
-	return "来源：" + strings.Join(parts, " / ")
+	return strings.Join(parts, " / ")
 }
 
 func formatCardManifestPublishedAt(value string) string {
@@ -499,6 +543,9 @@ func cardManifestItemBadge(item cardManifestItem, pageNumber int) string {
 }
 
 func cardManifestCoverBadge(document cardManifestDocument) string {
+	if badge := strings.TrimSpace(document.Badge); badge != "" {
+		return badge
+	}
 	date := strings.TrimSpace(document.Date)
 	period := strings.TrimSpace(document.Period)
 	switch {
@@ -513,8 +560,11 @@ func cardManifestCoverBadge(document cardManifestDocument) string {
 	}
 }
 
-func cardManifestCoverCTA(sourceApp string) string {
-	if sourceApp = strings.TrimSpace(sourceApp); sourceApp != "" {
+func cardManifestCoverCTA(manifest cardArticleManifest) string {
+	if source := strings.TrimSpace(manifest.Document.Source); source != "" {
+		return "来源：" + source
+	}
+	if sourceApp := strings.TrimSpace(manifest.SourceApp); sourceApp != "" {
 		return "来源：" + sourceApp
 	}
 	return "来源：manifest"
