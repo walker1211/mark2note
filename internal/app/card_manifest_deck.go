@@ -34,20 +34,31 @@ type cardManifestDocument struct {
 }
 
 type cardManifestItem struct {
-	ID          string            `json:"id"`
-	Category    string            `json:"category"`
-	Title       string            `json:"title"`
-	Summary     string            `json:"summary"`
-	Impact      string            `json:"impact"`
-	Source      string            `json:"source"`
-	PublishedAt string            `json:"published_at"`
-	URL         string            `json:"url"`
-	Image       cardManifestImage `json:"image"`
+	ID          string                `json:"id"`
+	Category    string                `json:"category"`
+	Title       string                `json:"title"`
+	Summary     string                `json:"summary"`
+	Impact      string                `json:"impact"`
+	Sections    []cardManifestSection `json:"sections"`
+	Source      string                `json:"source"`
+	PublishedAt string                `json:"published_at"`
+	URL         string                `json:"url"`
+	Image       cardManifestImage     `json:"image"`
+}
+
+type cardManifestSection struct {
+	Label string `json:"label"`
+	Body  string `json:"body"`
 }
 
 type cardManifestImage struct {
 	Src string `json:"src"`
 	Alt string `json:"alt"`
+}
+
+type cardManifestBodySection struct {
+	Label string
+	Body  string
 }
 
 func (s Service) buildCardManifestDeckJSON(path string) (string, error) {
@@ -168,6 +179,9 @@ func cardManifestBodyMaxRunes(variant string) int {
 }
 
 func cardManifestItemBody(item cardManifestItem, maxRunes int) string {
+	if body := cardManifestSectionsBody(item.Sections, maxRunes); body != "" {
+		return body
+	}
 	summary, impact := cardManifestFitSummaryImpact(item.Summary, item.Impact, maxRunes)
 	parts := make([]string, 0, 2)
 	if summary != "" {
@@ -177,6 +191,143 @@ func cardManifestItemBody(item cardManifestItem, maxRunes int) string {
 		parts = append(parts, "影响："+impact)
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func cardManifestSectionsBody(sections []cardManifestSection, maxRunes int) string {
+	normalized := cardManifestNormalizeSections(sections)
+	if len(normalized) == 0 {
+		return ""
+	}
+	return cardManifestFitSections(normalized, maxRunes)
+}
+
+func cardManifestNormalizeSections(sections []cardManifestSection) []cardManifestBodySection {
+	normalized := make([]cardManifestBodySection, 0, len(sections))
+	for _, section := range sections {
+		body := cardManifestNormalizeText(section.Body)
+		if body == "" {
+			continue
+		}
+		normalized = append(normalized, cardManifestBodySection{
+			Label: cardManifestNormalizeText(section.Label),
+			Body:  body,
+		})
+	}
+	return normalized
+}
+
+func cardManifestFitSections(sections []cardManifestBodySection, maxRunes int) string {
+	if len(sections) == 0 || maxRunes <= 0 {
+		return ""
+	}
+	text := cardManifestSectionsText(sections)
+	if runeCount(text) <= maxRunes {
+		return text
+	}
+	fixedRunes := cardManifestSectionsFixedRuneCount(sections)
+	contentBudget := maxRunes - fixedRunes
+	if contentBudget < len(sections) {
+		return cardManifestFitText(text, maxRunes)
+	}
+	budgets := cardManifestSectionBudgets(sections, contentBudget)
+	fitted := make([]cardManifestBodySection, 0, len(sections))
+	for i, section := range sections {
+		body := cardManifestFitText(section.Body, budgets[i])
+		if body == "" {
+			continue
+		}
+		fitted = append(fitted, cardManifestBodySection{Label: section.Label, Body: body})
+	}
+	text = cardManifestSectionsText(fitted)
+	for runeCount(text) > maxRunes {
+		index := cardManifestLongestSectionBodyIndex(fitted)
+		if index < 0 {
+			return cardManifestFitText(text, maxRunes)
+		}
+		nextBudget := runeCount(fitted[index].Body) - 1
+		if nextBudget <= 0 {
+			fitted = append(fitted[:index], fitted[index+1:]...)
+			if len(fitted) == 0 {
+				return ""
+			}
+		} else {
+			fitted[index].Body = cardManifestFitText(fitted[index].Body, nextBudget)
+		}
+		text = cardManifestSectionsText(fitted)
+	}
+	return text
+}
+
+func cardManifestSectionsText(sections []cardManifestBodySection) string {
+	parts := make([]string, 0, len(sections))
+	for _, section := range sections {
+		parts = append(parts, cardManifestSectionText(section))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func cardManifestSectionText(section cardManifestBodySection) string {
+	if section.Label == "" {
+		return section.Body
+	}
+	return section.Label + "：" + section.Body
+}
+
+func cardManifestSectionsFixedRuneCount(sections []cardManifestBodySection) int {
+	count := 0
+	for i, section := range sections {
+		if i > 0 {
+			count += runeCount("\n\n")
+		}
+		if section.Label != "" {
+			count += runeCount(section.Label + "：")
+		}
+	}
+	return count
+}
+
+func cardManifestSectionBudgets(sections []cardManifestBodySection, contentBudget int) []int {
+	budgets := make([]int, len(sections))
+	remaining := contentBudget
+	for remaining > 0 {
+		active := make([]int, 0, len(sections))
+		for i, section := range sections {
+			if budgets[i] < runeCount(section.Body) {
+				active = append(active, i)
+			}
+		}
+		if len(active) == 0 {
+			break
+		}
+		share := remaining / len(active)
+		if share < 1 {
+			share = 1
+		}
+		for _, index := range active {
+			need := runeCount(sections[index].Body) - budgets[index]
+			add := minInt(share, need)
+			add = minInt(add, remaining)
+			budgets[index] += add
+			remaining -= add
+			if remaining == 0 {
+				break
+			}
+		}
+	}
+	return budgets
+}
+
+func cardManifestLongestSectionBodyIndex(sections []cardManifestBodySection) int {
+	index := -1
+	maxRunes := 0
+	for i, section := range sections {
+		bodyRunes := runeCount(section.Body)
+		if bodyRunes > maxRunes {
+			index = i
+			maxRunes = bodyRunes
+		}
+	}
+	return index
 }
 
 func cardManifestFitSummaryImpact(summary string, impact string, maxRunes int) (string, string) {

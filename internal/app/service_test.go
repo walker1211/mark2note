@@ -323,6 +323,146 @@ func TestServiceGeneratePreviewBuildsNoImageCardManifestItemsAsTextCaption(t *te
 	}
 }
 
+func TestServiceGeneratePreviewBuildsCardManifestSectionsWithoutSummaryImpactLabels(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifest := `{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"vidtrace",
+		"document":{"title":"每日电子榨菜"},
+		"items":[
+			{
+				"id":"BV111",
+				"category":"B站热门",
+				"title":"海底生存实况",
+				"summary":"不应该出现的摘要",
+				"impact":"不应该出现的影响",
+				"source":"游戏人阿管",
+				"sections":[
+					{"label":"内容概览","body":"这是一段海底生存游戏实况解说。"},
+					{"label":"互动数据","body":"点赞 12,345｜收藏 6,789｜投币 2,345"}
+				]
+			},
+			{"id":"BV222","category":"B站热门","title":"第二条视频","sections":[{"label":"内容概览","body":"第二条内容。"}]}
+		]
+	}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) {
+			return &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}, nil
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			if path == "article.md" {
+				return []byte("# ignored"), nil
+			}
+			return os.ReadFile(path)
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	body := r.rendered.Pages[1].Content.Body
+	want := "内容概览：这是一段海底生存游戏实况解说。\n\n互动数据：点赞 12,345｜收藏 6,789｜投币 2,345"
+	if body != want {
+		t.Fatalf("section body = %q, want %q", body, want)
+	}
+	for _, forbidden := range []string{"摘要：", "影响：", "不应该出现"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("section body should not contain %q: %q", forbidden, body)
+		}
+	}
+}
+
+func TestServiceGeneratePreviewFitsCardManifestSections(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	longOverview := strings.Repeat("这是一段很长的视频内容概览，用来说明视频主题、叙事结构和主要看点。", 10)
+	longKeyPoints := strings.Repeat("这是一段很长的关键看点，用来覆盖反转、冲突、制作细节和观看理由。", 8)
+	manifest := fmt.Sprintf(`{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"vidtrace",
+		"document":{"title":"每日电子榨菜"},
+		"items":[
+			{"id":"BV111","category":"B站热门","title":"配图视频","source":"游戏人阿管","image":{"src":"https://example.com/cover.jpg","alt":"视频封面"},"sections":[{"label":"内容概览","body":%q},{"label":"关键看点","body":%q},{"label":"互动数据","body":"点赞 12,345｜收藏 6,789｜投币 2,345"}]},
+			{"id":"BV222","category":"B站热门","title":"无图视频","source":"游戏人阿管","sections":[{"label":"内容概览","body":%q},{"label":"关键看点","body":%q},{"label":"互动数据","body":"点赞 22,345｜收藏 7,789｜投币 3,345"}]}
+		]
+	}`, longOverview, longKeyPoints, longOverview, longKeyPoints)
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) {
+			return &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}, nil
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			if path == "article.md" {
+				return []byte("# ignored"), nil
+			}
+			return os.ReadFile(path)
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	imageBody := r.rendered.Pages[1].Content.Body
+	if utf8.RuneCountInString(imageBody) > cardManifestImageCaptionBodyMaxRunes {
+		t.Fatalf("image-caption section body runes = %d, want <= %d", utf8.RuneCountInString(imageBody), cardManifestImageCaptionBodyMaxRunes)
+	}
+	for _, want := range []string{"内容概览：", "关键看点：", "互动数据：", "…"} {
+		if !strings.Contains(imageBody, want) {
+			t.Fatalf("image-caption section body should contain %q: %q", want, imageBody)
+		}
+	}
+	textBody := r.rendered.Pages[2].Content.Body
+	if utf8.RuneCountInString(textBody) > cardManifestTextCaptionBodyMaxRunes {
+		t.Fatalf("text-caption section body runes = %d, want <= %d", utf8.RuneCountInString(textBody), cardManifestTextCaptionBodyMaxRunes)
+	}
+	for _, want := range []string{"内容概览：", "关键看点：", "互动数据：", "…"} {
+		if !strings.Contains(textBody, want) {
+			t.Fatalf("text-caption section body should contain %q: %q", want, textBody)
+		}
+	}
+}
+
+func TestServiceGeneratePreviewReturnsErrorForUnknownCardManifestSectionField(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifest := `{"schema_version":"card-article-manifest/v1","document":{"title":"每日电子榨菜"},"items":[{"id":"BV111","title":"海底生存实况","sections":[{"label":"内容概览","body":"正文","unknown":"bad"}]}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) {
+			return &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}, nil
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			if path == "article.md" {
+				return []byte("# ignored"), nil
+			}
+			return os.ReadFile(path)
+		},
+		NewRenderer: func(Options) DeckRenderer { return &fakeRenderer{} },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err == nil {
+		t.Fatalf("GeneratePreview() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "parse card manifest json") || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+}
+
 func TestServiceGeneratePreviewFitsCardManifestTextForNewsCards(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "manifest.json")
