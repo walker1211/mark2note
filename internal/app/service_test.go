@@ -284,6 +284,28 @@ func TestServiceGeneratePreviewBuildsCardManifestDeckWithoutAI(t *testing.T) {
 	}
 }
 
+func TestBuildCardManifestDeckWrapsElectronicPicklesCoverTitle(t *testing.T) {
+	deckJSON, err := buildCardManifestDeckJSON([]byte(`{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"vidtrace",
+		"document":{"title":"每日电子榨菜｜2026-06-16"},
+		"items":[
+			{"id":"BV111","category":"B站热门","title":"第一条","sections":[{"label":"内容概览","body":"第一条内容。"}]},
+			{"id":"BV222","category":"B站热门","title":"第二条","sections":[{"label":"内容概览","body":"第二条内容。"}]}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("buildCardManifestDeckJSON() error = %v", err)
+	}
+	var got deck.Deck
+	if err := json.Unmarshal([]byte(deckJSON), &got); err != nil {
+		t.Fatalf("Unmarshal(deckJSON) error = %v", err)
+	}
+	if got.Pages[0].Content.Title != "每日电子榨菜\n2026-06-16" {
+		t.Fatalf("cover title = %q, want natural line break", got.Pages[0].Content.Title)
+	}
+}
+
 func TestServiceGeneratePreviewBuildsNoImageCardManifestItemsAsTextCaption(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "manifest.json")
