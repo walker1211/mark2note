@@ -11,12 +11,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/walker1211/mark2note/internal/ai"
 	"github.com/walker1211/mark2note/internal/config"
 	"github.com/walker1211/mark2note/internal/deck"
 	"github.com/walker1211/mark2note/internal/poster"
 	"github.com/walker1211/mark2note/internal/render"
+	"github.com/walker1211/mark2note/internal/timing"
 )
 
 type fakeAICommandRunner struct {
@@ -210,6 +212,282 @@ func TestServiceGeneratePreviewSuccess(t *testing.T) {
 	}
 	if result.OutDir != wantOutDir {
 		t.Fatalf("result.OutDir = %q, want %q", result.OutDir, wantOutDir)
+	}
+}
+
+func TestServiceGeneratePreviewBuildsCardManifestDeckWithoutAI(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifest := `{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"news-briefing",
+		"document":{"title":"今日 AI 晚报","date":"2026-06-16","period":"1800","summary":["模型发布提速","终端侧竞争升温"]},
+		"items":[
+			{"id":"a1","category":"AI/科技","title":"OpenAI 发布新模型","summary":"模型能力提升。","impact":"应用开发门槛下降。","source":"The Verge","published_at":"2026-06-16T11:00:00+08:00","url":"https://example.com/a1","image":{"src":"assets/openai.jpg","alt":"模型发布现场"}},
+			{"id":"a2","category":"硬件","title":"AI 眼镜更新","summary":"新品强调续航。","impact":"穿戴设备竞争加剧。","source":"Bloomberg","published_at":"2026-06-16T12:30:00+08:00","url":"https://example.com/a2"}
+		]
+	}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	cfg := &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) { return cfg, nil },
+		ReadFile: func(path string) ([]byte, error) {
+			if path == "article.md" {
+				return []byte("# ignored by card manifest"), nil
+			}
+			return os.ReadFile(path)
+		},
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			t.Fatal("BuildDeckJSON called for card manifest")
+			return "", nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	result, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	if result.PageCount != 3 || len(r.rendered.Pages) != 3 {
+		t.Fatalf("page count = result:%d rendered:%d, want 3", result.PageCount, len(r.rendered.Pages))
+	}
+	cover := r.rendered.Pages[0]
+	if cover.Variant != "cover" || cover.Content.Title != "今日 AI 晚报" {
+		t.Fatalf("cover = %#v", cover)
+	}
+	wantSubtitle := "• 模型发布提速\n• 终端侧竞争升温"
+	if cover.Content.Subtitle != wantSubtitle {
+		t.Fatalf("cover subtitle = %q, want %q", cover.Content.Subtitle, wantSubtitle)
+	}
+	imagePage := r.rendered.Pages[1]
+	if imagePage.Variant != "image-caption" || imagePage.Content.Title != "OpenAI 发布新模型" {
+		t.Fatalf("image page = %#v", imagePage)
+	}
+	if imagePage.Content.Body != "摘要：模型能力提升。\n\n影响：应用开发门槛下降。" {
+		t.Fatalf("image page body = %q", imagePage.Content.Body)
+	}
+	if imagePage.Meta.CTA != "来源：The Verge / 2026-06-16 11:00" {
+		t.Fatalf("image page cta = %q", imagePage.Meta.CTA)
+	}
+	if !reflect.DeepEqual(imagePage.Content.Images, []deck.ImageBlock{{Src: "assets/openai.jpg", Alt: "模型发布现场"}}) {
+		t.Fatalf("image page images = %#v", imagePage.Content.Images)
+	}
+	textPage := r.rendered.Pages[2]
+	if textPage.Variant != "text-caption" || textPage.Content.Title != "AI 眼镜更新" {
+		t.Fatalf("text page = %#v", textPage)
+	}
+	if textPage.Meta.CTA != "来源：Bloomberg / 2026-06-16 12:30" {
+		t.Fatalf("text page cta = %q", textPage.Meta.CTA)
+	}
+}
+
+func TestServiceGeneratePreviewBuildsNoImageCardManifestItemsAsTextCaption(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifest := `{"schema_version":"card-article-manifest/v1","source_app":"news-briefing","document":{"title":"今日速览","subtitle":"无图新闻"},"items":[{"id":"a1","category":"AI","title":"第一条","summary":"摘要一","source":"Source A"},{"id":"a2","category":"科技","title":"第二条","impact":"影响二","source":"Source B"}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) {
+			return &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}, nil
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			if path == "article.md" {
+				return []byte("# ignored"), nil
+			}
+			return os.ReadFile(path)
+		},
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			t.Fatal("BuildDeckJSON called for card manifest")
+			return "", nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	for _, page := range r.rendered.Pages[1:] {
+		if page.Variant != "text-caption" {
+			t.Fatalf("page %s variant = %q, want text-caption", page.Name, page.Variant)
+		}
+		if len(page.Content.Images) != 0 {
+			t.Fatalf("page %s images = %#v, want none", page.Name, page.Content.Images)
+		}
+	}
+}
+
+func TestServiceGeneratePreviewFitsCardManifestTextForNewsCards(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	longSummary := strings.Repeat("这是一段很长的摘要，用来覆盖主要事实、背景、争议和当前公开信息。", 10)
+	longImpact := strings.Repeat("这是一段很长的影响分析，用来说明企业客户、开发者生态和后续监管变化。", 8)
+	manifest := fmt.Sprintf(`{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"news-briefing",
+		"document":{"title":"今日 AI 晚报","summary":["第一条速览内容会保留","第二条速览内容会保留","第三条速览内容会保留","第四条速览内容会保留","第五条速览内容会保留","第六条速览内容会保留","第七条速览内容不应进入封面"]},
+		"items":[
+			{"id":"a1","category":"AI/科技","title":"配图新闻","summary":%q,"impact":%q,"source":"The Verge","image":{"src":"assets/news.jpg","alt":"新闻图"}},
+			{"id":"a2","category":"AI/科技","title":"无图新闻","summary":%q,"impact":%q,"source":"Hacker News"}
+		]
+	}`, longSummary, longImpact, longSummary, longImpact)
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) {
+			return &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}, nil
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			if path == "article.md" {
+				return []byte("# ignored"), nil
+			}
+			return os.ReadFile(path)
+		},
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			t.Fatal("BuildDeckJSON called for card manifest")
+			return "", nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	coverLines := strings.Split(r.rendered.Pages[0].Content.Subtitle, "\n")
+	if len(coverLines) != 6 {
+		t.Fatalf("cover subtitle lines = %d, want 6: %q", len(coverLines), r.rendered.Pages[0].Content.Subtitle)
+	}
+	if strings.Contains(r.rendered.Pages[0].Content.Subtitle, "第七条") {
+		t.Fatalf("cover subtitle should omit seventh item: %q", r.rendered.Pages[0].Content.Subtitle)
+	}
+	imageBody := r.rendered.Pages[1].Content.Body
+	if utf8.RuneCountInString(imageBody) > cardManifestImageCaptionBodyMaxRunes {
+		t.Fatalf("image-caption body runes = %d, want <= %d", utf8.RuneCountInString(imageBody), cardManifestImageCaptionBodyMaxRunes)
+	}
+	if !strings.Contains(imageBody, "摘要：") || !strings.Contains(imageBody, "影响：") || !strings.Contains(imageBody, "…") {
+		t.Fatalf("image-caption body should preserve labels and ellipsis: %q", imageBody)
+	}
+	textBody := r.rendered.Pages[2].Content.Body
+	if utf8.RuneCountInString(textBody) > cardManifestTextCaptionBodyMaxRunes {
+		t.Fatalf("text-caption body runes = %d, want <= %d", utf8.RuneCountInString(textBody), cardManifestTextCaptionBodyMaxRunes)
+	}
+	if !strings.Contains(textBody, "摘要：") || !strings.Contains(textBody, "影响：") || !strings.Contains(textBody, "…") {
+		t.Fatalf("text-caption body should preserve labels and ellipsis: %q", textBody)
+	}
+}
+
+func TestServiceGeneratePreviewInlinesCardManifestImagesRelativeToManifest(t *testing.T) {
+	root := t.TempDir()
+	manifestDir := filepath.Join(root, "manifest")
+	if err := os.MkdirAll(filepath.Join(manifestDir, "assets"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "assets", "news.png"), []byte("\x89PNG\r\n\x1a\nimage"), 0o644); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+	manifestPath := filepath.Join(manifestDir, "manifest.json")
+	manifest := `{"schema_version":"card-article-manifest/v1","document":{"title":"今日速览"},"items":[{"id":"a1","title":"配图新闻","summary":"摘要一","source":"Source A","image":{"src":"assets/news.png","alt":"新闻图"}},{"id":"a2","title":"第二条","summary":"摘要二","source":"Source B"}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	r := &fakeRenderer{}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) {
+			return &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}, nil
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			if path == filepath.Join(root, "article.md") {
+				return []byte("# ignored"), nil
+			}
+			return os.ReadFile(path)
+		},
+		NewRenderer: func(Options) DeckRenderer { return r },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: filepath.Join(root, "article.md"), ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	got := r.rendered.Pages[1].Content.Images[0].Src
+	if !strings.HasPrefix(got, "data:image/png;base64,") {
+		t.Fatalf("card manifest image src = %q, want data URI from manifest-relative path", got)
+	}
+}
+
+func TestServiceGeneratePreviewReturnsErrorForInvalidCardManifest(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	if err := os.WriteFile(manifestPath, []byte(`{"schema_version":"unsupported","document":{"title":"标题"},"items":[]}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) {
+			return &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}, nil
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			if path == "article.md" {
+				return []byte("# ignored"), nil
+			}
+			return os.ReadFile(path)
+		},
+		BuildDeckJSON: func(*config.Config, string) (string, error) {
+			t.Fatal("BuildDeckJSON called for invalid card manifest")
+			return "", nil
+		},
+		NewRenderer: func(Options) DeckRenderer { return &fakeRenderer{} },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err == nil {
+		t.Fatalf("GeneratePreview() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "build deck json failed") || !strings.Contains(err.Error(), "unsupported card manifest schema_version") {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+}
+
+func TestServiceGeneratePreviewEmitsCardManifestTimingStage(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifest := `{"schema_version":"card-article-manifest/v1","document":{"title":"今日速览"},"items":[{"id":"a1","title":"第一条","summary":"摘要一","source":"Source A"},{"id":"a2","title":"第二条","summary":"摘要二","source":"Source B"}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("WriteFile(manifest) error = %v", err)
+	}
+	var timingOutput strings.Builder
+	oldTimingOutput := timing.SetOutput(&timingOutput)
+	defer timing.SetOutput(oldTimingOutput)
+	svc := Service{
+		LoadConfig: func(string) (*config.Config, error) {
+			return &config.Config{Output: config.OutputCfg{Dir: root}, Deck: config.DeckCfg{MaxPages: 12}}, nil
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			if path == "article.md" {
+				return []byte("# ignored"), nil
+			}
+			return os.ReadFile(path)
+		},
+		NewRenderer: func(Options) DeckRenderer { return &fakeRenderer{} },
+	}
+
+	_, err := svc.GeneratePreview(Options{InputPath: "article.md", ConfigPath: "config.yaml", Jobs: 2, CardManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("GeneratePreview() error = %v", err)
+	}
+	output := timingOutput.String()
+	if !strings.Contains(output, "stage=app.GeneratePreview.build_card_manifest_deck") {
+		t.Fatalf("timing output = %q, want build_card_manifest_deck stage", output)
+	}
+	if strings.Contains(output, "stage=app.GeneratePreview.ai_build_deck_json") {
+		t.Fatalf("timing output = %q, want no ai_build_deck_json stage", output)
 	}
 }
 
