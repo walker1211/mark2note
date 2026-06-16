@@ -266,7 +266,7 @@ func TestServiceGeneratePreviewBuildsCardManifestDeckWithoutAI(t *testing.T) {
 	if imagePage.Variant != "image-caption" || imagePage.Content.Title != "OpenAI 发布新模型" {
 		t.Fatalf("image page = %#v", imagePage)
 	}
-	if imagePage.Content.Body != "**摘要：** 模型能力提升。\n\n**影响：** 应用开发门槛下降。" {
+	if imagePage.Content.Body != "**摘要：** 模型能力提升。\n\n**影响：** 应用开发门槛下降。\n\n**来源：** The Verge / 2026-06-16 11:00" {
 		t.Fatalf("image page body = %q", imagePage.Content.Body)
 	}
 	if imagePage.Meta.CTA != "来源：The Verge / 2026-06-16 11:00" {
@@ -288,7 +288,7 @@ func TestBuildCardManifestDeckWrapsElectronicPicklesCoverTitle(t *testing.T) {
 	deckJSON, err := buildCardManifestDeckJSON([]byte(`{
 		"schema_version":"card-article-manifest/v1",
 		"source_app":"vidtrace",
-		"document":{"title":"每日电子榨菜｜2026-06-16"},
+		"document":{"title":"每日电子榨菜｜2026-06-16","source":"B站每日热门","badge":"每日电子榨菜"},
 		"items":[
 			{"id":"BV111","category":"B站热门","title":"第一条","sections":[{"label":"内容概览","body":"第一条内容。"}]},
 			{"id":"BV222","category":"B站热门","title":"第二条","sections":[{"label":"内容概览","body":"第二条内容。"}]}
@@ -303,6 +303,65 @@ func TestBuildCardManifestDeckWrapsElectronicPicklesCoverTitle(t *testing.T) {
 	}
 	if got.Pages[0].Content.Title != "每日电子榨菜\n2026-06-16" {
 		t.Fatalf("cover title = %q, want natural line break", got.Pages[0].Content.Title)
+	}
+	if got.Pages[0].Meta.Badge != "每日电子榨菜" {
+		t.Fatalf("cover badge = %q, want document badge", got.Pages[0].Meta.Badge)
+	}
+	if got.Pages[0].Meta.CTA != "来源：B站每日热门" {
+		t.Fatalf("cover cta = %q, want source label", got.Pages[0].Meta.CTA)
+	}
+}
+
+func TestBuildCardManifestDeckWrapsVideoCoverTitleWithBadge(t *testing.T) {
+	deckJSON, err := buildCardManifestDeckJSON([]byte(`{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"vidtrace",
+		"document":{"title":"每日热门｜2026-06-16","badge":"每日电子榨菜","source":"B站每日热门","summary":["很长很长的视频标题不应该被省略，因为这是封面下方标题列表"]},
+		"items":[
+			{"id":"BV111","category":"B站热门","title":"第一条","sections":[{"label":"内容概览","body":"第一条内容。"}]},
+			{"id":"BV222","category":"B站热门","title":"第二条","sections":[{"label":"内容概览","body":"第二条内容。"}]}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("buildCardManifestDeckJSON() error = %v", err)
+	}
+	var got deck.Deck
+	if err := json.Unmarshal([]byte(deckJSON), &got); err != nil {
+		t.Fatalf("Unmarshal(deckJSON) error = %v", err)
+	}
+	if got.Pages[0].Content.Title != "每日热门\n2026-06-16" {
+		t.Fatalf("cover title = %q, want natural line break", got.Pages[0].Content.Title)
+	}
+	if strings.Contains(got.Pages[0].Content.Subtitle, "…") {
+		t.Fatalf("cover subtitle should not truncate video titles: %q", got.Pages[0].Content.Subtitle)
+	}
+}
+
+func TestBuildCardManifestDeckKeepsElectronicPicklesCoverSummaryTitles(t *testing.T) {
+	longTitle := "【萌黄一槽】日向雏田[八极宗师]全技能爆料！步步紧追，崩劲蓄积！完整标题不应该被省略"
+	manifest := fmt.Sprintf(`{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"vidtrace",
+		"document":{"title":"每日电子榨菜｜2026-06-16","summary":[%q]},
+		"items":[
+			{"id":"BV111","category":"B站热门","title":"第一条","sections":[{"label":"内容概览","body":"第一条内容。"}]},
+			{"id":"BV222","category":"B站热门","title":"第二条","sections":[{"label":"内容概览","body":"第二条内容。"}]}
+		]
+	}`, longTitle)
+	deckJSON, err := buildCardManifestDeckJSON([]byte(manifest))
+	if err != nil {
+		t.Fatalf("buildCardManifestDeckJSON() error = %v", err)
+	}
+	var got deck.Deck
+	if err := json.Unmarshal([]byte(deckJSON), &got); err != nil {
+		t.Fatalf("Unmarshal(deckJSON) error = %v", err)
+	}
+	wantSubtitle := "• " + longTitle
+	if got.Pages[0].Content.Subtitle != wantSubtitle {
+		t.Fatalf("cover subtitle = %q, want %q", got.Pages[0].Content.Subtitle, wantSubtitle)
+	}
+	if strings.Contains(got.Pages[0].Content.Subtitle, "…") {
+		t.Fatalf("cover subtitle should not truncate video titles: %q", got.Pages[0].Content.Subtitle)
 	}
 }
 
@@ -535,15 +594,15 @@ func TestServiceGeneratePreviewFitsCardManifestTextForNewsCards(t *testing.T) {
 	if utf8.RuneCountInString(imageBody) > cardManifestImageCaptionBodyMaxRunes {
 		t.Fatalf("image-caption body runes = %d, want <= %d", utf8.RuneCountInString(imageBody), cardManifestImageCaptionBodyMaxRunes)
 	}
-	if !strings.Contains(imageBody, "摘要：") || !strings.Contains(imageBody, "影响：") || !strings.Contains(imageBody, "…") {
-		t.Fatalf("image-caption body should preserve labels and ellipsis: %q", imageBody)
+	if !strings.Contains(imageBody, "摘要：") || !strings.Contains(imageBody, "影响：") || !strings.Contains(imageBody, "来源：") || !strings.Contains(imageBody, "The Verge") || !strings.Contains(imageBody, "…") {
+		t.Fatalf("image-caption body should preserve labels, source, and ellipsis: %q", imageBody)
 	}
 	textBody := r.rendered.Pages[2].Content.Body
 	if utf8.RuneCountInString(textBody) > cardManifestTextCaptionBodyMaxRunes {
 		t.Fatalf("text-caption body runes = %d, want <= %d", utf8.RuneCountInString(textBody), cardManifestTextCaptionBodyMaxRunes)
 	}
-	if !strings.Contains(textBody, "摘要：") || !strings.Contains(textBody, "影响：") || !strings.Contains(textBody, "…") {
-		t.Fatalf("text-caption body should preserve labels and ellipsis: %q", textBody)
+	if !strings.Contains(textBody, "摘要：") || !strings.Contains(textBody, "影响：") || !strings.Contains(textBody, "来源：") || !strings.Contains(textBody, "Hacker News") || !strings.Contains(textBody, "…") {
+		t.Fatalf("text-caption body should preserve labels, source, and ellipsis: %q", textBody)
 	}
 }
 
