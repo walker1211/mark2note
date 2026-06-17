@@ -147,6 +147,8 @@ func isTransientAICommandError(err error, stdout, stderr string) bool {
 		"elocked",
 		"enotacquired",
 		"temporarily unavailable",
+		"internal_error",
+		"stream error",
 		"timeout",
 		"timed out",
 		"connection reset",
