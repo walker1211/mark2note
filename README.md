@@ -155,7 +155,7 @@ The built-in providers are currently `bilibili`, `bangumi`, `anilist`, and `mydr
 
 ## Theme Notes
 
-- Stable themes: `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `sage-mist`, `fresh-green`
+- Stable themes: `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `red-editorial`, `sage-mist`, `fresh-green`
 - `deck.theme_mode: weekly` chooses a fixed theme from `deck.weekly_themes` by local weekday; `deck.theme` remains the fallback
 - `--theme` overrides fixed or weekly selection for one run
 - Unknown theme names fall back to `default`
@@ -169,7 +169,7 @@ Key fields:
 - `output.dir`: default output root directory
 - `ai.command` / `ai.args`: AI CLI command and arguments used to generate deck JSON
 - `deck.theme_mode`: theme selection mode, supporting `fixed` and `weekly`; `weekly` reads `deck.weekly_themes` by local weekday
-- `deck.theme`: default / fallback theme, supporting `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `sage-mist`, and `fresh-green`; unknown names fall back to `default`
+- `deck.theme`: default / fallback theme, supporting `default`, `warm-paper`, `editorial-cool`, `tech-noir`, `plum-ink`, `red-editorial`, `sage-mist`, and `fresh-green`; unknown names fall back to `default`
 - `deck.weekly_themes`: weekday-to-theme map for weekly mode, such as `mon` and `tue`
 - `deck.author`: default cover author value
 - `deck.watermark.enabled`: enables the page watermark, on by default

@@ -76,6 +76,20 @@ func TestRegisteredThemesPreserveRenamedTokenValues(t *testing.T) {
 	}
 }
 
+func TestRegisteredThemesIncludesRedEditorialPalette(t *testing.T) {
+	themes := RegisteredThemes()
+	theme, ok := themes["red-editorial"]
+	if !ok {
+		t.Fatal("RegisteredThemes missing red-editorial")
+	}
+	if theme.BG != "#FFF7F5" || theme.Card != "#FFFFFF" || theme.Text != "#2D2D2D" || theme.Accent != "#D71A1B" || theme.NumberColor != "#D71A1B" {
+		t.Fatalf("red-editorial tokens = %#v", theme)
+	}
+	if got := ResolveDeckTheme("red-editorial"); got != "red-editorial" {
+		t.Fatalf("ResolveDeckTheme(red-editorial) = %q", got)
+	}
+}
+
 func stableThemeKeys() []string {
 	return RegisteredThemeKeys()
 }

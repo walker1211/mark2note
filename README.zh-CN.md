@@ -155,7 +155,7 @@ posters:
 
 ## 主题说明
 
-- 稳定主题支持 `default`、`warm-paper`、`editorial-cool`、`tech-noir`、`plum-ink`、`sage-mist`、`fresh-green`
+- 稳定主题支持 `default`、`warm-paper`、`editorial-cool`、`tech-noir`、`plum-ink`、`red-editorial`、`sage-mist`、`fresh-green`
 - `deck.theme_mode: weekly` 会按本机星期从 `deck.weekly_themes` 选择固定主题；`deck.theme` 仍是兜底主题
 - `--theme` 会单次覆盖 fixed 或 weekly 的主题选择
 - 未知主题名会回落到 `default`
@@ -169,7 +169,7 @@ posters:
 - `output.dir`：默认输出根目录
 - `ai.command` / `ai.args`：用于生成 deck JSON 的 AI CLI 命令及参数
 - `deck.theme_mode`：主题选择模式，支持 `fixed`、`weekly`；`weekly` 按本机星期读取 `deck.weekly_themes`
-- `deck.theme`：默认 / 兜底主题，支持 `default`、`warm-paper`、`editorial-cool`、`tech-noir`、`plum-ink`、`sage-mist`、`fresh-green`；未知主题名会回落到 `default`
+- `deck.theme`：默认 / 兜底主题，支持 `default`、`warm-paper`、`editorial-cool`、`tech-noir`、`plum-ink`、`red-editorial`、`sage-mist`、`fresh-green`；未知主题名会回落到 `default`
 - `deck.weekly_themes`：weekly 模式下的星期主题映射，如 `mon`、`tue`
 - `deck.author`：封面作者默认值
 - `deck.watermark.enabled`：是否启用页内水印，默认启用
