@@ -279,6 +279,9 @@ func TestServiceGeneratePreviewBuildsCardManifestDeckWithoutAI(t *testing.T) {
 	if textPage.Variant != "text-caption" || textPage.Content.Title != "AI 眼镜更新" {
 		t.Fatalf("text page = %#v", textPage)
 	}
+	if textPage.Content.Body != "**摘要：** 新品强调续航。\n\n**影响：** 穿戴设备竞争加剧。" {
+		t.Fatalf("text page body = %q", textPage.Content.Body)
+	}
 	if textPage.Meta.CTA != "来源：Bloomberg / 2026-06-16 12:30" {
 		t.Fatalf("text page cta = %q", textPage.Meta.CTA)
 	}
@@ -601,8 +604,11 @@ func TestServiceGeneratePreviewFitsCardManifestTextForNewsCards(t *testing.T) {
 	if utf8.RuneCountInString(textBody) > cardManifestTextCaptionBodyMaxRunes {
 		t.Fatalf("text-caption body runes = %d, want <= %d", utf8.RuneCountInString(textBody), cardManifestTextCaptionBodyMaxRunes)
 	}
-	if !strings.Contains(textBody, "摘要：") || !strings.Contains(textBody, "影响：") || !strings.Contains(textBody, "来源：") || !strings.Contains(textBody, "Hacker News") || !strings.Contains(textBody, "…") {
-		t.Fatalf("text-caption body should preserve labels, source, and ellipsis: %q", textBody)
+	if !strings.Contains(textBody, "摘要：") || !strings.Contains(textBody, "影响：") || strings.Contains(textBody, "来源：") || strings.Contains(textBody, "Hacker News") || !strings.Contains(textBody, "…") {
+		t.Fatalf("text-caption body should preserve summary/impact labels and ellipsis without source: %q", textBody)
+	}
+	if r.rendered.Pages[2].Meta.CTA != "来源：Hacker News" {
+		t.Fatalf("text-caption cta = %q", r.rendered.Pages[2].Meta.CTA)
 	}
 }
 

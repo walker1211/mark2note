@@ -130,7 +130,7 @@ func cardManifestItemPage(item cardManifestItem, pageNumber int, pageCount int) 
 	if imageSrc != "" {
 		variant = "image-caption"
 	}
-	body := cardManifestItemBody(item, cardManifestBodyMaxRunes(variant))
+	body := cardManifestItemBody(item, cardManifestBodyMaxRunes(variant), variant == "image-caption")
 	if body == "" {
 		body = title
 	}
@@ -208,12 +208,14 @@ func cardManifestBodyMaxRunes(variant string) int {
 	return cardManifestTextCaptionBodyMaxRunes
 }
 
-func cardManifestItemBody(item cardManifestItem, maxRunes int) string {
+func cardManifestItemBody(item cardManifestItem, maxRunes int, includeSource bool) string {
 	if body := cardManifestSectionsBody(item.Sections, maxRunes); body != "" {
 		return body
 	}
-	if source := cardManifestItemSourceText(item); source != "" {
-		return cardManifestFitSections(cardManifestNewsBodySections(item, source), maxRunes)
+	if includeSource {
+		if source := cardManifestItemSourceText(item); source != "" {
+			return cardManifestFitSections(cardManifestNewsBodySections(item, source), maxRunes)
+		}
 	}
 	summary, impact := cardManifestFitSummaryImpact(item.Summary, item.Impact, maxRunes)
 	parts := make([]string, 0, 2)

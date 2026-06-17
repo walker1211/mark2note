@@ -520,6 +520,27 @@ func TestBuildDeckJSONRetriesTransientAILockError(t *testing.T) {
 	}
 }
 
+func TestBuildDeckJSONRetriesInternalStreamError(t *testing.T) {
+	runner := &sequenceRunner{calls: []runnerCall{
+		{stderr: "API Error: stream error: stream ID 1; INTERNAL_ERROR; received from peer", err: errors.New("exit status 1")},
+		{stdout: `{"pages":[]}`},
+	}}
+	b := Builder{Runner: runner}
+	b.SetCommand("ccs", []string{"codex"})
+	b.SetRetryDelays([]time.Duration{0})
+
+	got, err := b.BuildDeckJSON("# title")
+	if err != nil {
+		t.Fatalf("BuildDeckJSON() error = %v", err)
+	}
+	if got != `{"pages":[]}` {
+		t.Fatalf("BuildDeckJSON() = %q, want JSON from retry", got)
+	}
+	if runner.count != 2 {
+		t.Fatalf("runner calls = %d, want 2", runner.count)
+	}
+}
+
 func TestBuildDeckJSONUsesConfiguredRetryDelays(t *testing.T) {
 	runner := &sequenceRunner{calls: []runnerCall{
 		{stderr: "timeout", err: errors.New("exit status 1")},
