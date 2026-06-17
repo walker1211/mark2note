@@ -8,6 +8,7 @@ const (
 	ThemeEditorialCool = "editorial-cool"
 	ThemeTechNoir      = "tech-noir"
 	ThemePlumInk       = "plum-ink"
+	ThemeRedEditorial  = "red-editorial"
 	ThemeSageMist      = "sage-mist"
 	ThemeFreshGreen    = "fresh-green"
 )
@@ -24,6 +25,7 @@ func RegisteredThemeKeys() []string {
 		ThemeEditorialCool,
 		ThemeTechNoir,
 		ThemePlumInk,
+		ThemeRedEditorial,
 		ThemeSageMist,
 		ThemeFreshGreen,
 	}
@@ -166,6 +168,33 @@ func RegisteredThemes() map[string]Theme {
 			CodeBlockBorder:    "#DDD2E0",
 			CodeBlockColor:     "#241B2B",
 			AuthorColor:        "#6F6378",
+			AuthorWeight:       "600",
+			AuthorSize:         "24px",
+			AuthorBottomOffset: "236px",
+		},
+		ThemeRedEditorial: {
+			Name:               ThemeRedEditorial,
+			BG:                 "#FFF7F5",
+			Card:               "#FFFFFF",
+			Text:               "#2D2D2D",
+			Sub:                "#767676",
+			Accent:             "#D71A1B",
+			AccentSoft:         "#FAE4E4",
+			Line:               "#F0E0E0",
+			Panel:              "#FFF5F5",
+			White:              "#FFFFFF",
+			AccentForeground:   "#FFFFFF",
+			InversePillColor:   "#2D2D2D",
+			WatermarkColor:     "rgba(45, 45, 45, 0.22)",
+			EmphasisColor:      "#C86442",
+			NumberColor:        "#D71A1B",
+			InlineCodeBG:       "#FFF5F5",
+			InlineCodeBorder:   "#F2B6B6",
+			InlineCodeColor:    "#2D2D2D",
+			CodeBlockBG:        "#FFFDFD",
+			CodeBlockBorder:    "#F0E0E0",
+			CodeBlockColor:     "#2D2D2D",
+			AuthorColor:        "#9C5339",
 			AuthorWeight:       "600",
 			AuthorSize:         "24px",
 			AuthorBottomOffset: "236px",

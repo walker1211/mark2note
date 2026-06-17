@@ -18,7 +18,7 @@ deck:
   # deck.theme_mode 可选值：fixed / weekly；weekly 会按本机星期选择 weekly_themes 中的固定主题。
   theme_mode: weekly
   # deck.theme 是 fixed 模式的主题，也是 weekly 当天未配置时的兜底主题。
-  # 可选值：default / warm-paper / editorial-cool / tech-noir / plum-ink / sage-mist / fresh-green
+  # 可选值：default / warm-paper / editorial-cool / tech-noir / plum-ink / red-editorial / sage-mist / fresh-green
   theme: default
   # 单次 deck 允许的最大页数，范围 3-18；默认 12。
   max_pages: 12
