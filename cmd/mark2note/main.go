@@ -94,6 +94,7 @@ Flags:
   --xhs-visibility <name>    override Xiaohongshu visibility for --publish-xhs/--prepare-xhs (public or only-self)
   --xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs (YYYY-MM-DD HH:MM:SS)
   --collection <name>        override Xiaohongshu collection for --publish-xhs/--prepare-xhs
+  --declare-original         override Xiaohongshu original declaration for --publish-xhs/--prepare-xhs
   --import-photos            import generated PNG files into Apple Photos after export
   --import-album <name>      Apple Photos album name for imported PNG files
   --import-timeout <d>       Apple Photos PNG import timeout (default: 2m0s)
@@ -275,6 +276,7 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.XHSVisibility, "xhs-visibility", opts.XHSVisibility, "Xiaohongshu visibility for auto publish")
 	fs.StringVar(&opts.XHSScheduleAt, "xhs-schedule-at", opts.XHSScheduleAt, "Xiaohongshu schedule time for auto publish")
 	fs.StringVar(&opts.XHSCollection, "collection", opts.XHSCollection, "Xiaohongshu collection name for auto publish")
+	fs.BoolVar(&opts.XHSDeclareOriginal, "declare-original", opts.XHSDeclareOriginal, "declare original content for auto publish")
 	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
 	fs.StringVar(&opts.ImportAlbum, "import-album", opts.ImportAlbum, "Apple Photos album name for imported PNG files")
 	fs.DurationVar(&opts.ImportTimeout, "import-timeout", opts.ImportTimeout, "Apple Photos PNG import timeout")
@@ -350,6 +352,7 @@ func parseOptions(args []string) (Options, error) {
 	xhsVisibilityChanged := false
 	xhsScheduleAtChanged := false
 	xhsCollectionChanged := false
+	xhsDeclareOriginalChanged := false
 	xhsContentModeChanged := false
 	stopBeforeSubmitChanged := false
 	fs.Visit(func(f *flag.Flag) {
@@ -400,6 +403,8 @@ func parseOptions(args []string) (Options, error) {
 			xhsScheduleAtChanged = true
 		case "collection":
 			xhsCollectionChanged = true
+		case "declare-original":
+			xhsDeclareOriginalChanged = true
 		case "stop-before-submit":
 			stopBeforeSubmitChanged = true
 		}
@@ -426,6 +431,7 @@ func parseOptions(args []string) (Options, error) {
 	opts.XHSVisibilityChanged = xhsVisibilityChanged
 	opts.XHSScheduleAtChanged = xhsScheduleAtChanged
 	opts.XHSCollectionChanged = xhsCollectionChanged
+	opts.XHSDeclareOriginalChanged = xhsDeclareOriginalChanged
 	opts.XHSContentModeChanged = xhsContentModeChanged
 	opts.StopBeforeSubmitChanged = stopBeforeSubmitChanged
 	if opts.XHSTagsChanged && !opts.PublishXHS && !opts.PrepareXHS {
@@ -436,6 +442,9 @@ func parseOptions(args []string) (Options, error) {
 	}
 	if opts.XHSCollectionChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--collection requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
+	}
+	if opts.XHSDeclareOriginalChanged && !opts.PublishXHS && !opts.PrepareXHS {
+		return Options{}, fmt.Errorf("--declare-original requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
 	}
 	if opts.XHSContentModeChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--xhs-content-mode requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
@@ -933,10 +942,18 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 		cliOpts.Collection = strings.TrimSpace(renderOpts.XHSCollection)
 		cliOpts.CollectionChanged = true
 	}
+	if renderOpts.XHSDeclareOriginalChanged {
+		cliOpts.DeclareOriginal = renderOpts.XHSDeclareOriginal
+		cliOpts.DeclareOriginalChanged = true
+		if !renderOpts.XHSDeclareOriginal {
+			cliOpts.OriginalDeclarationType = ""
+			cliOpts.OriginalDeclarationTypeChanged = true
+		}
+	}
 	if renderOpts.StopBeforeSubmitChanged {
 		cliOpts.StopBeforeSubmit = renderOpts.StopBeforeSubmit
 	}
-	if electronicPickles {
+	if electronicPickles && (!renderOpts.XHSDeclareOriginalChanged || renderOpts.XHSDeclareOriginal) {
 		cliOpts.DeclareOriginal = true
 		cliOpts.DeclareOriginalChanged = true
 		cliOpts.OriginalDeclarationType = xhs.OriginalDeclarationTypeAIGenerated

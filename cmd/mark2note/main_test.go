@@ -276,6 +276,16 @@ func TestParseOptionsParsesAutoPublishXHSFlags(t *testing.T) {
 	}
 }
 
+func TestParseOptionsParsesAutoPublishXHSDeclareOriginalOverride(t *testing.T) {
+	opts, err := parseOptions([]string{"--input", "article.md", "--publish-xhs", "--declare-original=false"})
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
+	}
+	if !opts.PublishXHS || !opts.XHSDeclareOriginalChanged || opts.XHSDeclareOriginal {
+		t.Fatalf("opts = %#v, want publish-xhs declare original false override", opts)
+	}
+}
+
 func TestParseOptionsParsesPrepareXHS(t *testing.T) {
 	opts, err := parseOptions([]string{"--input", "article.md", "--prepare-xhs"})
 	if err != nil {
