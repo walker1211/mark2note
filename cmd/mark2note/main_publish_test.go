@@ -438,6 +438,54 @@ func TestBuildAutoPublishXHSTopicsUsesAIForElectronicPickles(t *testing.T) {
 	}
 }
 
+func TestBuildAutoPublishXHSOptionsCanDisableElectronicPicklesOriginality(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	originalBuildPublishTitle := buildPublishTitle
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+		buildPublishTitle = originalBuildPublishTitle
+	}()
+
+	imagePath := filepath.Join(t.TempDir(), "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	readFile = func(path string) ([]byte, error) {
+		return []byte("# 每日电子榨菜｜2026-06-10\n\n## 小红书卡片\n\n### 第 1 页｜视频标题\n"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		declareOriginal := true
+		allowContentCopy := false
+		topicGenerationEnabled := true
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{
+			Account:                 "walker",
+			DeclareOriginal:         &declareOriginal,
+			OriginalDeclarationType: "ai_generated",
+			AllowContentCopy:        &allowContentCopy,
+			TopicGeneration:         config.XHSTopicGenerationCfg{Enabled: &topicGenerationEnabled},
+		}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		return []string{"电子榨菜", "综艺"}, nil
+	}
+	buildPublishTitle = func(cfg *config.Config, markdown string, title string, maxRunes int) (string, error) {
+		t.Fatal("buildPublishTitle called for title within limit")
+		return "", nil
+	}
+
+	got, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml", XHSDeclareOriginal: false, XHSDeclareOriginalChanged: true}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	if got.DeclareOriginal || got.OriginalDeclarationType != "" {
+		t.Fatalf("originality flags = declare:%v type:%q, want disabled without declaration type", got.DeclareOriginal, got.OriginalDeclarationType)
+	}
+}
+
 func TestBuildAutoPublishXHSOptionsDeclaresElectronicPicklesAIGenerated(t *testing.T) {
 	originalReadFile := readFile
 	originalLoadConfig := loadConfig
