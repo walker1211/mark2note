@@ -447,12 +447,20 @@ html, body {
 }
 
 .image-caption-image {
+    width: 100%;
+    block-size: var(--image-caption-image-height);
     max-height: var(--image-caption-image-height);
     flex: 0 1 auto;
     min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.image-caption-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
 }
 
 .image-caption-cta {
