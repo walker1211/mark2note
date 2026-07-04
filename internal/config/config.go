@@ -294,10 +294,10 @@ func Load(configPath string) (*Config, error) {
 		cfg.Output.Dir = "output"
 	}
 	if cfg.AI.Command == "" {
-		cfg.AI.Command = "ccs"
+		cfg.AI.Command = "claude"
 	}
 	if len(cfg.AI.Args) == 0 {
-		cfg.AI.Args = []string{"codex", "--bare"}
+		cfg.AI.Args = []string{"--bare", "--disable-slash-commands"}
 	}
 	if cfg.AI.Retry.Delays == nil {
 		cfg.AI.Retry.Delays = cloneDurations(defaultAIRetryDelays)

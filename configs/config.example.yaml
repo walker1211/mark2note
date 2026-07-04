@@ -2,10 +2,10 @@ output:
   dir: output
 
 ai:
-  command: ccs
+  command: claude
   args:
-    - codex
     - --bare
+    - --disable-slash-commands
   retry:
     delays:
       - 1s
