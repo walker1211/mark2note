@@ -24,11 +24,11 @@ func TestLoadAppliesDefaultAIConfig(t *testing.T) {
 	if cfg.Output.Dir != "custom-output" {
 		t.Fatalf("Output.Dir = %q, want %q", cfg.Output.Dir, "custom-output")
 	}
-	if cfg.AI.Command != "ccs" {
-		t.Fatalf("AI.Command = %q, want %q", cfg.AI.Command, "ccs")
+	if cfg.AI.Command != "claude" {
+		t.Fatalf("AI.Command = %q, want %q", cfg.AI.Command, "claude")
 	}
-	if !reflect.DeepEqual(cfg.AI.Args, []string{"codex", "--bare"}) {
-		t.Fatalf("AI.Args = %v, want %v", cfg.AI.Args, []string{"codex", "--bare"})
+	if !reflect.DeepEqual(cfg.AI.Args, []string{"--bare", "--disable-slash-commands"}) {
+		t.Fatalf("AI.Args = %v, want %v", cfg.AI.Args, []string{"--bare", "--disable-slash-commands"})
 	}
 	wantRetryDelays := []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 9 * time.Second, 17 * time.Second}
 	if !reflect.DeepEqual(cfg.AI.Retry.Delays, wantRetryDelays) {
