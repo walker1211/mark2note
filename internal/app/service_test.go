@@ -23,14 +23,16 @@ import (
 
 type fakeAICommandRunner struct {
 	name   string
+	stdin  string
 	args   []string
 	stdout string
 	stderr string
 	err    error
 }
 
-func (r *fakeAICommandRunner) Run(name string, args ...string) (string, string, error) {
+func (r *fakeAICommandRunner) Run(name, stdin string, args ...string) (string, string, error) {
 	r.name = name
+	r.stdin = stdin
 	r.args = append([]string(nil), args...)
 	return r.stdout, r.stderr, r.err
 }
@@ -59,7 +61,7 @@ func deckJSONWithPageCount(count int) string {
 }
 
 func TestServiceGeneratePreviewPassesPromptExtraToAIBuilder(t *testing.T) {
-	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, AI: config.AICfg{Command: "ccs", Args: []string{"codex"}}}
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, AI: config.AICfg{Command: "codex", Args: []string{"exec", "--ephemeral"}}}
 	runner := &fakeAICommandRunner{stdout: `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`}
 
 	svc := Service{
@@ -73,10 +75,10 @@ func TestServiceGeneratePreviewPassesPromptExtraToAIBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GeneratePreview() error = %v", err)
 	}
-	if len(runner.args) < 4 {
-		t.Fatalf("runner args = %v, want command args plus --bare and -p prompt", runner.args)
+	if !reflect.DeepEqual(runner.args, []string{"exec", "--ephemeral"}) {
+		t.Fatalf("runner args = %v, want configured Codex args only", runner.args)
 	}
-	prompt := runner.args[3]
+	prompt := runner.stdin
 	if !strings.Contains(prompt, "以下是本次生成的额外约束") || !strings.Contains(prompt, "不得原文复制") {
 		t.Fatalf("prompt = %q, want hidden extra constraint wrapper", prompt)
 	}
@@ -86,7 +88,7 @@ func TestServiceGeneratePreviewPassesPromptExtraToAIBuilder(t *testing.T) {
 }
 
 func TestServiceGeneratePreviewPassesMaxPagesToAIBuilder(t *testing.T) {
-	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, AI: config.AICfg{Command: "ccs", Args: []string{"codex"}}, Deck: config.DeckCfg{MaxPages: 18}}
+	cfg := &config.Config{Output: config.OutputCfg{Dir: t.TempDir()}, AI: config.AICfg{Command: "codex", Args: []string{"exec", "--ephemeral"}}, Deck: config.DeckCfg{MaxPages: 18}}
 	runner := &fakeAICommandRunner{stdout: `{"pages":[{"name":"p1-cover","variant":"cover","meta":{"badge":"第 1 页","counter":"1/3","theme":"orange","cta":"cta1"},"content":{"title":"封面"}},{"name":"p2-bullets","variant":"bullets","meta":{"badge":"第 2 页","counter":"2/3","theme":"orange","cta":"cta2"},"content":{"title":"中间","items":["要点"]}},{"name":"p3-ending","variant":"ending","meta":{"badge":"第 3 页","counter":"3/3","theme":"green","cta":"cta3"},"content":{"title":"结尾","body":"正文"}}]}`}
 	_svcRenderer := &fakeRenderer{}
 	svc := Service{
@@ -100,7 +102,7 @@ func TestServiceGeneratePreviewPassesMaxPagesToAIBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GeneratePreview() error = %v", err)
 	}
-	prompt := runner.args[len(runner.args)-1]
+	prompt := runner.stdin
 	if !strings.Contains(prompt, "3-18 页") {
 		t.Fatalf("prompt = %q, want configured max pages", prompt)
 	}

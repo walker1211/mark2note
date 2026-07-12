@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -56,7 +57,7 @@ var (
 )
 
 type CommandRunner interface {
-	Run(name string, args ...string) (string, string, error)
+	Run(name, stdin string, args ...string) (string, string, error)
 }
 
 type Builder struct {
@@ -91,8 +92,11 @@ func buildDeckPromptWithMaxPages(markdown, promptExtra string, maxPages int) str
 
 type execRunner struct{}
 
-func (execRunner) Run(name string, args ...string) (string, string, error) {
+func (execRunner) Run(name, stdin string, args ...string) (string, string, error) {
 	cmd := exec.Command(name, args...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	out, err := cmd.Output()
 	if err == nil {
 		return strings.TrimSpace(string(out)), "", nil
@@ -117,13 +121,13 @@ func effectiveAICommandRetryDelays(delays []time.Duration) []time.Duration {
 	return cloneDurations(delays)
 }
 
-func runAICommand(runner CommandRunner, name string, retryDelays []time.Duration, args ...string) (string, string, error) {
+func runAICommand(runner CommandRunner, name, stdin string, retryDelays []time.Duration, args ...string) (string, string, error) {
 	var stdout string
 	var stderr string
 	var err error
 	delays := effectiveAICommandRetryDelays(retryDelays)
 	for attempt := 0; attempt <= len(delays); attempt++ {
-		stdout, stderr, err = runner.Run(name, args...)
+		stdout, stderr, err = runner.Run(name, stdin, args...)
 		if err == nil {
 			return stdout, stderr, nil
 		}
@@ -178,12 +182,12 @@ func (b Builder) effectiveRunner() CommandRunner {
 }
 
 func (b Builder) BuildDeckJSON(markdown string) (string, error) {
-	args := append([]string{}, b.Args...)
-	if shouldUseBareOutput(b.Command, b.Args) && !containsArg(args, "--bare") {
-		args = append(args, "--bare")
-	}
-	args = append(args, "-p", buildDeckPromptWithMaxPages(markdown, b.PromptExtra, b.MaxPages))
-	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, b.RetryDelays, args...)
+	args, stdin := buildAICommandInvocation(
+		b.Command,
+		b.Args,
+		buildDeckPromptWithMaxPages(markdown, b.PromptExtra, b.MaxPages),
+	)
+	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, stdin, b.RetryDelays, args...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
 	}
@@ -266,6 +270,23 @@ func extractFirstJSONObject(raw string) (string, error) {
 
 func containsArg(args []string, target string) bool {
 	return slices.Contains(args, target)
+}
+
+func buildAICommandInvocation(command string, configuredArgs []string, prompt string) ([]string, string) {
+	args := append([]string(nil), configuredArgs...)
+	if isDirectCodexCommand(command) {
+		return args, prompt
+	}
+	if shouldUseBareOutput(command, configuredArgs) && !containsArg(args, "--bare") {
+		args = append(args, "--bare")
+	}
+	return append(args, "-p", prompt), ""
+}
+
+func isDirectCodexCommand(command string) bool {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	base = strings.TrimSuffix(base, ".exe")
+	return base == "codex"
 }
 
 func shouldUseBareOutput(command string, args []string) bool {

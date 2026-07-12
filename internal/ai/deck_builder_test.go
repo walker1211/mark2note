@@ -10,14 +10,16 @@ import (
 
 type fakeRunner struct {
 	name   string
+	stdin  string
 	args   []string
 	stdout string
 	stderr string
 	err    error
 }
 
-func (r *fakeRunner) Run(name string, args ...string) (string, string, error) {
+func (r *fakeRunner) Run(name, stdin string, args ...string) (string, string, error) {
 	r.name = name
+	r.stdin = stdin
 	r.args = append([]string(nil), args...)
 	return r.stdout, r.stderr, r.err
 }
@@ -33,7 +35,7 @@ type sequenceRunner struct {
 	count int
 }
 
-func (r *sequenceRunner) Run(_ string, _ ...string) (string, string, error) {
+func (r *sequenceRunner) Run(_, _ string, _ ...string) (string, string, error) {
 	if r.count >= len(r.calls) {
 		return "", "", errors.New("unexpected runner call")
 	}
@@ -85,13 +87,13 @@ func TestBuildDeckPromptIgnoresWhitespaceOnlyPromptExtra(t *testing.T) {
 func TestBuildDeckJSONUsesConfiguredMaxPages(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"pages":[]}`}
 	b := Builder{Runner: runner, MaxPages: 18}
-	b.SetCommand("ccs", []string{"codex"})
+	b.SetCommand("codex", []string{"exec"})
 
 	_, err := b.BuildDeckJSON("# title")
 	if err != nil {
 		t.Fatalf("BuildDeckJSON() error = %v", err)
 	}
-	prompt := runner.args[len(runner.args)-1]
+	prompt := runner.stdin
 	if !strings.Contains(prompt, "3-18 页") || !strings.Contains(prompt, "3 到 18 页之间") {
 		t.Fatalf("prompt = %q, want configured max page range", prompt)
 	}
@@ -100,28 +102,22 @@ func TestBuildDeckJSONUsesConfiguredMaxPages(t *testing.T) {
 func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"pages":[]}`}
 	b := Builder{Runner: runner}
-	b.SetCommand("ccs", []string{"codex"})
+	b.SetCommand("codex", []string{"exec", "--ephemeral"})
 
 	_, err := b.BuildDeckJSON("# title")
 	if err != nil {
 		t.Fatalf("BuildDeckJSON() error = %v", err)
 	}
-	if runner.name != "ccs" {
-		t.Fatalf("command = %q, want %q", runner.name, "ccs")
+	if runner.name != "codex" {
+		t.Fatalf("command = %q, want %q", runner.name, "codex")
 	}
-	if len(runner.args) < 4 {
-		t.Fatalf("args = %v, want command args plus --bare and -p prompt", runner.args)
+	if !reflect.DeepEqual(runner.args, []string{"exec", "--ephemeral"}) {
+		t.Fatalf("args = %v, want configured Codex args only", runner.args)
 	}
-	if runner.args[0] != "codex" {
-		t.Fatalf("first arg = %q, want %q", runner.args[0], "codex")
+	if containsArg(runner.args, "-p") || containsArg(runner.args, "--bare") {
+		t.Fatalf("args = %v, direct Codex must not receive Claude flags", runner.args)
 	}
-	if runner.args[1] != "--bare" {
-		t.Fatalf("args[1] = %q, want %q", runner.args[1], "--bare")
-	}
-	if runner.args[2] != "-p" {
-		t.Fatalf("args[2] = %q, want %q", runner.args[2], "-p")
-	}
-	prompt := runner.args[3]
+	prompt := runner.stdin
 	if !strings.Contains(prompt, "# title") {
 		t.Fatalf("prompt missing markdown input: %q", prompt)
 	}
@@ -235,6 +231,47 @@ func TestBuildDeckJSONUsesConfiguredCommand(t *testing.T) {
 	}
 }
 
+func TestBuildAICommandInvocationRecognizesCodexExecutablePath(t *testing.T) {
+	args, stdin := buildAICommandInvocation(
+		"/opt/homebrew/bin/codex",
+		[]string{"exec", "--ephemeral"},
+		"long prompt",
+	)
+
+	if !reflect.DeepEqual(args, []string{"exec", "--ephemeral"}) {
+		t.Fatalf("args = %#v, want configured Codex args only", args)
+	}
+	if stdin != "long prompt" {
+		t.Fatalf("stdin = %q, want prompt", stdin)
+	}
+}
+
+func TestBuildAICommandInvocationRecognizesWindowsCodexExecutable(t *testing.T) {
+	args, stdin := buildAICommandInvocation(
+		`C:/tools/CODEX.EXE`,
+		[]string{"exec", "--ephemeral"},
+		"long prompt",
+	)
+
+	if !reflect.DeepEqual(args, []string{"exec", "--ephemeral"}) {
+		t.Fatalf("args = %#v, want configured Codex args only", args)
+	}
+	if stdin != "long prompt" {
+		t.Fatalf("stdin = %q, want prompt", stdin)
+	}
+}
+
+func TestBuildAICommandInvocationKeepsLegacyPromptFlag(t *testing.T) {
+	args, stdin := buildAICommandInvocation("custom-ai", []string{"--json"}, "prompt")
+
+	if !reflect.DeepEqual(args, []string{"--json", "-p", "prompt"}) {
+		t.Fatalf("args = %#v, want legacy -p prompt invocation", args)
+	}
+	if stdin != "" {
+		t.Fatalf("stdin = %q, want empty", stdin)
+	}
+}
+
 func TestBuildDeckJSONPromptLocksMarkdownSemanticPreservation(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"pages":[]}`}
 	b := Builder{Runner: runner}
@@ -330,7 +367,7 @@ func TestBuildDeckJSONPromptSplitsOversizedFencedCodeBlocks(t *testing.T) {
 func TestBuildPublishTopicsUsesConfiguredCommand(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"topics":["AI编程","开源项目","工程实践"]}`}
 	b := TopicBuilder{Runner: runner}
-	b.SetCommand("ccs", []string{"codex"})
+	b.SetCommand("codex", []string{"exec", "--ephemeral"})
 
 	got, err := b.BuildPublishTopics("# 标题\n\n正文", "标题")
 	if err != nil {
@@ -340,13 +377,13 @@ func TestBuildPublishTopicsUsesConfiguredCommand(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("BuildPublishTopics() = %#v, want %#v", got, want)
 	}
-	if runner.name != "ccs" {
-		t.Fatalf("command = %q, want ccs", runner.name)
+	if runner.name != "codex" {
+		t.Fatalf("command = %q, want codex", runner.name)
 	}
-	if len(runner.args) < 4 || runner.args[0] != "codex" || runner.args[1] != "--bare" || runner.args[2] != "-p" {
-		t.Fatalf("args = %#v, want codex --bare -p prompt", runner.args)
+	if !reflect.DeepEqual(runner.args, []string{"exec", "--ephemeral"}) {
+		t.Fatalf("args = %#v, want configured Codex args only", runner.args)
 	}
-	prompt := runner.args[3]
+	prompt := runner.stdin
 	for _, want := range []string{"只能输出 JSON", `{"topics":["话题1","话题2"]}`, "优先生成 3 个", "最多 4 个", "每个话题不能包含空格", "每个话题不能包含特殊符号", "不要直接复制很长的视频标题", "不要包含点赞、收藏、投币", "如果 Markdown 是“电子榨菜”内容", "更可能已经存在的泛话题", "标题：标题", "Markdown 如下：\n# 标题"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("topic prompt missing %q: %q", want, prompt)
@@ -390,7 +427,7 @@ func TestBuildPublishTopicsRetriesTransientAILockError(t *testing.T) {
 func TestBuildPublishTitleUsesConfiguredCommand(t *testing.T) {
 	runner := &fakeRunner{stdout: `{"title":"把代码合进真实开源"}`}
 	b := TitleBuilder{Runner: runner}
-	b.SetCommand("ccs", []string{"codex"})
+	b.SetCommand("codex", []string{"exec", "--ephemeral"})
 
 	got, err := b.BuildPublishTitle("# 别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始", "别只用 AI 写 Demo：把代码合进真实开源项目，那会是新的开始", 20)
 	if err != nil {
@@ -399,13 +436,13 @@ func TestBuildPublishTitleUsesConfiguredCommand(t *testing.T) {
 	if got != "把代码合进真实开源" {
 		t.Fatalf("BuildPublishTitle() = %q", got)
 	}
-	if runner.name != "ccs" {
-		t.Fatalf("command = %q, want ccs", runner.name)
+	if runner.name != "codex" {
+		t.Fatalf("command = %q, want codex", runner.name)
 	}
-	if len(runner.args) < 4 || runner.args[0] != "codex" || runner.args[1] != "--bare" || runner.args[2] != "-p" {
-		t.Fatalf("args = %#v, want codex --bare -p prompt", runner.args)
+	if !reflect.DeepEqual(runner.args, []string{"exec", "--ephemeral"}) {
+		t.Fatalf("args = %#v, want configured Codex args only", runner.args)
 	}
-	prompt := runner.args[3]
+	prompt := runner.stdin
 	for _, want := range []string{"只能输出 JSON", `{"title":"改写后的标题"}`, "不超过 20 个字符", "保留原始标题的核心意思", "不要把标题压缩成电报式短语", "保持自然中文语序", "原始标题：别只用 AI 写 Demo", "Markdown 如下：\n# 别只用 AI 写 Demo"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("title prompt missing %q: %q", want, prompt)

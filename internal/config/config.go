@@ -294,10 +294,21 @@ func Load(configPath string) (*Config, error) {
 		cfg.Output.Dir = "output"
 	}
 	if cfg.AI.Command == "" {
-		cfg.AI.Command = "claude"
+		cfg.AI.Command = "codex"
 	}
 	if len(cfg.AI.Args) == 0 {
-		cfg.AI.Args = []string{"--bare", "--disable-slash-commands"}
+		cfg.AI.Args = []string{
+			"exec",
+			"--ignore-user-config",
+			"--disable", "apps",
+			"--disable", "plugins",
+			"--disable", "remote_plugin",
+			"--ephemeral",
+			"--skip-git-repo-check",
+			"--sandbox", "read-only",
+			"--color", "never",
+			"--model", "gpt-5.6-sol",
+		}
 	}
 	if cfg.AI.Retry.Delays == nil {
 		cfg.AI.Retry.Delays = cloneDurations(defaultAIRetryDelays)
