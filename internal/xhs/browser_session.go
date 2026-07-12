@@ -850,7 +850,7 @@ func defaultRodPageTimeouts() rodPageTimeouts {
 		permissionDropdown:      2 * time.Second,
 		originalConfirm:         2 * time.Second,
 		topicSuggestion:         2 * time.Second,
-		topicConfirmation:       1200 * time.Millisecond,
+		topicConfirmation:       5 * time.Second,
 		topicFallbackSuggestion: 300 * time.Millisecond,
 	}
 }

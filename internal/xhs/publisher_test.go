@@ -348,7 +348,7 @@ func TestRodPageTimeoutsUseDefaultsAndAllowPartialOverrides(t *testing.T) {
 		permissionDropdown:      2 * time.Second,
 		originalConfirm:         2 * time.Second,
 		topicSuggestion:         2 * time.Second,
-		topicConfirmation:       1200 * time.Millisecond,
+		topicConfirmation:       5 * time.Second,
 		topicFallbackSuggestion: 300 * time.Millisecond,
 	}
 	if defaults != wantDefaults {
@@ -368,7 +368,7 @@ func TestRodPageTimeoutsUseDefaultsAndAllowPartialOverrides(t *testing.T) {
 	if overrides.topicSuggestion != 30*time.Millisecond {
 		t.Fatalf("topicSuggestion = %v, want override", overrides.topicSuggestion)
 	}
-	if overrides.topicConfirmation != 1200*time.Millisecond {
+	if overrides.topicConfirmation != 5*time.Second {
 		t.Fatalf("topicConfirmation = %v, want default", overrides.topicConfirmation)
 	}
 }
@@ -438,6 +438,33 @@ func TestWaitForTopicConfirmationRejectsPlainTextTopic(t *testing.T) {
 	rodPage := &rodPage{page: page}
 	if err := rodPage.waitForTopicConfirmation("AI编程", 100*time.Millisecond); err == nil {
 		t.Fatal("waitForTopicConfirmation() error = nil, want highlighted-topic error")
+	}
+}
+
+func TestWaitForTopicConfirmationAcceptsDelayedHighlightedTopic(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div contenteditable="true" role="textbox" class="tiptap ProseMirror">#AI科技</div>
+    <script>
+      setTimeout(() => {
+        const editor = document.querySelector('.tiptap.ProseMirror');
+        const data = JSON.stringify({id: 'topic-id', link: '', name: 'AI科技'});
+        editor.innerHTML = '<a class="tiptap-topic" data-topic=' + JSON.stringify(data) + ' contenteditable="false">#AI科技<span class="content-hide">[话题]#</span></a>';
+      }, 1500);
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.waitForTopicConfirmation("AI科技", rodPage.effectiveTimeouts().topicConfirmation); err != nil {
+		t.Fatalf("waitForTopicConfirmation() error = %v, want delayed highlighted topic accepted", err)
 	}
 }
 
