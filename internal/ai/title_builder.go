@@ -56,12 +56,8 @@ func (b TitleBuilder) effectiveRunner() CommandRunner {
 }
 
 func (b TitleBuilder) BuildPublishTitle(markdown, title string, maxRunes int) (string, error) {
-	args := append([]string{}, b.Args...)
-	if shouldUseBareOutput(b.Command, b.Args) && !containsArg(args, "--bare") {
-		args = append(args, "--bare")
-	}
-	args = append(args, "-p", buildPublishTitlePrompt(markdown, title, maxRunes))
-	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, b.RetryDelays, args...)
+	args, stdin := buildAICommandInvocation(b.Command, b.Args, buildPublishTitlePrompt(markdown, title, maxRunes))
+	stdout, stderr, err := runAICommand(b.effectiveRunner(), b.Command, stdin, b.RetryDelays, args...)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v\nstderr: %s", ErrAICommandFailed, err, stderr)
 	}

@@ -24,11 +24,23 @@ func TestLoadAppliesDefaultAIConfig(t *testing.T) {
 	if cfg.Output.Dir != "custom-output" {
 		t.Fatalf("Output.Dir = %q, want %q", cfg.Output.Dir, "custom-output")
 	}
-	if cfg.AI.Command != "claude" {
-		t.Fatalf("AI.Command = %q, want %q", cfg.AI.Command, "claude")
+	if cfg.AI.Command != "codex" {
+		t.Fatalf("AI.Command = %q, want %q", cfg.AI.Command, "codex")
 	}
-	if !reflect.DeepEqual(cfg.AI.Args, []string{"--bare", "--disable-slash-commands"}) {
-		t.Fatalf("AI.Args = %v, want %v", cfg.AI.Args, []string{"--bare", "--disable-slash-commands"})
+	wantAIArgs := []string{
+		"exec",
+		"--ignore-user-config",
+		"--disable", "apps",
+		"--disable", "plugins",
+		"--disable", "remote_plugin",
+		"--ephemeral",
+		"--skip-git-repo-check",
+		"--sandbox", "read-only",
+		"--color", "never",
+		"--model", "gpt-5.6-sol",
+	}
+	if !reflect.DeepEqual(cfg.AI.Args, wantAIArgs) {
+		t.Fatalf("AI.Args = %v, want %v", cfg.AI.Args, wantAIArgs)
 	}
 	wantRetryDelays := []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 9 * time.Second, 17 * time.Second}
 	if !reflect.DeepEqual(cfg.AI.Retry.Delays, wantRetryDelays) {

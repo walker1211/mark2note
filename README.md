@@ -22,7 +22,7 @@ The `capture-html` command is also a public CLI subcommand that converts existin
 ## Requirements
 
 - Go 1.25+
-- An AI CLI that can be invoked with `-p <prompt>`
+- An authenticated Codex CLI; the default integration uses `codex exec` and sends prompts through stdin
 - Google Chrome, or a compatible browser binary that supports `--headless=new`
 - `img2webp` (required only when Animated WebP export is enabled)
 - `ffmpeg` (required when MP4 or Live export is enabled)
@@ -242,26 +242,31 @@ Additional notes:
 
 ## AI CLI examples
 
-Using `ccs`:
+Using `codex`:
 
 ```yaml
 ai:
-  command: ccs
+  command: codex
   args:
-    - codex
-    - --bare
+    - exec
+    - --ignore-user-config
+    - --disable
+    - apps
+    - --disable
+    - plugins
+    - --disable
+    - remote_plugin
+    - --ephemeral
+    - --skip-git-repo-check
+    - --sandbox
+    - read-only
+    - --color
+    - never
+    - --model
+    - gpt-5.6-sol
 ```
 
-Using `claude`:
-
-```yaml
-ai:
-  command: claude
-  args:
-    - -p
-```
-
-Note: adjust the arguments to match your local AI CLI setup, as long as `mark2note` can use it to generate deck JSON.
+For direct `codex` calls, `mark2note` sends the prompt through stdin. Custom AI CLIs retain the legacy `-p <prompt>` invocation, so adjust their arguments to match your local setup.
 
 ## Common commands
 

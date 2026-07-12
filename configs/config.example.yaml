@@ -2,10 +2,24 @@ output:
   dir: output
 
 ai:
-  command: claude
+  command: codex
   args:
-    - --bare
-    - --disable-slash-commands
+    - exec
+    - --ignore-user-config
+    - --disable
+    - apps
+    - --disable
+    - plugins
+    - --disable
+    - remote_plugin
+    - --ephemeral
+    - --skip-git-repo-check
+    - --sandbox
+    - read-only
+    - --color
+    - never
+    - --model
+    - gpt-5.6-sol
   retry:
     delays:
       - 1s

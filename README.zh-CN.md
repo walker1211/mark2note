@@ -22,7 +22,7 @@
 ## 环境要求
 
 - Go 1.25+
-- 可通过 `-p <prompt>` 调用的 AI CLI
+- 已完成登录的 Codex CLI；默认通过 `codex exec` 调用，并使用 stdin 传入 prompt
 - Google Chrome，或兼容 `--headless=new` 的浏览器可执行文件
 - `img2webp`（仅在启用 Animated WebP 增强导出时需要）
 - `ffmpeg`（启用 MP4 或 Live 导出时需要）
@@ -242,26 +242,31 @@ posters:
 
 ## AI CLI 示例
 
-使用 `ccs`：
+使用 `codex`：
 
 ```yaml
 ai:
-  command: ccs
+  command: codex
   args:
-    - codex
-    - --bare
+    - exec
+    - --ignore-user-config
+    - --disable
+    - apps
+    - --disable
+    - plugins
+    - --disable
+    - remote_plugin
+    - --ephemeral
+    - --skip-git-repo-check
+    - --sandbox
+    - read-only
+    - --color
+    - never
+    - --model
+    - gpt-5.6-sol
 ```
 
-使用 `claude`：
-
-```yaml
-ai:
-  command: claude
-  args:
-    - -p
-```
-
-说明：请根据你本地 AI CLI 的实际调用方式调整参数，只要能被 `mark2note` 用来生成 deck JSON 即可。
+直连 `codex` 时，`mark2note` 会通过 stdin 传入 prompt。自定义 AI CLI 仍沿用原有的 `-p <prompt>` 调用方式，可按本机环境调整其他参数。
 
 ## 常用命令
 
