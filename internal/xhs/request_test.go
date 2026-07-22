@@ -100,6 +100,23 @@ func TestPublishRequestValidateAcceptsPublicVisibility(t *testing.T) {
 	}
 }
 
+func TestPublishRequestValidateAllowsContentDeclarationWithoutOriginal(t *testing.T) {
+	now := shanghaiTime(2026, 4, 10, 12, 0, 0)
+	request := PublishRequest{
+		Account:                 "creator-a",
+		Title:                   "标题",
+		Content:                 "正文",
+		Mode:                    PublishModeOnlySelf,
+		MediaKind:               MediaKindStandard,
+		ImagePaths:              []string{"cover.jpg"},
+		DeclareOriginal:         false,
+		OriginalDeclarationType: OriginalDeclarationTypeAIGenerated,
+	}
+	if err := request.Validate(now); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestPublishRequestValidateRejectsInvalidVisibility(t *testing.T) {
 	request := PublishRequest{Account: "creator-a", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, Visibility: PublishVisibility("friends"), MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
 	if err := request.Validate(shanghaiTime(2026, 4, 10, 12, 0, 0)); err == nil || !strings.Contains(err.Error(), "visibility must be public or only-self") {

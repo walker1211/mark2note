@@ -113,12 +113,8 @@ func (r PublishRequest) Validate(now time.Time) error {
 	if _, err := ValidateVisibility(string(r.Visibility)); err != nil {
 		return err
 	}
-	declarationType, err := ValidateOriginalDeclarationType(r.OriginalDeclarationType)
-	if err != nil {
+	if _, err := ValidateOriginalDeclarationType(r.OriginalDeclarationType); err != nil {
 		return err
-	}
-	if declarationType != "" && !r.DeclareOriginal {
-		return fmt.Errorf("original declaration type requires declare_original")
 	}
 	switch r.Mode {
 	case PublishModeImmediate:

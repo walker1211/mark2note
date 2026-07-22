@@ -481,8 +481,8 @@ func TestBuildAutoPublishXHSOptionsCanDisableElectronicPicklesOriginality(t *tes
 	if err != nil {
 		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
 	}
-	if got.DeclareOriginal || got.OriginalDeclarationType != "" {
-		t.Fatalf("originality flags = declare:%v type:%q, want disabled without declaration type", got.DeclareOriginal, got.OriginalDeclarationType)
+	if got.DeclareOriginal || got.OriginalDeclarationType != "ai_generated" {
+		t.Fatalf("originality flags = declare:%v type:%q, want original disabled with AI content declaration", got.DeclareOriginal, got.OriginalDeclarationType)
 	}
 }
 

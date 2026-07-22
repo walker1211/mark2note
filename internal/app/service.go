@@ -71,6 +71,8 @@ type Options struct {
 	XHSCollectionChanged      bool
 	XHSDeclareOriginal        bool
 	XHSDeclareOriginalChanged bool
+	XHSDeclarationType        string
+	XHSDeclarationTypeChanged bool
 	XHSContentMode            string
 	XHSContentModeChanged     bool
 	Animated                  AnimatedOptions
