@@ -554,7 +554,7 @@ func TestApplyCollectionSelectsMatchingCollection(t *testing.T) {
 	}
 }
 
-func TestApplyOriginalDeclarationSelectsAIGeneratedType(t *testing.T) {
+func TestApplyContentDeclarationWithoutOriginalSelectsAIGeneratedType(t *testing.T) {
 	page := testPage(t)
 
 	html := `<!doctype html>
@@ -565,7 +565,7 @@ func TestApplyOriginalDeclarationSelectsAIGeneratedType(t *testing.T) {
       <div class="custom-switch-wrapper">
         <div class="custom-switch-card">
           <span class="custom-switch-text-content">原创声明</span>
-          <input type="checkbox" checked>
+          <input type="checkbox">
         </div>
       </div>
       <div class="wrapper">
@@ -608,13 +608,16 @@ func TestApplyOriginalDeclarationSelectsAIGeneratedType(t *testing.T) {
 	page.MustElement("body")
 
 	rodPage := &rodPage{page: page}
-	if err := rodPage.applyOriginalDeclaration(true, "ai_generated"); err != nil {
+	if err := rodPage.applyOriginalDeclaration(false, "ai_generated"); err != nil {
 		state := page.MustEval(`() => document.body.innerText.replace(/\s+/g, ' ').trim()`).String()
 		t.Fatalf("applyOriginalDeclaration() error = %v, state = %s", err, state)
 	}
 	selected := page.MustElement(".d-select-wrapper").MustAttribute("data-selected")
 	if selected == nil || *selected != "笔记含AI生成内容" {
 		t.Fatalf("selected declaration type = %v, want 笔记含AI生成内容", selected)
+	}
+	if page.MustElement(`input[type="checkbox"]`).MustProperty("checked").Bool() {
+		t.Fatal("original declaration checkbox = checked, want unchanged false")
 	}
 	if trusted := page.MustEval(`() => window.declarationTriggerTrustedClickSeen === true`).Bool(); !trusted {
 		t.Fatal("declaration type select should open by a trusted click")
@@ -920,6 +923,17 @@ func TestPublisherOnlySelfStopBeforeSubmitAppliesPreSubmitHooks(t *testing.T) {
 	}
 	if !page.originalApplied || page.originalDeclarationType != "ai_generated" {
 		t.Fatalf("expected original declaration type to be applied before stopping, page = %#v", page)
+	}
+}
+
+func TestPublisherOnlySelfStopBeforeSubmitKeepsAITypeWhenOriginalDisabled(t *testing.T) {
+	page := &fakePublishPage{}
+	request := PublishRequest{Title: "标题", Content: "正文", ImagePaths: []string{"cover.jpg"}, StopBeforeSubmit: true, DeclareOriginal: false, OriginalDeclarationType: "ai_generated"}
+	if err := (Publisher{}).PublishStandardOnlySelf(context.Background(), page, request); err != nil {
+		t.Fatalf("PublishStandardOnlySelf() error = %v", err)
+	}
+	if page.originalApplied || page.originalDeclarationType != "ai_generated" {
+		t.Fatalf("original declaration = %v, content declaration type = %q", page.originalApplied, page.originalDeclarationType)
 	}
 }
 

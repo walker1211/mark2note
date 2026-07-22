@@ -91,7 +91,7 @@ xhs:
     # 可选：加入已有小红书合集；留空则不选择合集。Optional existing Xiaohongshu collection name.
     collection: ""
     declare_original: true
-    # 可选：原创声明内容类型；留空则不选择。当前支持 ai_generated。
+    # 可选：内容类型声明；与 declare_original 独立。ai_generated 会选择“笔记含 AI 合成内容”。
     original_declaration_type: ""
     allow_content_copy: false
     topic_generation:

@@ -95,6 +95,8 @@ Flags:
   --xhs-schedule-at <time>   override Xiaohongshu schedule time for --publish-xhs/--prepare-xhs (YYYY-MM-DD HH:MM:SS)
   --collection <name>        override Xiaohongshu collection for --publish-xhs/--prepare-xhs
   --declare-original         override Xiaohongshu original declaration for --publish-xhs/--prepare-xhs
+  --original-declaration-type <type>
+                            content type declaration: ai_generated; independent of --declare-original
   --import-photos            import generated PNG files into Apple Photos after export
   --import-album <name>      Apple Photos album name for imported PNG files
   --import-timeout <d>       Apple Photos PNG import timeout (default: 2m0s)
@@ -277,6 +279,7 @@ func parseOptions(args []string) (Options, error) {
 	fs.StringVar(&opts.XHSScheduleAt, "xhs-schedule-at", opts.XHSScheduleAt, "Xiaohongshu schedule time for auto publish")
 	fs.StringVar(&opts.XHSCollection, "collection", opts.XHSCollection, "Xiaohongshu collection name for auto publish")
 	fs.BoolVar(&opts.XHSDeclareOriginal, "declare-original", opts.XHSDeclareOriginal, "declare original content for auto publish")
+	fs.StringVar(&opts.XHSDeclarationType, "original-declaration-type", opts.XHSDeclarationType, "Xiaohongshu content declaration type for auto publish")
 	fs.BoolVar(&opts.ImportPhotos, "import-photos", opts.ImportPhotos, "import generated PNG files into Apple Photos after export")
 	fs.StringVar(&opts.ImportAlbum, "import-album", opts.ImportAlbum, "Apple Photos album name for imported PNG files")
 	fs.DurationVar(&opts.ImportTimeout, "import-timeout", opts.ImportTimeout, "Apple Photos PNG import timeout")
@@ -353,6 +356,7 @@ func parseOptions(args []string) (Options, error) {
 	xhsScheduleAtChanged := false
 	xhsCollectionChanged := false
 	xhsDeclareOriginalChanged := false
+	xhsOriginalDeclarationTypeChanged := false
 	xhsContentModeChanged := false
 	stopBeforeSubmitChanged := false
 	fs.Visit(func(f *flag.Flag) {
@@ -405,6 +409,8 @@ func parseOptions(args []string) (Options, error) {
 			xhsCollectionChanged = true
 		case "declare-original":
 			xhsDeclareOriginalChanged = true
+		case "original-declaration-type":
+			xhsOriginalDeclarationTypeChanged = true
 		case "stop-before-submit":
 			stopBeforeSubmitChanged = true
 		}
@@ -432,6 +438,7 @@ func parseOptions(args []string) (Options, error) {
 	opts.XHSScheduleAtChanged = xhsScheduleAtChanged
 	opts.XHSCollectionChanged = xhsCollectionChanged
 	opts.XHSDeclareOriginalChanged = xhsDeclareOriginalChanged
+	opts.XHSDeclarationTypeChanged = xhsOriginalDeclarationTypeChanged
 	opts.XHSContentModeChanged = xhsContentModeChanged
 	opts.StopBeforeSubmitChanged = stopBeforeSubmitChanged
 	if opts.XHSTagsChanged && !opts.PublishXHS && !opts.PrepareXHS {
@@ -445,6 +452,9 @@ func parseOptions(args []string) (Options, error) {
 	}
 	if opts.XHSDeclareOriginalChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--declare-original requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
+	}
+	if opts.XHSDeclarationTypeChanged && !opts.PublishXHS && !opts.PrepareXHS {
+		return Options{}, fmt.Errorf("--original-declaration-type requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
 	}
 	if opts.XHSContentModeChanged && !opts.PublishXHS && !opts.PrepareXHS {
 		return Options{}, fmt.Errorf("--xhs-content-mode requires --publish-xhs or --prepare-xhs\n\n%s", usageText())
@@ -686,12 +696,8 @@ func validatePublishXHSOptions(opts app.PublishOptions) error {
 	if _, err := xhs.ValidateVisibility(opts.Visibility); err != nil {
 		return fmt.Errorf("--visibility: %w\n\n%s", err, publishXHSUsageText())
 	}
-	declarationType, err := xhs.ValidateOriginalDeclarationType(opts.OriginalDeclarationType)
-	if err != nil {
+	if _, err := xhs.ValidateOriginalDeclarationType(opts.OriginalDeclarationType); err != nil {
 		return fmt.Errorf("--original-declaration-type: %w\n\n%s", err, publishXHSUsageText())
-	}
-	if declarationType != "" && !opts.DeclareOriginal {
-		return fmt.Errorf("--original-declaration-type requires --declare-original=true\n\n%s", publishXHSUsageText())
 	}
 	if strings.TrimSpace(opts.Account) == "" {
 		return fmt.Errorf("--account is required\n\n%s", publishXHSUsageText())
@@ -945,10 +951,10 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 	if renderOpts.XHSDeclareOriginalChanged {
 		cliOpts.DeclareOriginal = renderOpts.XHSDeclareOriginal
 		cliOpts.DeclareOriginalChanged = true
-		if !renderOpts.XHSDeclareOriginal {
-			cliOpts.OriginalDeclarationType = ""
-			cliOpts.OriginalDeclarationTypeChanged = true
-		}
+	}
+	if renderOpts.XHSDeclarationTypeChanged {
+		cliOpts.OriginalDeclarationType = strings.TrimSpace(renderOpts.XHSDeclarationType)
+		cliOpts.OriginalDeclarationTypeChanged = true
 	}
 	if renderOpts.StopBeforeSubmitChanged {
 		cliOpts.StopBeforeSubmit = renderOpts.StopBeforeSubmit

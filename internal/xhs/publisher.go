@@ -1485,10 +1485,7 @@ func isOriginalDeclarationNeedle(labelNeedle string) bool {
 }
 
 func (p *rodPage) applyOriginalDeclaration(enabled bool, declarationType string) error {
-	if !enabled {
-		return nil
-	}
-	if !p.isOriginalDeclared() {
+	if enabled && !p.isOriginalDeclared() {
 		if err := p.setCheckboxState("声明原创", true); err != nil {
 			if err := p.setCheckboxState("原创", true); err != nil {
 				if _, clickErr := p.clickVisibleNodeByText(".d-checkbox-main-label, .d-checkbox-label, .original-entry, div, span, label, button", "^声明原创$|^原创声明$|^原创$"); clickErr != nil {

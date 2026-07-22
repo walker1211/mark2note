@@ -277,12 +277,12 @@ func TestParseOptionsParsesAutoPublishXHSFlags(t *testing.T) {
 }
 
 func TestParseOptionsParsesAutoPublishXHSDeclareOriginalOverride(t *testing.T) {
-	opts, err := parseOptions([]string{"--input", "article.md", "--publish-xhs", "--declare-original=false"})
+	opts, err := parseOptions([]string{"--input", "article.md", "--publish-xhs", "--declare-original=false", "--original-declaration-type=ai_generated"})
 	if err != nil {
 		t.Fatalf("parseOptions() error = %v", err)
 	}
-	if !opts.PublishXHS || !opts.XHSDeclareOriginalChanged || opts.XHSDeclareOriginal {
-		t.Fatalf("opts = %#v, want publish-xhs declare original false override", opts)
+	if !opts.PublishXHS || !opts.XHSDeclareOriginalChanged || opts.XHSDeclareOriginal || !opts.XHSDeclarationTypeChanged || opts.XHSDeclarationType != "ai_generated" {
+		t.Fatalf("opts = %#v, want original disabled with AI content declaration", opts)
 	}
 }
 
