@@ -139,6 +139,8 @@ var (
 
 const collectionPopoverTimeout = 2 * time.Second
 
+const topicInputMaxAttempts = 3
+
 func (p *rodPage) Open(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -190,6 +192,7 @@ func (p *rodPage) FillTitle(ctx context.Context, title string) (err error) {
 func (p *rodPage) FillContent(ctx context.Context, content string, tags []string) (err error) {
 	done := timing.Stage("xhs.rodPage.FillContent", timing.Field("tags", len(tags)))
 	defer func() { done(err) }()
+	p.publishWarnings = nil
 
 	if err := ctx.Err(); err != nil {
 		return err
@@ -218,17 +221,115 @@ func (p *rodPage) FillContent(ctx context.Context, content string, tags []string
 	}
 	topicInputDone := timing.Stage("xhs.rodPage.FillContent.input_topics", timing.Field("count", len(topicTags)))
 	var topicErr error
+	confirmedTopics := 0
 	for _, tag := range topicTags {
-		if err := p.inputTopicByKeyboard(field, tag); err != nil {
-			topicErr = fmt.Errorf("input topic: %w", err)
+		var lastErr error
+		for attempt := 1; attempt <= topicInputMaxAttempts; attempt++ {
+			if err := ctx.Err(); err != nil {
+				topicErr = err
+				break
+			}
+			lastErr = p.inputTopicByKeyboard(field, tag)
+			if lastErr == nil {
+				confirmedTopics++
+				break
+			}
+			if err := p.discardTopicAttempt(field, tag); err != nil {
+				topicErr = fmt.Errorf("discard failed topic %q after attempt %d: %w", tag, attempt, err)
+				break
+			}
+		}
+		if topicErr != nil {
 			break
 		}
+		if lastErr != nil {
+			warning := fmt.Sprintf("topic %q skipped after %d attempts: %v", tag, topicInputMaxAttempts, lastErr)
+			p.publishWarnings = append(p.publishWarnings, warning)
+			defaultXHSLogger("publish warning: %s", warning)
+		}
+	}
+	if topicErr == nil && text == "" && len(topicTags) > 0 && confirmedTopics == 0 {
+		topicErr = fmt.Errorf("input topic: all %d topics were skipped and publish content is empty", len(topicTags))
 	}
 	topicInputDone(topicErr)
 	if topicErr != nil {
 		return topicErr
 	}
 	return nil
+}
+
+func (p *rodPage) PublishWarnings() []string {
+	if p == nil {
+		return nil
+	}
+	return append([]string(nil), p.publishWarnings...)
+}
+
+func (p *rodPage) discardTopicAttempt(field *rod.Element, tag string) error {
+	if field == nil {
+		return fmt.Errorf("editor is nil")
+	}
+	if err := rodTry(func() {
+		field.MustEval(`(tag) => {
+			const editor = this;
+			const target = '#' + tag;
+			const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+			let removed = false;
+
+			const suggestions = Array.from(editor.querySelectorAll('.suggestion'));
+			for (let index = suggestions.length - 1; index >= 0; index--) {
+				const node = suggestions[index];
+				const value = normalize(node.textContent);
+				if (value === '#' || value === target || target.startsWith(value)) {
+					node.remove();
+					removed = true;
+					break;
+				}
+			}
+
+			if (!removed) {
+				const nodes = [];
+				const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+					acceptNode(node) {
+						const parent = node.parentElement;
+						if (parent && parent.closest('a.tiptap-topic[data-topic], .content-hide')) {
+							return NodeFilter.FILTER_REJECT;
+						}
+						return NodeFilter.FILTER_ACCEPT;
+					}
+				});
+				let value = '';
+				while (walker.nextNode()) {
+					const node = walker.currentNode;
+					const start = value.length;
+					value += node.nodeValue || '';
+					nodes.push({node, start, end: value.length});
+				}
+				const trimmed = value.replace(/\s+$/u, '');
+				const hashIndex = trimmed.lastIndexOf('#');
+				const candidate = hashIndex >= 0 ? trimmed.slice(hashIndex) : '';
+				if (hashIndex >= 0 && !/[\s#]/u.test(candidate.slice(1)) && (candidate === target || target.startsWith(candidate))) {
+					const startEntry = nodes.find((entry) => hashIndex >= entry.start && hashIndex <= entry.end);
+					const endEntry = nodes[nodes.length - 1];
+					if (startEntry && endEntry) {
+						const range = document.createRange();
+						range.setStart(startEntry.node, hashIndex - startEntry.start);
+						range.setEnd(endEntry.node, (endEntry.node.nodeValue || '').length);
+						range.deleteContents();
+						removed = true;
+					}
+				}
+			}
+
+			if (removed) {
+				editor.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'deleteContentBackward'}));
+			}
+			return removed;
+		}`, tag)
+	}); err != nil {
+		return err
+	}
+	return focusEditableAtEnd(field)
 }
 
 func focusEditableAtEnd(field *rod.Element) error {

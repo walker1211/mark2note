@@ -1251,6 +1251,31 @@ func TestRunPublishXHSParsesStandardMediaFlags(t *testing.T) {
 	}
 }
 
+func TestRunPublishXHSPrintsPublishWarnings(t *testing.T) {
+	originalPublishXHS := publishXHS
+	defer func() { publishXHS = originalPublishXHS }()
+	publishXHS = func(opts app.PublishOptions) (app.PublishResult, error) {
+		return app.PublishResult{
+			Request: xhs.PublishRequest{Account: opts.Account},
+			Result: xhs.PublishResult{
+				Mode:              xhs.PublishModeOnlySelf,
+				MediaKind:         xhs.MediaKindStandard,
+				OnlySelfPublished: true,
+				Warnings:          []string{`topic "财经新闻" skipped after 3 attempts`},
+			},
+		}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"publish-xhs", "--account", "creator-a", "--title", "标题", "--content", "正文", "--images", "cover.jpg"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() = %d, stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `xhs publish warning: topic "财经新闻" skipped after 3 attempts`) {
+		t.Fatalf("stdout = %q, want xhs publish warning", stdout.String())
+	}
+}
+
 func TestRunPublishXHSPrintsLoginGuidance(t *testing.T) {
 	originalPublishXHS := publishXHS
 	defer func() { publishXHS = originalPublishXHS }()

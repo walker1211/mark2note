@@ -886,8 +886,9 @@ func (p *rodPage) effectiveTimeouts() rodPageTimeouts {
 }
 
 type rodPage struct {
-	page     *rod.Page
-	timeouts rodPageTimeouts
+	page            *rod.Page
+	timeouts        rodPageTimeouts
+	publishWarnings []string
 }
 
 func (p *rodPage) Navigate(url string) error {

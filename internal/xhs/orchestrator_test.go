@@ -52,6 +52,20 @@ func TestOrchestratorRunsStandardOnlySelfFlow(t *testing.T) {
 	}
 }
 
+func TestOrchestratorReturnsPagePublishWarnings(t *testing.T) {
+	page := &fakePublishPage{publishWarnings: []string{`topic "财经新闻" skipped after 3 attempts`}}
+	session := &fakeBrowserSession{page: page}
+	request := PublishRequest{Account: "writer", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}
+	result, err := NewOrchestrator(session).Publish(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	want := []string{`topic "财经新闻" skipped after 3 attempts`}
+	if !reflect.DeepEqual(result.Warnings, want) {
+		t.Fatalf("Warnings = %#v, want %#v", result.Warnings, want)
+	}
+}
+
 func TestOrchestratorPreservesBrowserContextOnStandardFailure(t *testing.T) {
 	session := &fakeBrowserSession{page: &fakePublishPage{uploadErr: errors.New("upload broken")}}
 	request := PublishRequest{Account: "writer", Title: "标题", Content: "正文", Mode: PublishModeOnlySelf, MediaKind: MediaKindStandard, ImagePaths: []string{"cover.jpg"}}

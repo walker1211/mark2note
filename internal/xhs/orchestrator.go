@@ -75,6 +75,7 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (res
 		publishDone := timing.Stage("xhs.Orchestrator.publish_only_self", timing.Field("media", request.MediaKind))
 		err = o.publishOnlySelf(ctx, page, request)
 		publishDone(err)
+		result.Warnings = publishPageWarnings(page)
 		if err != nil {
 			result.BrowserKept = true
 			return result, err
@@ -86,6 +87,7 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (res
 		publishDone := timing.Stage("xhs.Orchestrator.publish_scheduled", timing.Field("media", request.MediaKind))
 		err = o.publishScheduled(ctx, page, request)
 		publishDone(err)
+		result.Warnings = publishPageWarnings(page)
 		if err != nil {
 			result.BrowserKept = true
 			return result, err
@@ -106,6 +108,14 @@ func (o *Orchestrator) Publish(ctx context.Context, request PublishRequest) (res
 		return result, err
 	}
 	return result, nil
+}
+
+func publishPageWarnings(page PublishPage) []string {
+	provider, ok := page.(interface{ PublishWarnings() []string })
+	if !ok {
+		return nil
+	}
+	return append([]string(nil), provider.PublishWarnings()...)
 }
 
 func (o *Orchestrator) publishOnlySelf(ctx context.Context, page PublishPage, request PublishRequest) error {

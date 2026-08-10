@@ -157,6 +157,7 @@ type fakePublishPage struct {
 	setOnlySelfErr          error
 	orderCounter            *int
 	firstActionOrder        int
+	publishWarnings         []string
 }
 
 func (f *fakePublishPage) Open(context.Context) error {
@@ -187,6 +188,10 @@ func (f *fakePublishPage) FillContent(_ context.Context, content string, tags []
 		f.content += "|" + tags[0]
 	}
 	return f.contentErr
+}
+
+func (f *fakePublishPage) PublishWarnings() []string {
+	return append([]string(nil), f.publishWarnings...)
 }
 
 func (f *fakePublishPage) PublishOnlySelf(_ context.Context, request PublishRequest) error {
@@ -1668,7 +1673,7 @@ func TestSelectPermissionOptionIgnoresMatchingTextOutsideDropdown(t *testing.T) 
 	}
 }
 
-func TestFillContentRejectsPlainTextTopicWithoutHighlight(t *testing.T) {
+func TestFillContentRetriesThenSkipsPlainTextTopicWithoutHighlight(t *testing.T) {
 	page := testPage(t)
 
 	html := `<!doctype html>
@@ -1682,8 +1687,12 @@ func TestFillContentRejectsPlainTextTopicWithoutHighlight(t *testing.T) {
       const editor = document.querySelector('.tiptap.ProseMirror');
       window.spaceConfirmedTopics = [];
       window.topicTriggerKeySeen = false;
+      window.topicTriggerCount = 0;
       editor.addEventListener('keydown', (event) => {
-        if (event.code === 'Digit3' && event.shiftKey) window.topicTriggerKeySeen = true;
+        if (event.code === 'Digit3' && event.shiftKey) {
+          window.topicTriggerKeySeen = true;
+          window.topicTriggerCount++;
+        }
       });
       editor.addEventListener('keyup', (event) => {
         if (event.code !== 'Space' || !window.topicTriggerKeySeen) return;
@@ -1699,7 +1708,121 @@ func TestFillContentRejectsPlainTextTopicWithoutHighlight(t *testing.T) {
 
 	rodPage := &rodPage{page: page, timeouts: rodPageTimeouts{topicSuggestion: 100 * time.Millisecond}}
 	err := rodPage.FillContent(context.Background(), "测试正文", []string{"AI编程"})
-	if err == nil || !strings.Contains(err.Error(), "did not enter Xiaohongshu suggestion mode") {
+	if err != nil {
+		t.Fatalf("FillContent() error = %v", err)
+	}
+	if got := page.MustEval(`() => window.topicTriggerCount`).Int(); got != topicInputMaxAttempts {
+		t.Fatalf("topic trigger count = %d, want %d", got, topicInputMaxAttempts)
+	}
+	warnings := rodPage.PublishWarnings()
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `topic "AI编程" skipped after 3 attempts`) {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+	text := page.MustEval(`() => document.querySelector('.tiptap.ProseMirror')?.textContent || ''`).String()
+	if strings.Contains(text, "#AI编程") {
+		t.Fatalf("editor text = %q, want failed topic removed", text)
+	}
+}
+
+func TestFillContentContinuesWithNextTopicAfterRetryExhausted(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div contenteditable="true" role="textbox" class="tiptap ProseMirror" tabindex="0"></div>
+    <script>
+      const editor = document.querySelector('.tiptap.ProseMirror');
+      let pendingTopic = '';
+      editor.addEventListener('beforeinput', (event) => {
+        if (event.inputType !== 'insertText' || !event.data) return;
+        if (event.data === '#') {
+          event.preventDefault();
+          pendingTopic = '';
+          editor.insertAdjacentHTML('beforeend', '<span class="suggestion is-empty">#</span>');
+          return;
+        }
+        const suggestion = editor.querySelector('.suggestion');
+        if (!suggestion) return;
+        event.preventDefault();
+        if (event.data === ' ') return;
+        pendingTopic += event.data;
+        suggestion.className = 'suggestion';
+        suggestion.textContent = '#' + pendingTopic;
+      });
+      editor.addEventListener('keyup', (event) => {
+        const suggestion = editor.querySelector('.suggestion');
+        if (!suggestion || event.code !== 'Space' || pendingTopic !== '好话题') return;
+        const data = JSON.stringify({id: 'good-topic', name: pendingTopic});
+        suggestion.outerHTML = '<a class="tiptap-topic" data-topic=' + JSON.stringify(data) + ' contenteditable="false">#' + pendingTopic + '<span class="content-hide">[话题]#</span></a>&nbsp;';
+      });
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	rodPage := &rodPage{page: page, timeouts: rodPageTimeouts{
+		topicSuggestion:         50 * time.Millisecond,
+		topicConfirmation:       50 * time.Millisecond,
+		topicFallbackSuggestion: 50 * time.Millisecond,
+	}}
+	if err := rodPage.FillContent(context.Background(), "测试正文", []string{"坏话题", "好话题"}); err != nil {
+		t.Fatalf("FillContent() error = %v", err)
+	}
+	warnings := rodPage.PublishWarnings()
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `topic "坏话题" skipped after 3 attempts`) {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+	htmlOut := page.MustEval(`() => document.querySelector('.tiptap.ProseMirror')?.innerHTML || ''`).String()
+	if strings.Contains(htmlOut, "坏话题") {
+		t.Fatalf("editor html = %q, want failed topic removed", htmlOut)
+	}
+	if !strings.Contains(htmlOut, `class="tiptap-topic"`) || !strings.Contains(htmlOut, "好话题") {
+		t.Fatalf("editor html = %q, want next topic confirmed", htmlOut)
+	}
+}
+
+func TestDiscardTopicAttemptKeepsConfirmedTopics(t *testing.T) {
+	page := testPage(t)
+
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div contenteditable="true" role="textbox" class="tiptap ProseMirror">
+      正文<a class="tiptap-topic" data-topic='{"name":"AI科技"}' contenteditable="false">#AI科技<span class="content-hide">[话题]#</span></a>&nbsp;<span class="suggestion">#财经新闻</span>
+    </div>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	field := page.MustElement(`div.tiptap.ProseMirror`)
+
+	rodPage := &rodPage{page: page}
+	if err := rodPage.discardTopicAttempt(field, "财经新闻"); err != nil {
+		t.Fatalf("discardTopicAttempt() error = %v", err)
+	}
+	htmlOut := field.MustHTML()
+	if !strings.Contains(htmlOut, `data-topic=`) || !strings.Contains(htmlOut, "#AI科技") {
+		t.Fatalf("editor html = %q, want confirmed topic preserved", htmlOut)
+	}
+	if strings.Contains(htmlOut, "财经新闻") || strings.Contains(htmlOut, "suggestion") {
+		t.Fatalf("editor html = %q, want failed topic removed", htmlOut)
+	}
+}
+
+func TestFillContentFailsWhenAllTopicsAreSkippedAndContentIsEmpty(t *testing.T) {
+	page := testPage(t)
+	html := `<!doctype html><html><head><meta charset="utf-8"></head><body><div contenteditable="true" role="textbox" class="tiptap ProseMirror"></div></body></html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+
+	rodPage := &rodPage{page: page, timeouts: rodPageTimeouts{topicSuggestion: 20 * time.Millisecond}}
+	err := rodPage.FillContent(context.Background(), "", []string{"AI编程"})
+	if err == nil || !strings.Contains(err.Error(), "all 1 topics were skipped and publish content is empty") {
 		t.Fatalf("FillContent() error = %v", err)
 	}
 }
