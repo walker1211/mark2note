@@ -1454,6 +1454,9 @@ func printPublishXHSError(stderr io.Writer, err error) {
 }
 
 func printPublishXHSResult(stdout io.Writer, result app.PublishResult) int {
+	for _, warning := range nonEmptyStrings(result.Result.Warnings) {
+		fmt.Fprintf(stdout, "xhs publish warning: %s\n", strings.Join(strings.Fields(warning), " "))
+	}
 	if result.Result.StoppedBeforeSubmit {
 		fmt.Fprintln(stdout, "xiaohongshu publish prepared; stopped before submit")
 		fmt.Fprintf(stdout, "account: %s\n", result.Request.Account)
