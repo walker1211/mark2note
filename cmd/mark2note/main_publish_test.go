@@ -759,6 +759,60 @@ func TestRunAutoPublishXHSUsesManualTagsWithoutTopicGeneration(t *testing.T) {
 	}
 }
 
+func TestRunAutoPublishXHSUsesCardManifestTopicsWithoutTopicGeneration(t *testing.T) {
+	originalReadFile := readFile
+	originalLoadConfig := loadConfig
+	originalBuildPublishTopics := buildPublishTopics
+	defer func() {
+		readFile = originalReadFile
+		loadConfig = originalLoadConfig
+		buildPublishTopics = originalBuildPublishTopics
+	}()
+
+	root := t.TempDir()
+	imagePath := filepath.Join(root, "p01-cover.png")
+	if err := os.WriteFile(imagePath, []byte("png"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	manifestPath := filepath.Join(root, "manifest.json")
+	manifest := []byte(`{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"news-briefing",
+		"document":{"title":"今日 AI 晚报","xhs_topics":["#AI 新闻","科技资讯","财经观察"]},
+		"items":[{"id":"a1","title":"OpenAI 发布新模型","summary":"模型能力提升。"}]
+	}`)
+	readFile = func(path string) ([]byte, error) {
+		if path == manifestPath {
+			return manifest, nil
+		}
+		return []byte("# 标题\n\n正文"), nil
+	}
+	loadConfig = func(path string) (*config.Config, error) {
+		enabled := false
+		return &config.Config{XHS: config.XHSCfg{Publish: config.XHSPublishCfg{Account: "walker", TopicGeneration: config.XHSTopicGenerationCfg{Enabled: &enabled}}}}, nil
+	}
+	buildPublishTopics = func(cfg *config.Config, markdown string, title string) ([]string, error) {
+		t.Fatal("buildPublishTopics called with card manifest topics")
+		return nil, nil
+	}
+
+	var timingOutput bytes.Buffer
+	oldTimingOutput := timing.SetOutput(&timingOutput)
+	defer timing.SetOutput(oldTimingOutput)
+
+	got, err := buildAutoPublishXHSOptions(Options{InputPath: "article.md", ConfigPath: "configs/config.yaml", CardManifestPath: manifestPath}, app.Result{ImagePaths: []string{imagePath}})
+	if err != nil {
+		t.Fatalf("buildAutoPublishXHSOptions() error = %v", err)
+	}
+	want := []string{"AI新闻", "科技资讯", "财经观察"}
+	if !reflect.DeepEqual(got.Tags, want) {
+		t.Fatalf("publish topics = %#v, want %#v", got.Tags, want)
+	}
+	if !strings.Contains(timingOutput.String(), "source=card-manifest") {
+		t.Fatalf("timing output missing card-manifest source:\n%s", timingOutput.String())
+	}
+}
+
 func TestBuildAutoPublishXHSOptionsReportsTopicGenerationTiming(t *testing.T) {
 	originalReadFile := readFile
 	originalLoadConfig := loadConfig
