@@ -439,10 +439,14 @@ func (s *rodBrowserSession) Close() error {
 		return nil
 	}
 	if !s.ownsBrowser {
+		var err error
+		if s.page != nil {
+			err = s.page.Close()
+		}
 		s.browser = nil
 		s.page = nil
 		s.ownsBrowser = false
-		return nil
+		return err
 	}
 	err := s.browser.Close()
 	s.browser = nil

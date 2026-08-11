@@ -534,6 +534,30 @@ func TestBrowserSessionOpenReusesRunningBrowser(t *testing.T) {
 	if browser.closeCalls != 0 {
 		t.Fatalf("closeCalls = %d, want 0", browser.closeCalls)
 	}
+	if page.closeCalls != 1 {
+		t.Fatalf("page closeCalls = %d, want 1", page.closeCalls)
+	}
+}
+
+func TestBrowserSessionCloseReturnsReusedPageCloseError(t *testing.T) {
+	wantErr := errors.New("close reused page")
+	page := &fakeSessionPage{closeErr: wantErr}
+	session := &rodBrowserSession{
+		browser:     &fakeSessionBrowser{page: page},
+		page:        page,
+		ownsBrowser: false,
+	}
+
+	err := session.Close()
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Close() error = %v, want %v", err, wantErr)
+	}
+	if page.closeCalls != 1 {
+		t.Fatalf("page closeCalls = %d, want 1", page.closeCalls)
+	}
+	if session.browser != nil || session.page != nil || session.ownsBrowser {
+		t.Fatal("Close() did not clear reused session state")
+	}
 }
 
 func TestBrowserSessionOpenFallsBackToDiscoveredBrowserControlURL(t *testing.T) {
