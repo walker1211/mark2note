@@ -368,24 +368,25 @@ func (p *rodPage) inputTopicByKeyboard(field *rod.Element, tag string) error {
 		return err
 	}
 
-	var lastErr error
-	for i := 0; i < 2; i++ {
-		if err := p.pressSpaceKey(); err != nil {
-			return fmt.Errorf("press space: %w", err)
-		}
-		if err := p.waitForTopicConfirmation(tag, timeouts.topicConfirmation); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-		if i == 0 && p.waitForTopicSuggestion(tag, timeouts.topicFallbackSuggestion) != nil {
-			break
-		}
+	if err := p.pressSpaceKey(); err != nil {
+		return fmt.Errorf("press space: %w", err)
 	}
-	if lastErr != nil {
-		return lastErr
+	initialConfirmationTimeout := 750 * time.Millisecond
+	if timeouts.topicConfirmation < initialConfirmationTimeout {
+		initialConfirmationTimeout = timeouts.topicConfirmation
 	}
-	return fmt.Errorf("topic %q suggestion disappeared before Xiaohongshu converted it into a highlighted topic", tag)
+	if err := p.waitForTopicConfirmation(tag, initialConfirmationTimeout); err == nil {
+		return nil
+	}
+	if err := p.waitForTopicSuggestion(tag, timeouts.topicFallbackSuggestion); err != nil {
+		// The suggestion can disappear shortly before the highlighted node is
+		// committed. Give that transition the normal confirmation budget.
+		return p.waitForTopicConfirmation(tag, timeouts.topicConfirmation)
+	}
+	if err := p.pressSpaceKey(); err != nil {
+		return fmt.Errorf("press fallback space: %w", err)
+	}
+	return p.waitForTopicConfirmation(tag, timeouts.topicConfirmation)
 }
 
 func (p *rodPage) typeTopicTrigger() error {
@@ -2141,18 +2142,45 @@ func (p *rodPage) debugPublishConfirmationState() {
 }
 
 func (p *rodPage) dismissEditorOverlays() error {
-	return rodTry(func() {
+	if err := rodTry(func() {
 		p.page.MustEval(`() => {
 			if (document.activeElement && typeof document.activeElement.blur === 'function') {
 				document.activeElement.blur();
 			}
 			window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
 		}`)
-		p.page.MustWaitStable()
 		body := p.page.MustElement("body")
 		body.MustClick()
-		p.page.MustWaitStable()
-	})
+	}); err != nil {
+		return err
+	}
+	return p.waitForPublishActionReady(2 * time.Second)
+}
+
+func (p *rodPage) waitForPublishActionReady(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		ready := false
+		if err := rodTry(func() {
+			ready = p.page.MustEval(`() => {
+				const isVisible = (node) => {
+					if (!node) return false;
+					const rect = node.getBoundingClientRect();
+					const style = window.getComputedStyle(node);
+					return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+				};
+				return Array.from(document.querySelectorAll('button, xhs-publish-btn[is-publish="true"]')).some((node) => {
+					if (!isVisible(node) || node.disabled === true || node.getAttribute('submit-disabled') === 'true') return false;
+					const text = ((node.getAttribute('submit-text') || '') + ' ' + (node.innerText || node.textContent || '')).replace(/\s+/g, ' ').trim();
+					return /发布/.test(text);
+				});
+			}`).Bool()
+		}); err == nil && ready {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("publish action not ready after dismissing editor overlays")
 }
 
 func (p *rodPage) waitForEditorReady(ctx context.Context, timeout time.Duration) error {

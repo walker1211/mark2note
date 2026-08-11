@@ -26,13 +26,14 @@ type cardArticleManifest struct {
 }
 
 type cardManifestDocument struct {
-	Title    string   `json:"title"`
-	Date     string   `json:"date"`
-	Period   string   `json:"period"`
-	Summary  []string `json:"summary"`
-	Subtitle string   `json:"subtitle"`
-	Source   string   `json:"source"`
-	Badge    string   `json:"badge"`
+	Title     string   `json:"title"`
+	Date      string   `json:"date"`
+	Period    string   `json:"period"`
+	Summary   []string `json:"summary"`
+	Subtitle  string   `json:"subtitle"`
+	Source    string   `json:"source"`
+	Badge     string   `json:"badge"`
+	XHSTopics []string `json:"xhs_topics"`
 }
 
 type cardManifestItem struct {
@@ -72,20 +73,9 @@ func (s Service) buildCardManifestDeckJSON(path string) (string, error) {
 }
 
 func buildCardManifestDeckJSON(data []byte) (string, error) {
-	var manifest cardArticleManifest
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil {
-		return "", fmt.Errorf("parse card manifest json: %w", err)
-	}
-	if strings.TrimSpace(manifest.SchemaVersion) != cardArticleManifestSchemaV1 {
-		return "", fmt.Errorf("unsupported card manifest schema_version %q", manifest.SchemaVersion)
-	}
-	if strings.TrimSpace(manifest.Document.Title) == "" {
-		return "", fmt.Errorf("card manifest document.title is required")
-	}
-	if len(manifest.Items) == 0 {
-		return "", fmt.Errorf("card manifest items is required")
+	manifest, err := parseCardArticleManifest(data)
+	if err != nil {
+		return "", err
 	}
 
 	pageCount := len(manifest.Items) + 1
@@ -118,6 +108,36 @@ func buildCardManifestDeckJSON(data []byte) (string, error) {
 		return "", err
 	}
 	return string(rawDeck), nil
+}
+
+// CardManifestXHSTopics returns publish topics embedded by an upstream card
+// manifest producer. The caller remains responsible for platform-specific
+// normalization and explicit CLI overrides.
+func CardManifestXHSTopics(data []byte) ([]string, error) {
+	manifest, err := parseCardArticleManifest(data)
+	if err != nil {
+		return nil, err
+	}
+	return append([]string(nil), manifest.Document.XHSTopics...), nil
+}
+
+func parseCardArticleManifest(data []byte) (cardArticleManifest, error) {
+	var manifest cardArticleManifest
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		return cardArticleManifest{}, fmt.Errorf("parse card manifest json: %w", err)
+	}
+	if strings.TrimSpace(manifest.SchemaVersion) != cardArticleManifestSchemaV1 {
+		return cardArticleManifest{}, fmt.Errorf("unsupported card manifest schema_version %q", manifest.SchemaVersion)
+	}
+	if strings.TrimSpace(manifest.Document.Title) == "" {
+		return cardArticleManifest{}, fmt.Errorf("card manifest document.title is required")
+	}
+	if len(manifest.Items) == 0 {
+		return cardArticleManifest{}, fmt.Errorf("card manifest items is required")
+	}
+	return manifest, nil
 }
 
 func cardManifestItemPage(item cardManifestItem, pageNumber int, pageCount int) (deck.Page, error) {

@@ -289,6 +289,24 @@ func TestServiceGeneratePreviewBuildsCardManifestDeckWithoutAI(t *testing.T) {
 	}
 }
 
+func TestCardManifestXHSTopicsReturnsUpstreamTopics(t *testing.T) {
+	manifest := []byte(`{
+		"schema_version":"card-article-manifest/v1",
+		"source_app":"news-briefing",
+		"document":{"title":"今日 AI 晚报","xhs_topics":["AI新闻","科技资讯","财经观察"]},
+		"items":[{"id":"a1","title":"OpenAI 发布新模型","summary":"模型能力提升。"}]
+	}`)
+
+	got, err := CardManifestXHSTopics(manifest)
+	if err != nil {
+		t.Fatalf("CardManifestXHSTopics() error = %v", err)
+	}
+	want := []string{"AI新闻", "科技资讯", "财经观察"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CardManifestXHSTopics() = %#v, want %#v", got, want)
+	}
+}
+
 func TestBuildCardManifestDeckWrapsElectronicPicklesCoverTitle(t *testing.T) {
 	deckJSON, err := buildCardManifestDeckJSON([]byte(`{
 		"schema_version":"card-article-manifest/v1",

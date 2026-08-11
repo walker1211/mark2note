@@ -1878,13 +1878,45 @@ func TestFillContentAcceptsHighlightedTopicNode(t *testing.T) {
 	page.MustElement("body")
 
 	rodPage := &rodPage{page: page}
+	started := time.Now()
 	if err := rodPage.FillContent(context.Background(), "", []string{"AI编程"}); err != nil {
 		t.Fatalf("FillContent() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed >= 2*time.Second {
+		t.Fatalf("FillContent() fallback confirmation took %s, want under 2s", elapsed)
 	}
 
 	htmlOut := page.MustEval(`() => document.querySelector('.tiptap.ProseMirror')?.innerHTML || ''`).String()
 	if !strings.Contains(htmlOut, `class="tiptap-topic"`) || !strings.Contains(htmlOut, `data-topic=`) {
 		t.Fatalf("editor html = %q, want highlighted topic node", htmlOut)
+	}
+}
+
+func TestDismissEditorOverlaysWaitsForPublishActionInsteadOfWholePageStability(t *testing.T) {
+	page := testPage(t)
+	html := `<!doctype html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div id="activity"></div>
+    <button style="width:120px;height:40px">发布</button>
+    <script>
+      setInterval(() => {
+        document.querySelector('#activity').textContent = String(Date.now());
+      }, 20);
+    </script>
+  </body>
+</html>`
+	page.MustNavigate("data:text/html;charset=utf-8," + url.PathEscape(html))
+	page.MustWaitLoad()
+	page.MustElement("body")
+
+	started := time.Now()
+	if err := (&rodPage{page: page}).dismissEditorOverlays(); err != nil {
+		t.Fatalf("dismissEditorOverlays() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("dismissEditorOverlays() took %s, want targeted wait under 1s", elapsed)
 	}
 }
 

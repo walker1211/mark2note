@@ -912,12 +912,26 @@ func buildAutoPublishXHSOptions(renderOpts Options, renderResult app.Result) (ap
 	}
 	cliOpts.Title = title
 
+	topicOverrides := append([]string(nil), renderOpts.XHSTags...)
 	topicSource := "ai"
-	if len(renderOpts.XHSTags) > 0 {
+	if len(topicOverrides) > 0 {
 		topicSource = "manual"
+	} else if strings.TrimSpace(renderOpts.CardManifestPath) != "" {
+		manifestData, readErr := readFile(renderOpts.CardManifestPath)
+		if readErr != nil {
+			return app.PublishOptions{}, fmt.Errorf("read XHS topics from card manifest: %w", readErr)
+		}
+		manifestTopics, topicErr := app.CardManifestXHSTopics(manifestData)
+		if topicErr != nil {
+			return app.PublishOptions{}, fmt.Errorf("read XHS topics from card manifest: %w", topicErr)
+		}
+		topicOverrides = xhs.NormalizePublishTopics(manifestTopics)
+		if len(topicOverrides) > 0 {
+			topicSource = "card-manifest"
+		}
 	}
 	generateTopicsDone := timing.Stage("cmd.buildAutoPublishXHSOptions.generate_topics", timing.Field("source", topicSource))
-	topics, err := buildAutoPublishXHSTopics(*cfg, markdown, title, renderOpts.XHSTags)
+	topics, err := buildAutoPublishXHSTopics(*cfg, markdown, title, topicOverrides)
 	generateTopicsDone(err)
 	if err != nil {
 		return app.PublishOptions{}, err
