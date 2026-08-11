@@ -121,6 +121,13 @@ func CardManifestXHSTopics(data []byte) ([]string, error) {
 	return append([]string(nil), manifest.Document.XHSTopics...), nil
 }
 
+// ValidateCardArticleManifest checks the versioned producer contract without
+// rendering pages or touching a browser session.
+func ValidateCardArticleManifest(data []byte) error {
+	_, err := parseCardArticleManifest(data)
+	return err
+}
+
 func parseCardArticleManifest(data []byte) (cardArticleManifest, error) {
 	var manifest cardArticleManifest
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
