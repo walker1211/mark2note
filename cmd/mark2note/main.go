@@ -63,12 +63,14 @@ Usage:
   mark2note --from-deck <deck.json> [flags]
   mark2note capture-html --input <path> [flags]
   mark2note enrich-posters --input <file.md> --out <posters.yaml> [flags]
+  mark2note validate-card-manifest --file <manifest.json>
   mark2note publish-xhs --account <name> [flags]
   mark2note --help
 
 Commands:
   capture-html    capture existing html file(s) to sibling png files
   enrich-posters  search poster candidates and write a posters.yaml manifest
+  validate-card-manifest  strictly validate the shared card article manifest contract
   publish-xhs     publish assets to Xiaohongshu immediate or scheduled queue
 
 Flags:
@@ -233,6 +235,45 @@ Rules:
   - exactly one media source is required: --images or --live-report
   - --mode schedule requires --schedule-at or xhs.publish.schedule_at
   - --live-pages is accepted only with --live-report`
+}
+
+func validateCardManifestUsageText() string {
+	return `mark2note validate-card-manifest
+
+Validate a card-article-manifest/v1 file without rendering or publishing.
+
+Usage:
+  mark2note validate-card-manifest --file <manifest.json>`
+}
+
+func runValidateCardManifest(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("validate-card-manifest", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var file string
+	fs.StringVar(&file, "file", "", "card manifest path")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			fmt.Fprintln(stdout, validateCardManifestUsageText())
+			return 0
+		}
+		fmt.Fprintf(stderr, "error parsing flags: %v\n", err)
+		return 1
+	}
+	if fs.NArg() > 0 || strings.TrimSpace(file) == "" {
+		fmt.Fprintln(stderr, "error parsing flags: --file is required")
+		return 1
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		fmt.Fprintf(stderr, "read card manifest failed: %v\n", err)
+		return 1
+	}
+	if err := app.ValidateCardArticleManifest(data); err != nil {
+		fmt.Fprintf(stderr, "validate card manifest failed: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "card manifest valid: schema=card-article-manifest/v1")
+	return 0
 }
 
 func isHelpRequest(args []string) bool {
@@ -1298,6 +1339,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) (code int) {
 			return runCaptureHTML(args[1:], stdout, stderr)
 		case "enrich-posters":
 			return runEnrichPosters(args[1:], stdout, stderr)
+		case "validate-card-manifest":
+			return runValidateCardManifest(args[1:], stdout, stderr)
 		case "publish-xhs":
 			return runPublishXHS(args[1:], stdout, stderr)
 		}
