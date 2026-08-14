@@ -6,7 +6,7 @@
 
 It calls the AI CLI configured in your config file to generate deck JSON, renders HTML, and captures PNG images from the rendered pages. The default primary output remains stable HTML + PNG. When `--animated` or `render.animated.enabled` is enabled, it additionally tries to export one Animated WebP or MP4 per page as an enhancement output. For Xiaohongshu workflows, MP4 is currently the more practical intermediate format before converting to Live Photo. The experimental `--live` / `render.live.enabled` mode additionally tries to build one Live package directory per page and is mainly intended for macOS / iPhone import workflows.
 
-The `capture-html` command is also a public CLI subcommand that converts existing HTML files, or HTML files inside a directory, into sibling PNG files. In directory mode, it only scans the current directory, does not recurse into subdirectories, only processes lowercase `.html` files, and writes PNG output next to the source HTML files. It does not export Animated WebP, MP4, or Live packages.
+The `capture-html` command is also a public CLI subcommand that converts existing HTML files, or HTML files inside a directory, into sibling PNG files. In directory mode, it only scans the current directory, does not recurse into subdirectories, only processes lowercase `.html` files, and writes PNG output next to the source HTML files. It does not export Animated WebP, MP4, or Live packages. A static PNG batch reuses one stateless Chromium instance and captures up to three pages concurrently by default; if the shared browser cannot start, it automatically falls back to the per-page command path.
 
 ## Features
 

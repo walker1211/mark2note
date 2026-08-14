@@ -1,6 +1,7 @@
 package render
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -21,6 +22,10 @@ type CommandRunner interface {
 	Run(name string, args ...string) error
 }
 
+type CaptureBrowser interface {
+	Capture(tasks []captureTask, jobs, width, height int, chromePath string) error
+}
+
 type Renderer struct {
 	OutDir             string
 	ChromePath         string
@@ -37,6 +42,7 @@ type Renderer struct {
 	MP4Encoder         MP4Encoder
 	LivePackageBuilder LivePackageBuilder
 	LivePhotoAssembler LivePhotoAssembler
+	CaptureBrowser     CaptureBrowser
 	PhotosImporter     PhotosImporter
 	ImportResultWriter ImportResultWriter
 	Now                func() time.Time
@@ -229,7 +235,7 @@ func (r Renderer) normalizedCaptureTiming(animated normalizedAnimatedOptions, li
 
 func (r Renderer) effectiveJobs() int {
 	if r.Jobs <= 0 {
-		return 2
+		return 3
 	}
 	return r.Jobs
 }
@@ -567,6 +573,23 @@ func collectCaptureTasks(inputPath string) ([]captureTask, error) {
 }
 
 func (r Renderer) runCaptureTasksWithJobs(captureTasks []captureTask, jobs int) error {
+	var browserErr error
+	if r.Runner == nil {
+		browser := r.CaptureBrowser
+		if browser == nil {
+			browser = rodCaptureBrowser{}
+		}
+		sharedDone := timing.Stage("render.CapturePNGs.shared_browser", timing.Field("pages", len(captureTasks)), timing.Field("jobs", jobs))
+		browserErr = browser.Capture(captureTasks, jobs, r.effectiveViewportWidth(0), r.effectiveViewportHeight(0), r.effectiveChromePath())
+		sharedDone(browserErr)
+		if browserErr == nil {
+			return nil
+		}
+	}
+
+	fallbackDone := timing.Stage("render.CapturePNGs.command_fallback", timing.Field("pages", len(captureTasks)), timing.Field("jobs", jobs))
+	var fallbackErr error
+	defer func() { fallbackDone(fallbackErr) }()
 	runner := r.effectiveRunner()
 	chrome := r.effectiveChromePath()
 	tasks := make(chan captureTask)
@@ -596,7 +619,8 @@ func (r Renderer) runCaptureTasksWithJobs(captureTasks []captureTask, jobs int) 
 
 	for err := range errCh {
 		if err != nil {
-			return err
+			fallbackErr = errors.Join(browserErr, err)
+			return fallbackErr
 		}
 	}
 	return nil
