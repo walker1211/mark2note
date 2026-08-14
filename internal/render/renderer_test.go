@@ -20,6 +20,24 @@ type fakeRunner struct {
 	calls [][]string
 }
 
+type fakeCaptureBrowser struct {
+	tasks      []captureTask
+	jobs       int
+	width      int
+	height     int
+	chromePath string
+	err        error
+}
+
+func (b *fakeCaptureBrowser) Capture(tasks []captureTask, jobs, width, height int, chromePath string) error {
+	b.tasks = append([]captureTask(nil), tasks...)
+	b.jobs = jobs
+	b.width = width
+	b.height = height
+	b.chromePath = chromePath
+	return b.err
+}
+
 func (r *fakeRunner) Run(name string, args ...string) error {
 	call := append([]string{name}, args...)
 	r.mu.Lock()
@@ -476,6 +494,23 @@ func TestCapturePNGsBuildsChromeCommandsOnly(t *testing.T) {
 	}
 }
 
+func TestCapturePNGsReusesCaptureBrowserWhenCommandRunnerIsUnset(t *testing.T) {
+	browser := &fakeCaptureBrowser{}
+	outDir := t.TempDir()
+	r := Renderer{OutDir: outDir, ChromePath: "chrome", Jobs: 3, ViewportWidth: 720, ViewportHeight: 960, CaptureBrowser: browser}
+	d := sampleDeck(outDir)
+
+	if err := r.CapturePNGs(d.Pages, outDir); err != nil {
+		t.Fatalf("CapturePNGs() error = %v", err)
+	}
+	if len(browser.tasks) != len(d.Pages) || browser.jobs != 3 {
+		t.Fatalf("capture = tasks:%d jobs:%d", len(browser.tasks), browser.jobs)
+	}
+	if browser.width != 720 || browser.height != 960 || browser.chromePath != "chrome" {
+		t.Fatalf("capture options = width:%d height:%d chrome:%q", browser.width, browser.height, browser.chromePath)
+	}
+}
+
 func TestCapturePNGsUsesDefaultWindowSize(t *testing.T) {
 	runner := &fakeRunner{}
 	outDir := t.TempDir()
@@ -752,10 +787,10 @@ func TestRendererBuildsChromeCommandsOnly(t *testing.T) {
 	}
 }
 
-func TestRendererDefaultsJobsToTwo(t *testing.T) {
+func TestRendererDefaultsJobsToThree(t *testing.T) {
 	r := Renderer{Jobs: 0}
-	if got := r.effectiveJobs(); got != 2 {
-		t.Fatalf("effectiveJobs() = %d, want 2", got)
+	if got := r.effectiveJobs(); got != 3 {
+		t.Fatalf("effectiveJobs() = %d, want 3", got)
 	}
 }
 

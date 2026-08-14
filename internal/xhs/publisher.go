@@ -540,7 +540,7 @@ func (p *rodPage) PublishOnlySelf(ctx context.Context, request PublishRequest) (
 		return err
 	}
 	if !clicked {
-		clicked, err = p.clickByText("button, xhs-publish-btn", "^发布$")
+		clicked, err = p.clickByTextImmediate("button, xhs-publish-btn", "^发布$")
 		if err != nil {
 			return err
 		}
@@ -573,9 +573,6 @@ func (p *rodPage) clickOnlySelfPublishButton() (bool, error) {
 			}
 			return false;
 		}`).Bool()
-		if clicked {
-			p.page.MustWaitStable()
-		}
 	})
 	if err != nil {
 		return false, err
@@ -897,6 +894,14 @@ func (p *rodPage) ConfirmScheduledSubmitted(ctx context.Context) error {
 }
 
 func (p *rodPage) clickByText(selector string, pattern string) (bool, error) {
+	return p.clickByTextWithStability(selector, pattern, true)
+}
+
+func (p *rodPage) clickByTextImmediate(selector string, pattern string) (bool, error) {
+	return p.clickByTextWithStability(selector, pattern, false)
+}
+
+func (p *rodPage) clickByTextWithStability(selector string, pattern string, waitStable bool) (bool, error) {
 	clicked := false
 	err := rodTry(func() {
 		el, findErr := p.page.Timeout(2*time.Second).ElementR(selector, pattern)
@@ -904,7 +909,9 @@ func (p *rodPage) clickByText(selector string, pattern string) (bool, error) {
 			return
 		}
 		el.MustClick()
-		p.page.MustWaitStable()
+		if waitStable {
+			p.page.MustWaitStable()
+		}
 		clicked = true
 	})
 	if err != nil {

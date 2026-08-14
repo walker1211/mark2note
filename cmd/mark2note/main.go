@@ -36,7 +36,7 @@ func defaultOptions() Options {
 	return Options{
 		OutDir:        "output",
 		ChromePath:    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-		Jobs:          2,
+		Jobs:          3,
 		ConfigPath:    "configs/config.yaml",
 		ImportTimeout: 120 * time.Second,
 		Animated: app.AnimatedOptions{
@@ -78,7 +78,7 @@ Flags:
   --from-deck <deck.json>    saved deck layout json input path; skips Markdown/AI generation
   --out <dir>                output directory (default: <output.dir>/<markdown-file-name>-<timestamp>, e.g. article-20260328-153000)
   --chrome <path>            chrome binary path
-  --jobs <n>                 parallel screenshot jobs (default: 2)
+  --jobs <n>                 parallel screenshot jobs (default: 3)
   --config <file>            config file path (default: configs/config.yaml)
   --theme <name>             one-off deck theme override (default from deck.theme)
   --author <name>            one-off cover author input (blank falls back to deck.author) (default from deck.author)
@@ -156,7 +156,7 @@ Usage:
 Flags:
   --input <path>      html file or directory path (required)
   --chrome <path>     chrome binary path
-  --jobs <n>          parallel screenshot jobs (default: 2)
+  --jobs <n>          parallel screenshot jobs (default: 3)
   --config <file>     optional config file path for render.viewport
 
 Behavior:

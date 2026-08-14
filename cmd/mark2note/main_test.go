@@ -24,8 +24,8 @@ func TestDefaultOptions(t *testing.T) {
 	if opts.ConfigPath != "configs/config.yaml" {
 		t.Fatalf("ConfigPath = %q, want %q", opts.ConfigPath, "configs/config.yaml")
 	}
-	if opts.Jobs != 2 {
-		t.Fatalf("Jobs = %d, want %d", opts.Jobs, 2)
+	if opts.Jobs != 3 {
+		t.Fatalf("Jobs = %d, want %d", opts.Jobs, 3)
 	}
 	if opts.Animated.Enabled {
 		t.Fatalf("Animated.Enabled = true, want false")
