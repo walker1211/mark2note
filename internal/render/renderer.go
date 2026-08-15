@@ -235,7 +235,7 @@ func (r Renderer) normalizedCaptureTiming(animated normalizedAnimatedOptions, li
 
 func (r Renderer) effectiveJobs() int {
 	if r.Jobs <= 0 {
-		return 3
+		return 2
 	}
 	return r.Jobs
 }

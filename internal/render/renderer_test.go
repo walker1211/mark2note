@@ -787,10 +787,10 @@ func TestRendererBuildsChromeCommandsOnly(t *testing.T) {
 	}
 }
 
-func TestRendererDefaultsJobsToThree(t *testing.T) {
+func TestRendererDefaultsJobsToTwo(t *testing.T) {
 	r := Renderer{Jobs: 0}
-	if got := r.effectiveJobs(); got != 3 {
-		t.Fatalf("effectiveJobs() = %d, want 3", got)
+	if got := r.effectiveJobs(); got != 2 {
+		t.Fatalf("effectiveJobs() = %d, want 2", got)
 	}
 }
 
