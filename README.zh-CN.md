@@ -6,7 +6,7 @@
 
 它会先调用配置文件中指定的 AI CLI，把 Markdown 解析为 deck JSON，再渲染为 HTML，并通过截图生成 PNG。默认主输出仍然是稳定的 HTML + PNG；显式开启 `--animated` 或 `render.animated.enabled` 时，会为每页额外尝试导出 Animated WebP 或 MP4 作为增强产物。对小红书链路，当前更推荐把 MP4 作为中间产物，再继续转 Live Photo；实验性的 `--live` / `render.live.enabled` 会额外尝试生成每页一个 Live package 目录，主要面向 macOS / iPhone 导入链路。
 
-另外，`capture-html` 是公开的 CLI 子命令能力，可将已有 HTML 文件或目录中的 HTML 直接转换为同级 PNG。目录模式下，它只扫描当前目录，不递归子目录，只处理小写 `.html` 文件，且 PNG 输出在 HTML 同级目录；该子命令当前不会导出 Animated WebP、MP4 或 Live package。一次静态 PNG 批次默认复用同一个无状态 Chromium，并以 3 个页面 worker 并行截图；共享浏览器不可用时会自动回退到逐页命令模式。
+另外，`capture-html` 是公开的 CLI 子命令能力，可将已有 HTML 文件或目录中的 HTML 直接转换为同级 PNG。目录模式下，它只扫描当前目录，不递归子目录，只处理小写 `.html` 文件，且 PNG 输出在 HTML 同级目录；该子命令当前不会导出 Animated WebP、MP4 或 Live package。一次静态 PNG 批次默认复用同一个无状态 Chromium，并以 2 个页面 worker 并行截图；共享浏览器不可用时会自动回退到逐页命令模式。
 
 ## 功能概览
 
