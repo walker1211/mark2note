@@ -1,6 +1,7 @@
 package render
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -15,6 +16,8 @@ import (
 
 const captureReadyTimeout = 15 * time.Second
 
+const capturePaintProbeAttempts = 4
+
 const captureReadyScript = `() => Promise.all([
   document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve(),
   ...Array.from(document.images).map((image) => {
@@ -27,6 +30,10 @@ const captureReadyScript = `() => Promise.all([
     });
   })
 ]).then(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))`
+
+const capturePaintProbeWaitScript = `() => new Promise((resolve) => {
+  requestAnimationFrame(() => setTimeout(() => requestAnimationFrame(resolve), 100));
+})`
 
 type rodCaptureBrowser struct{}
 
@@ -113,6 +120,11 @@ func capturePage(browser *rod.Browser, task captureTask, width, height int) erro
 	if _, err := timedPage.Eval(captureReadyScript); err != nil {
 		return err
 	}
+	if !task.skipPaintStability {
+		if err := waitForStablePaint(timedPage); err != nil {
+			return err
+		}
+	}
 	png, err := timedPage.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format:      proto.PageCaptureScreenshotFormatPng,
 		FromSurface: true,
@@ -124,4 +136,46 @@ func capturePage(browser *rod.Browser, task captureTask, width, height int) erro
 		return err
 	}
 	return nil
+}
+
+func waitForStablePaint(page *rod.Page) error {
+	quality := 10
+	return waitForMatchingPaintProbes(
+		func() ([]byte, error) {
+			return page.Screenshot(false, &proto.PageCaptureScreenshot{
+				Format:           proto.PageCaptureScreenshotFormatJpeg,
+				Quality:          &quality,
+				FromSurface:      true,
+				OptimizeForSpeed: true,
+			})
+		},
+		func() error {
+			_, err := page.Eval(capturePaintProbeWaitScript)
+			return err
+		},
+		capturePaintProbeAttempts,
+	)
+}
+
+func waitForMatchingPaintProbes(capture func() ([]byte, error), wait func() error, attempts int) error {
+	if attempts < 2 {
+		return fmt.Errorf("paint stability requires at least 2 probes")
+	}
+	var previous []byte
+	for attempt := 1; attempt <= attempts; attempt++ {
+		current, err := capture()
+		if err != nil {
+			return fmt.Errorf("capture paint probe %d: %w", attempt, err)
+		}
+		if attempt > 1 && bytes.Equal(previous, current) {
+			return nil
+		}
+		previous = current
+		if attempt < attempts {
+			if err := wait(); err != nil {
+				return fmt.Errorf("wait after paint probe %d: %w", attempt, err)
+			}
+		}
+	}
+	return fmt.Errorf("page paint did not stabilize after %d probes", attempts)
 }

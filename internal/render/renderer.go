@@ -87,9 +87,10 @@ type LivePhotoAssembler interface {
 }
 
 type captureTask struct {
-	name     string
-	htmlPath string
-	pngPath  string
+	name               string
+	htmlPath           string
+	pngPath            string
+	skipPaintStability bool
 }
 
 type execRunner struct{}
@@ -499,7 +500,12 @@ func (r Renderer) runAnimatedExports(pages []deck.Page, outDir string, captureMo
 func (r Renderer) runAnimatedExportTask(task animatedCaptureTask, mode normalizedAnimatedOptions, live normalizedLiveOptions, webpEnabled bool, webpEncoder WebPEncoder, mp4Enabled bool, mp4Encoder MP4Encoder, liveBuilder LivePackageBuilder) (string, *appleLiveTask) {
 	captureTasks := make([]captureTask, 0, len(task.framePaths))
 	for i := range task.framePaths {
-		captureTasks = append(captureTasks, captureTask{name: task.pageName, htmlPath: task.frameURIs[i], pngPath: task.framePaths[i]})
+		captureTasks = append(captureTasks, captureTask{
+			name:               task.pageName,
+			htmlPath:           task.frameURIs[i],
+			pngPath:            task.framePaths[i],
+			skipPaintStability: true,
+		})
 	}
 	for _, path := range task.framePaths {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
