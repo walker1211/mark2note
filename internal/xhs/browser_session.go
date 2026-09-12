@@ -18,13 +18,15 @@ import (
 )
 
 const (
-	xhsPublishURL      = "https://creator.xiaohongshu.com/publish/publish?source=official"
-	xhsImagePublishURL = "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
-	xhsLoginURL        = "https://creator.xiaohongshu.com/login"
-	profileStateFile   = "profile-state.json"
-	pageOpenAttempts   = 3
-	pageOpenRetryDelay = 250 * time.Millisecond
-	accountProbeScript = `() => {
+	xhsPublishURL       = "https://creator.xiaohongshu.com/publish/publish?source=official"
+	xhsImagePublishURL  = "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
+	xhsLoginURL         = "https://creator.xiaohongshu.com/login"
+	profileStateFile    = "profile-state.json"
+	pageOpenAttempts    = 3
+	pageOpenRetryDelay  = 250 * time.Millisecond
+	pageReadyAttempts   = 3
+	pageReadyRetryDelay = 500 * time.Millisecond
+	accountProbeScript  = `() => {
 		const selectors = [
 			'[data-testid="user-name"]',
 			'[data-testid="account-name"]',
@@ -679,7 +681,7 @@ func (s *rodBrowserSession) openPublishPage(ctx context.Context, browser session
 		if page != nil {
 			_ = page.Close()
 		}
-		if !isTransientPageOpenError(err) || attempt == pageOpenAttempts {
+		if !isTransientPageLifecycleError(err) || attempt == pageOpenAttempts {
 			return nil, err
 		}
 		s.debugf("transient publish page open failure attempt=%d/%d err=%v", attempt, pageOpenAttempts, err)
@@ -694,7 +696,7 @@ func (s *rodBrowserSession) openPublishPage(ctx context.Context, browser session
 	return nil, lastErr
 }
 
-func isTransientPageOpenError(err error) bool {
+func isTransientPageLifecycleError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -868,6 +870,7 @@ func (b *rodBrowser) Page(url string) (sessionPage, error) {
 		return nil, err
 	}
 	if err := waitForRodPageReady(page); err != nil {
+		_ = page.Close()
 		return nil, err
 	}
 	return &rodPage{page: page}, nil
@@ -974,14 +977,36 @@ func (p *rodPage) Close() error {
 }
 
 func waitForRodPageReady(page *rod.Page) error {
-	if err := rodTry(func() {
-		page.Timeout(15 * time.Second).MustWaitLoad()
+	if err := retryTransientPageOperation(pageReadyAttempts, pageReadyRetryDelay, func() error {
+		return rodTry(func() {
+			page.Timeout(15 * time.Second).MustWaitLoad()
+		})
 	}); err != nil {
 		return err
 	}
 	return rodTry(func() {
 		page.Timeout(5 * time.Second).MustElement("body")
 	})
+}
+
+func retryTransientPageOperation(attempts int, delay time.Duration, operation func() error) error {
+	if attempts < 1 {
+		attempts = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		lastErr = operation()
+		if lastErr == nil {
+			return nil
+		}
+		if !isTransientPageLifecycleError(lastErr) || attempt == attempts {
+			return lastErr
+		}
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+	}
+	return lastErr
 }
 
 func rodTry(fn func()) (err error) {
