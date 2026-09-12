@@ -26,12 +26,22 @@ func (f fakeSessionLauncher) Launch() (string, error) {
 type fakeSessionBrowser struct {
 	page       *fakeSessionPage
 	pageErr    error
+	pageErrors []error
 	pageURLs   []string
 	closeCalls int
 }
 
 func (f *fakeSessionBrowser) Page(url string) (sessionPage, error) {
 	f.pageURLs = append(f.pageURLs, url)
+	if len(f.pageErrors) > 0 {
+		index := len(f.pageURLs) - 1
+		if index >= len(f.pageErrors) {
+			index = len(f.pageErrors) - 1
+		}
+		if f.pageErrors[index] != nil {
+			return nil, f.pageErrors[index]
+		}
+	}
 	if f.pageErr != nil {
 		return nil, f.pageErr
 	}
@@ -536,6 +546,69 @@ func TestBrowserSessionOpenReusesRunningBrowser(t *testing.T) {
 	}
 	if page.closeCalls != 1 {
 		t.Fatalf("page closeCalls = %d, want 1", page.closeCalls)
+	}
+}
+
+func TestBrowserSessionOpenRetriesTransientPublishPageFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	profileDir := filepath.Join(tempDir, "existing-profile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profileDir, "DevToolsActivePort"), []byte("9222\n/devtools/browser/test-browser\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	page := &fakeSessionPage{account: "walker"}
+	browser := &fakeSessionBrowser{
+		page: page,
+		pageErrors: []error{
+			errors.New("{-32000 Inspected target navigated or closed}"),
+			nil,
+		},
+	}
+	session := &rodBrowserSession{
+		opts:                SessionOptions{Account: "walker", ProfileDir: profileDir},
+		userConfigDir:       func() (string, error) { return tempDir, nil },
+		mkdirAll:            os.MkdirAll,
+		readFile:            os.ReadFile,
+		writeFile:           func(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) },
+		discoverBrowserURLs: func(context.Context) ([]string, error) { return nil, nil },
+		newBrowser:          func(string) (sessionBrowser, error) { return browser, nil },
+		newLauncher: func(SessionOptions, string) sessionLauncher {
+			t.Fatal("newLauncher should not be called when transient reuse succeeds")
+			return fakeSessionLauncher{}
+		},
+	}
+	if err := session.Open(context.Background()); err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if len(browser.pageURLs) != 2 {
+		t.Fatalf("page open attempts = %d, want 2", len(browser.pageURLs))
+	}
+	if session.page != page || session.ownsBrowser {
+		t.Fatal("Open() did not retain the reused browser page")
+	}
+}
+
+func TestTransientPageOpenErrorClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "observed navigation race", err: errors.New("{-32000 Inspected target navigated or closed}"), want: true},
+		{name: "closed target", err: errors.New("target closed"), want: true},
+		{name: "missing session", err: errors.New("session with given id not found"), want: true},
+		{name: "missing target", err: errors.New("No target with given id found"), want: true},
+		{name: "login failure", err: ErrNotLoggedIn, want: false},
+		{name: "nil", err: nil, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTransientPageOpenError(tt.err); got != tt.want {
+				t.Fatalf("isTransientPageOpenError(%v) = %t, want %t", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 
