@@ -605,10 +605,42 @@ func TestTransientPageOpenErrorClassification(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isTransientPageOpenError(tt.err); got != tt.want {
-				t.Fatalf("isTransientPageOpenError(%v) = %t, want %t", tt.err, got, tt.want)
+			if got := isTransientPageLifecycleError(tt.err); got != tt.want {
+				t.Fatalf("isTransientPageLifecycleError(%v) = %t, want %t", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRetryTransientPageOperationRetriesSameOperation(t *testing.T) {
+	calls := 0
+	err := retryTransientPageOperation(3, 0, func() error {
+		calls++
+		if calls == 1 {
+			return errors.New("{-32000 Inspected target navigated or closed}")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("retryTransientPageOperation() error = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("operation calls = %d, want 2", calls)
+	}
+}
+
+func TestRetryTransientPageOperationDoesNotRetryPermanentFailure(t *testing.T) {
+	calls := 0
+	wantErr := errors.New("permanent failure")
+	err := retryTransientPageOperation(3, 0, func() error {
+		calls++
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("retryTransientPageOperation() error = %v, want %v", err, wantErr)
+	}
+	if calls != 1 {
+		t.Fatalf("operation calls = %d, want 1", calls)
 	}
 }
 
