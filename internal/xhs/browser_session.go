@@ -22,6 +22,8 @@ const (
 	xhsImagePublishURL = "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
 	xhsLoginURL        = "https://creator.xiaohongshu.com/login"
 	profileStateFile   = "profile-state.json"
+	pageOpenAttempts   = 3
+	pageOpenRetryDelay = 250 * time.Millisecond
 	accountProbeScript = `() => {
 		const selectors = [
 			'[data-testid="user-name"]',
@@ -219,7 +221,7 @@ func (s *rodBrowserSession) Open(ctx context.Context) error {
 		if candidate.controlURL == "" {
 			continue
 		}
-		if err := s.attachBrowser(candidate.controlURL, profileDir); err == nil {
+		if err := s.attachBrowser(ctx, candidate.controlURL, profileDir); err == nil {
 			return nil
 		} else {
 			s.debugf("browser reuse candidate failed url=%s profileBound=%t err=%v", candidate.controlURL, candidate.profileBound, err)
@@ -256,7 +258,7 @@ func (s *rodBrowserSession) Open(ctx context.Context) error {
 		return fmt.Errorf("%w: %v", ErrBrowserLaunch, err)
 	}
 	s.debugf("open publish page url=%s", xhsPublishURL)
-	page, err := browser.Page(xhsPublishURL)
+	page, err := s.openPublishPage(ctx, browser)
 	if err != nil {
 		_ = browser.Close()
 		return fmt.Errorf("%w: open publish page: %v", ErrBrowserLaunch, err)
@@ -622,7 +624,7 @@ func appendUniqueBrowserReuseCandidate(candidates []browserReuseCandidate, seen 
 	return append(candidates, candidate)
 }
 
-func (s *rodBrowserSession) attachBrowser(controlURL string, profileDir string) (err error) {
+func (s *rodBrowserSession) attachBrowser(ctx context.Context, controlURL string, profileDir string) (err error) {
 	browser, err := s.newBrowser(controlURL)
 	if err != nil {
 		if isConnectionRefusedError(err) {
@@ -631,7 +633,7 @@ func (s *rodBrowserSession) attachBrowser(controlURL string, profileDir string) 
 		return fmt.Errorf("connect running browser: %w", err)
 	}
 	s.debugf("open publish page url=%s", xhsPublishURL)
-	page, pageErr := browser.Page(xhsPublishURL)
+	page, pageErr := s.openPublishPage(ctx, browser)
 	if pageErr != nil {
 		return fmt.Errorf("open publish page: %w", pageErr)
 	}
@@ -661,6 +663,46 @@ func (s *rodBrowserSession) attachBrowser(controlURL string, profileDir string) 
 	s.ownsBrowser = false
 	s.debugf("browser session ready reused=true account=%q", activeAccount)
 	return nil
+}
+
+func (s *rodBrowserSession) openPublishPage(ctx context.Context, browser sessionBrowser) (sessionPage, error) {
+	var lastErr error
+	for attempt := 1; attempt <= pageOpenAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		page, err := browser.Page(xhsPublishURL)
+		if err == nil {
+			return page, nil
+		}
+		lastErr = err
+		if page != nil {
+			_ = page.Close()
+		}
+		if !isTransientPageOpenError(err) || attempt == pageOpenAttempts {
+			return nil, err
+		}
+		s.debugf("transient publish page open failure attempt=%d/%d err=%v", attempt, pageOpenAttempts, err)
+		timer := time.NewTimer(pageOpenRetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, lastErr
+}
+
+func isTransientPageOpenError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "inspected target navigated or closed") ||
+		strings.Contains(message, "target closed") ||
+		strings.Contains(message, "session with given id not found") ||
+		strings.Contains(message, "no target with given id found")
 }
 
 func discoverLoopbackBrowserControlURLs(ctx context.Context) ([]string, error) {
