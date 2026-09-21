@@ -225,7 +225,7 @@ func TestServiceGeneratePreviewBuildsCardManifestDeckWithoutAI(t *testing.T) {
 		"source_app":"news-briefing",
 		"document":{"title":"今日 AI 晚报","date":"2026-06-16","period":"1800","summary":["模型发布提速","终端侧竞争升温"]},
 		"items":[
-			{"id":"a1","category":"AI/科技","title":"OpenAI 发布新模型","summary":"模型能力提升。","impact":"应用开发门槛下降。","source":"The Verge","published_at":"2026-06-16T11:00:00+08:00","url":"https://example.com/a1","image":{"src":"assets/openai.jpg","alt":"模型发布现场"}},
+			{"id":"a1","category":"AI/科技","title":"OpenAI 发布新模型","summary":"模型能力提升。","impact":"应用开发门槛下降。","source":"The Verge","published_at":"2026-06-16T11:00:00+08:00","url":"https://example.com/a1","image":{"src":"assets/openai.jpg","alt":"模型发布现场"},"selection":{"origin":"email"}},
 			{"id":"a2","category":"硬件","title":"AI 眼镜更新","summary":"新品强调续航。","impact":"穿戴设备竞争加剧。","source":"Bloomberg","published_at":"2026-06-16T12:30:00+08:00","url":"https://example.com/a2"}
 		]
 	}`
@@ -286,6 +286,53 @@ func TestServiceGeneratePreviewBuildsCardManifestDeckWithoutAI(t *testing.T) {
 	}
 	if textPage.Meta.CTA != "来源：Bloomberg / 2026-06-16 12:30" {
 		t.Fatalf("text page cta = %q", textPage.Meta.CTA)
+	}
+}
+
+func TestCardManifestSelectionIsAcceptedButUnknownFieldsRemainRejected(t *testing.T) {
+	valid := []byte(`{
+		"schema_version":"card-article-manifest/v1",
+		"document":{"title":"今日速览"},
+		"items":[{
+			"id":"a1",
+			"title":"第一条",
+			"selection":{"origin":"backfill","score":0,"score_components":{}}
+		}]
+	}`)
+	if err := ValidateCardArticleManifest(valid); err != nil {
+		t.Fatalf("ValidateCardArticleManifest() error = %v", err)
+	}
+	deckJSON, err := buildCardManifestDeckJSON(valid)
+	if err != nil {
+		t.Fatalf("buildCardManifestDeckJSON() error = %v", err)
+	}
+	if strings.Contains(deckJSON, "selection") || strings.Contains(deckJSON, "score_components") {
+		t.Fatalf("deck JSON should not render selection metadata: %s", deckJSON)
+	}
+
+	for name, manifest := range map[string][]byte{
+		"selection field": []byte(`{"schema_version":"card-article-manifest/v1","document":{"title":"今日速览"},"items":[{"id":"a1","title":"第一条","selection":{"origin":"email","score":1,"score_components":{},"unknown":true}}]}`),
+		"item field":      []byte(`{"schema_version":"card-article-manifest/v1","document":{"title":"今日速览"},"items":[{"id":"a1","title":"第一条","selection":{"origin":"email","score":1,"score_components":{}},"unknown":true}]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateCardArticleManifest(manifest)
+			if err == nil || !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("ValidateCardArticleManifest() error = %v, want unknown field", err)
+			}
+		})
+	}
+
+	missingScore := []byte(`{"schema_version":"card-article-manifest/v1","document":{"title":"今日速览"},"items":[{"id":"a1","title":"第一条","selection":{"origin":"backfill","score_components":{}}}]}`)
+	if err := ValidateCardArticleManifest(missingScore); err == nil || !strings.Contains(err.Error(), "score is required") {
+		t.Fatalf("ValidateCardArticleManifest() error = %v, want missing score error", err)
+	}
+	missingComponents := []byte(`{"schema_version":"card-article-manifest/v1","document":{"title":"今日速览"},"items":[{"id":"a1","title":"第一条","selection":{"origin":"backfill","score":0}}]}`)
+	if err := ValidateCardArticleManifest(missingComponents); err == nil || !strings.Contains(err.Error(), "score_components is required") {
+		t.Fatalf("ValidateCardArticleManifest() error = %v, want missing score_components error", err)
+	}
+	invalidOrigin := []byte(`{"schema_version":"card-article-manifest/v1","document":{"title":"今日速览"},"items":[{"id":"a1","title":"第一条","selection":{"origin":"manual","score":1,"score_components":{}}}]}`)
+	if err := ValidateCardArticleManifest(invalidOrigin); err == nil || !strings.Contains(err.Error(), "origin must be email or backfill") {
+		t.Fatalf("ValidateCardArticleManifest() error = %v, want invalid origin error", err)
 	}
 }
 

@@ -1547,7 +1547,7 @@ func TestRunStripsNestedParseDeckPrefix(t *testing.T) {
 
 func TestRunValidateCardManifest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
-	data := `{"schema_version":"card-article-manifest/v1","source_app":"news-briefing","document":{"title":"简报","date":"2026-08-11","period":"1800","summary":[],"subtitle":"","source":"","badge":"","xhs_topics":["人工智能"]},"items":[{"id":"ai","category":"AI/科技","title":"AI","summary":"摘要","impact":"影响","sections":[],"source":"","published_at":"","url":"","image":{"src":"","alt":""}}]}`
+	data := `{"schema_version":"card-article-manifest/v1","source_app":"news-briefing","document":{"title":"简报","date":"2026-08-11","period":"1800","summary":[],"subtitle":"","source":"","badge":"","xhs_topics":["人工智能"]},"items":[{"id":"ai","category":"AI/科技","title":"AI","summary":"摘要","impact":"影响","sections":[],"source":"","published_at":"","url":"","image":{"src":"","alt":""},"selection":{"origin":"email"}}]}`
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
