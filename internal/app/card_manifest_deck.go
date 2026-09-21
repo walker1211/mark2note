@@ -37,16 +37,26 @@ type cardManifestDocument struct {
 }
 
 type cardManifestItem struct {
-	ID          string                `json:"id"`
-	Category    string                `json:"category"`
-	Title       string                `json:"title"`
-	Summary     string                `json:"summary"`
-	Impact      string                `json:"impact"`
-	Sections    []cardManifestSection `json:"sections"`
-	Source      string                `json:"source"`
-	PublishedAt string                `json:"published_at"`
-	URL         string                `json:"url"`
-	Image       cardManifestImage     `json:"image"`
+	ID          string                 `json:"id"`
+	Category    string                 `json:"category"`
+	Title       string                 `json:"title"`
+	Summary     string                 `json:"summary"`
+	Impact      string                 `json:"impact"`
+	Sections    []cardManifestSection  `json:"sections"`
+	Source      string                 `json:"source"`
+	PublishedAt string                 `json:"published_at"`
+	URL         string                 `json:"url"`
+	Image       cardManifestImage      `json:"image"`
+	Selection   *cardManifestSelection `json:"selection"`
+}
+
+// cardManifestSelection carries the upstream editorial decision that selected
+// an item. It is intentionally not used when building a deck: it exists for
+// manifest consumers that need to audit the selection path.
+type cardManifestSelection struct {
+	Origin          string          `json:"origin"`
+	Score           *int            `json:"score"`
+	ScoreComponents *map[string]int `json:"score_components"`
 }
 
 type cardManifestSection struct {
@@ -144,7 +154,31 @@ func parseCardArticleManifest(data []byte) (cardArticleManifest, error) {
 	if len(manifest.Items) == 0 {
 		return cardArticleManifest{}, fmt.Errorf("card manifest items is required")
 	}
+	for index, item := range manifest.Items {
+		if err := validateCardManifestSelection(item.Selection); err != nil {
+			return cardArticleManifest{}, fmt.Errorf("card manifest items[%d].selection: %w", index, err)
+		}
+	}
 	return manifest, nil
+}
+
+func validateCardManifestSelection(selection *cardManifestSelection) error {
+	if selection == nil {
+		return nil
+	}
+	if selection.Origin != "email" && selection.Origin != "backfill" {
+		return fmt.Errorf("origin must be email or backfill")
+	}
+	if selection.Origin == "email" {
+		return nil
+	}
+	if selection.Score == nil {
+		return fmt.Errorf("score is required")
+	}
+	if selection.ScoreComponents == nil {
+		return fmt.Errorf("score_components is required")
+	}
+	return nil
 }
 
 func cardManifestItemPage(item cardManifestItem, pageNumber int, pageCount int) (deck.Page, error) {
