@@ -18,16 +18,19 @@ import (
 )
 
 const (
-	xhsPublishURL       = "https://creator.xiaohongshu.com/publish/publish?source=official"
-	xhsImagePublishURL  = "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
-	xhsLoginURL         = "https://creator.xiaohongshu.com/login"
-	profileStateFile    = "profile-state.json"
-	pageOpenAttempts    = 3
-	pageOpenRetryDelay  = 250 * time.Millisecond
-	pageReadyAttempts   = 3
-	pageReadyRetryDelay = 500 * time.Millisecond
-	accountProbeScript  = `() => {
+	xhsPublishURL        = "https://creator.xiaohongshu.com/publish/publish?source=official"
+	xhsImagePublishURL   = "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
+	xhsLoginURL          = "https://creator.xiaohongshu.com/login"
+	profileStateFile     = "profile-state.json"
+	pageOpenAttempts     = 3
+	pageOpenRetryDelay   = 250 * time.Millisecond
+	pageReadyAttempts    = 3
+	pageReadyRetryDelay  = 500 * time.Millisecond
+	accountProbeTimeout  = 10 * time.Second
+	accountProbeInterval = 250 * time.Millisecond
+	accountProbeScript   = `() => {
 		const selectors = [
+			'.user-info .name-box',
 			'[data-testid="user-name"]',
 			'[data-testid="account-name"]',
 			'.creator-name',
@@ -123,22 +126,24 @@ type BrowserSession interface {
 }
 
 type rodBrowserSession struct {
-	opts                SessionOptions
-	userConfigDir       func() (string, error)
-	mkdirAll            func(string, os.FileMode) error
-	readFile            func(string) ([]byte, error)
-	writeFile           func(string, []byte, os.FileMode) error
-	newLauncher         func(SessionOptions, string) sessionLauncher
-	newBrowser          func(string) (sessionBrowser, error)
-	discoverBrowserURLs func(context.Context) ([]string, error)
-	logf                func(string, ...any)
-	loginPollInterval   time.Duration
-	loginGracePeriod    time.Duration
-	interactiveTimeout  time.Duration
-	profileDir          string
-	browser             sessionBrowser
-	page                sessionPage
-	ownsBrowser         bool
+	opts                   SessionOptions
+	userConfigDir          func() (string, error)
+	mkdirAll               func(string, os.FileMode) error
+	readFile               func(string) ([]byte, error)
+	writeFile              func(string, []byte, os.FileMode) error
+	newLauncher            func(SessionOptions, string) sessionLauncher
+	newBrowser             func(string) (sessionBrowser, error)
+	discoverBrowserURLs    func(context.Context) ([]string, error)
+	logf                   func(string, ...any)
+	loginPollInterval      time.Duration
+	loginGracePeriod       time.Duration
+	interactiveTimeout     time.Duration
+	runningAccountTimeout  time.Duration
+	runningAccountInterval time.Duration
+	profileDir             string
+	browser                sessionBrowser
+	page                   sessionPage
+	ownsBrowser            bool
 }
 
 type sessionLauncher interface {
@@ -185,13 +190,15 @@ func NewBrowserSession(opts SessionOptions) BrowserSession {
 		writeFile: func(path string, data []byte, perm os.FileMode) error {
 			return os.WriteFile(path, data, perm)
 		},
-		newLauncher:         defaultSessionLauncher,
-		newBrowser:          defaultSessionBrowser,
-		discoverBrowserURLs: discoverLoopbackBrowserControlURLs,
-		logf:                defaultXHSLogger,
-		loginPollInterval:   2 * time.Second,
-		loginGracePeriod:    5 * time.Second,
-		interactiveTimeout:  2 * time.Minute,
+		newLauncher:            defaultSessionLauncher,
+		newBrowser:             defaultSessionBrowser,
+		discoverBrowserURLs:    discoverLoopbackBrowserControlURLs,
+		logf:                   defaultXHSLogger,
+		loginPollInterval:      2 * time.Second,
+		loginGracePeriod:       5 * time.Second,
+		interactiveTimeout:     2 * time.Minute,
+		runningAccountTimeout:  accountProbeTimeout,
+		runningAccountInterval: accountProbeInterval,
 	}
 }
 
@@ -226,6 +233,9 @@ func (s *rodBrowserSession) Open(ctx context.Context) error {
 		if err := s.attachBrowser(ctx, candidate.controlURL, profileDir); err == nil {
 			return nil
 		} else {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			s.debugf("browser reuse candidate failed url=%s profileBound=%t err=%v", candidate.controlURL, candidate.profileBound, err)
 			if !candidate.profileBound {
 				continue
@@ -647,15 +657,11 @@ func (s *rodBrowserSession) attachBrowser(ctx context.Context, controlURL string
 			s.debugf("cleanup reused browser probe page failed url=%s err=%v", controlURL, closeErr)
 		}
 	}()
-	accountName, accountErr := page.AccountName()
+	activeAccount, accountErr := s.probeRunningAccount(ctx, page)
 	if accountErr != nil {
 		return fmt.Errorf("inspect running browser account: %w", accountErr)
 	}
-	activeAccount := sanitizeAccountName(accountName)
 	requestedAccount := sanitizeAccountName(s.opts.Account)
-	if activeAccount == "" {
-		return fmt.Errorf("inspect running browser account: active account is empty")
-	}
 	if !accountNamesMatch(activeAccount, requestedAccount) {
 		return fmt.Errorf("active account %q does not match requested account %q", activeAccount, requestedAccount)
 	}
@@ -665,6 +671,52 @@ func (s *rodBrowserSession) attachBrowser(ctx context.Context, controlURL string
 	s.ownsBrowser = false
 	s.debugf("browser session ready reused=true account=%q", activeAccount)
 	return nil
+}
+
+func (s *rodBrowserSession) probeRunningAccount(ctx context.Context, page sessionPage) (string, error) {
+	timeout := s.runningAccountTimeout
+	if timeout <= 0 {
+		timeout = accountProbeTimeout
+	}
+	interval := s.runningAccountInterval
+	if interval <= 0 {
+		interval = accountProbeInterval
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	probeError := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if probeCtx.Err() != nil {
+			return errors.New("active account is empty")
+		}
+		return nil
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if err := probeError(); err != nil {
+			return "", err
+		}
+		accountName, err := page.AccountName()
+		if deadlineErr := probeError(); deadlineErr != nil {
+			return "", deadlineErr
+		}
+		if err != nil {
+			return "", err
+		}
+		if activeAccount := sanitizeAccountName(accountName); activeAccount != "" {
+			return activeAccount, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-probeCtx.Done():
+			return "", probeError()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *rodBrowserSession) openPublishPage(ctx context.Context, browser sessionBrowser) (sessionPage, error) {
