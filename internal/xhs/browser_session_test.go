@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -68,6 +70,7 @@ type fakeSessionPage struct {
 	promptSequence  []bool
 	urlCalls        int
 	accountCalls    int
+	accountCallHook func()
 	promptCalls     int
 	closeCalls      int
 }
@@ -93,6 +96,9 @@ func (f *fakeSessionPage) URL() (string, error) {
 }
 
 func (f *fakeSessionPage) AccountName() (string, error) {
+	if f.accountCallHook != nil {
+		f.accountCallHook()
+	}
 	if f.accountErr != nil {
 		return "", f.accountErr
 	}
@@ -446,6 +452,116 @@ func TestAccountProbeScriptContainsLocalStorageFallback(t *testing.T) {
 		if !strings.Contains(accountProbeScript, want) {
 			t.Fatalf("accountProbeScript missing %q", want)
 		}
+	}
+}
+
+func TestAccountProbeScriptReadsScopedLiveDOM(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := w.Write([]byte("<!doctype html><html><body></body></html>")); err != nil {
+			t.Errorf("serve account fixture: %v", err)
+		}
+	}))
+	defer server.Close()
+	page := testPage(t)
+	page.MustNavigate(server.URL)
+	page.MustWaitLoad()
+	page.MustEval(`() => { document.body.innerHTML = '<div class="name-box">unrelated</div><div class="user-info"><span class="name-box">current-writer</span></div>'; }`)
+	account, err := (&rodPage{page: page}).AccountName()
+	if err != nil || account != "current-writer" {
+		t.Fatalf("AccountName() = %q, %v; want scoped account", account, err)
+	}
+	page.MustEval(`() => { document.body.innerHTML = '<div class="name-box">unrelated</div>'; }`)
+	account, err = (&rodPage{page: page}).AccountName()
+	if err != nil || account != "" {
+		t.Fatalf("AccountName() = %q, %v; want empty for unrelated name-box", account, err)
+	}
+}
+
+func TestBrowserSessionAttachBrowserWaitsForCurrentAccount(t *testing.T) {
+	tests := []struct {
+		name          string
+		sequence      []string
+		accountErr    error
+		cancelOnProbe bool
+		wantError     string
+		wantCalls     int
+		wantAttached  bool
+	}{
+		{name: "empty then expected", sequence: []string{"", "writer"}, wantCalls: 2, wantAttached: true},
+		{name: "always empty", sequence: []string{""}, wantError: "active account is empty", wantCalls: 2},
+		{name: "context canceled", sequence: []string{""}, cancelOnProbe: true, wantError: context.Canceled.Error(), wantCalls: 1},
+		{name: "empty then wrong", sequence: []string{"", "other"}, wantError: "does not match requested account", wantCalls: 2},
+		{name: "probe error", accountErr: errors.New("probe failed"), wantError: "probe failed", wantCalls: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			// attachBrowser has already opened a ready publish page; identity can appear later.
+			page := &fakeSessionPage{accountSequence: tt.sequence, accountErr: tt.accountErr}
+			if tt.cancelOnProbe {
+				page.accountCallHook = cancel
+			}
+			browser := &fakeSessionBrowser{page: page}
+			probeTimeout := 30 * time.Millisecond
+			if tt.cancelOnProbe {
+				probeTimeout = time.Second
+			}
+			session := &rodBrowserSession{
+				opts:                   SessionOptions{Account: "writer"},
+				newBrowser:             func(string) (sessionBrowser, error) { return browser, nil },
+				runningAccountTimeout:  probeTimeout,
+				runningAccountInterval: 5 * time.Millisecond,
+			}
+			started := time.Now()
+			err := session.attachBrowser(ctx, "ws://browser", t.TempDir())
+			if tt.cancelOnProbe && time.Since(started) > 200*time.Millisecond {
+				t.Fatalf("canceled probe took too long: %v", time.Since(started))
+			}
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("attachBrowser() error = %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("attachBrowser() error = %v; want %q", err, tt.wantError)
+			}
+			if tt.wantCalls > 0 && page.accountCalls < tt.wantCalls {
+				t.Fatalf("account calls = %d; want at least %d", page.accountCalls, tt.wantCalls)
+			}
+			if (session.browser != nil) != tt.wantAttached {
+				t.Fatalf("attached = %t; want %t", session.browser != nil, tt.wantAttached)
+			}
+			if !tt.wantAttached && page.closeCalls != 1 {
+				t.Fatalf("probe page close calls = %d; want 1", page.closeCalls)
+			}
+			if browser.closeCalls != 0 {
+				t.Fatalf("existing browser close calls = %d; want 0", browser.closeCalls)
+			}
+		})
+	}
+}
+
+func TestBrowserSessionAttachBrowserRejectsAccountReturnedAfterProbeDeadline(t *testing.T) {
+	page := &fakeSessionPage{
+		account: "writer",
+		accountCallHook: func() {
+			time.Sleep(30 * time.Millisecond)
+		},
+	}
+	browser := &fakeSessionBrowser{page: page}
+	session := &rodBrowserSession{
+		opts:                   SessionOptions{Account: "writer"},
+		newBrowser:             func(string) (sessionBrowser, error) { return browser, nil },
+		runningAccountTimeout:  10 * time.Millisecond,
+		runningAccountInterval: time.Millisecond,
+	}
+	err := session.attachBrowser(context.Background(), "ws://browser", t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "active account is empty") {
+		t.Fatalf("attachBrowser() error = %v; want expired account probe", err)
+	}
+	if session.browser != nil || page.closeCalls != 1 || browser.closeCalls != 0 {
+		t.Fatalf("expired probe attached=%t, page closes=%d, browser closes=%d", session.browser != nil, page.closeCalls, browser.closeCalls)
 	}
 }
 
